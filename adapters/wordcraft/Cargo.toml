@@ -1,0 +1,69 @@
+[package]
+name = "wordcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wordcraft-engine = { path = "../../crates/engine" }
+wordcraft-ui-egui = { path = "../../crates/ui-egui" }
+eframe = { workspace = true, features = ["wgpu", "persistence", "android-game-activity"] }
+egui = { workspace = true }
+egui-winit = "0.36"
+log = { workspace = true }
+jni = "0.22"
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["game-activity"] }
+
+[package.metadata.android]
+package = "com.artcraft.wordcraft"
+apk_name = "wordcraft-0.9.0"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+# Let the app's own file browsers read and write files on the device (see
+# templates/android/SafActivity.java: safRequestStoragePermission). Legacy permissions cover
+# Android 12 and older; "All files access" covers Android 11+.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[package.metadata.android.application]
+label = "WordCraft"
+# GameActivity extends AppCompatActivity, which refuses to inflate under a framework-only
+# theme; the Gradle step below generates res/values/themes.xml with this style.
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".WordCraftActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+label = "WordCraft"
+launch_mode = "singleTask"
+orientation = "sensor"
+exported = true
+# The MAIN/LAUNCHER filter that gives the APK a launcher icon; the remaining filters register
+# the app for its document types so the system can open and share them with it. Keep it inline:
+# lib/file_associations.py rewrites the single `intent_filter = ...` line in place.
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }, { mime_type = "application/vnd.ms-word.document.macroenabled.12" }, { mime_type = "application/vnd.ms-word.document.macroEnabled.12" }, { mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.template" }, { mime_type = "application/vnd.ms-word.template.macroenabled.12" }, { mime_type = "application/vnd.ms-word.template.macroEnabled.12" }, { mime_type = "application/msword" }, { mime_type = "text/rtf" }, { mime_type = "application/rtf" }, { mime_type = "application/vnd.oasis.opendocument.text" }, { mime_type = "text/plain" }, { mime_type = "text/markdown" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"], data = [{ scheme = "http", mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }, { scheme = "https", mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }, { scheme = "http", mime_type = "application/vnd.ms-word.document.macroenabled.12" }, { scheme = "https", mime_type = "application/vnd.ms-word.document.macroenabled.12" }, { scheme = "http", mime_type = "application/vnd.ms-word.document.macroEnabled.12" }, { scheme = "https", mime_type = "application/vnd.ms-word.document.macroEnabled.12" }, { scheme = "http", mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.template" }, { scheme = "https", mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.template" }, { scheme = "http", mime_type = "application/vnd.ms-word.template.macroenabled.12" }, { scheme = "https", mime_type = "application/vnd.ms-word.template.macroenabled.12" }, { scheme = "http", mime_type = "application/vnd.ms-word.template.macroEnabled.12" }, { scheme = "https", mime_type = "application/vnd.ms-word.template.macroEnabled.12" }, { scheme = "http", mime_type = "application/msword" }, { scheme = "https", mime_type = "application/msword" }, { scheme = "http", mime_type = "text/rtf" }, { scheme = "https", mime_type = "text/rtf" }, { scheme = "http", mime_type = "application/rtf" }, { scheme = "https", mime_type = "application/rtf" }, { scheme = "http", mime_type = "application/vnd.oasis.opendocument.text" }, { scheme = "https", mime_type = "application/vnd.oasis.opendocument.text" }, { scheme = "http", mime_type = "text/plain" }, { scheme = "https", mime_type = "text/plain" }, { scheme = "http", mime_type = "text/markdown" }, { scheme = "https", mime_type = "text/markdown" }] }, { actions = ["android.intent.action.SEND", "android.intent.action.SEND_MULTIPLE"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }, { mime_type = "application/vnd.ms-word.document.macroenabled.12" }, { mime_type = "application/vnd.ms-word.document.macroEnabled.12" }, { mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.template" }, { mime_type = "application/vnd.ms-word.template.macroenabled.12" }, { mime_type = "application/vnd.ms-word.template.macroEnabled.12" }, { mime_type = "application/msword" }, { mime_type = "text/rtf" }, { mime_type = "application/rtf" }, { mime_type = "application/vnd.oasis.opendocument.text" }, { mime_type = "text/plain" }, { mime_type = "text/markdown" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ scheme = "content", host = "*", path_pattern = ".*\\\\.docx" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.docx" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.docm" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.docm" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dotx" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dotx" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dotm" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dotm" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.doc" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.doc" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dot" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dot" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.rtf" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.rtf" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.odt" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.odt" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.txt" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.txt" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.md" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.md" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.markdown" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.markdown" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ scheme = "content", host = "*", path_pattern = ".*\\\\.docx", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.docx", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.docm", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.docm", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dotx", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dotx", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dotm", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dotm", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.doc", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.doc", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dot", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dot", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.rtf", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.rtf", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.odt", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.odt", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.txt", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.txt", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.md", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.md", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.markdown", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.markdown", mime_type = "*/*" }] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "wordcraft_android"
