@@ -398,8 +398,8 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
         // by the app's own per-frame inbox, exactly like a document chosen in the picker.
         inbox: Some(inbox),
         import: Some(Box::new(
-            |name: &str, bytes: &[u8], max_svg_group_depth: usize| {
-                photocraft_io::import_with_svg_group_depth(name, bytes, max_svg_group_depth)
+            |name: &str, bytes: &[u8], options: &photocraft_io::ImportOptions| {
+                photocraft_io::import_with_options(name, bytes, options)
                     .map(|r| (r.document, r.warnings))
                     .map_err(|e| e.to_string())
             },
@@ -750,28 +750,41 @@ impl eframe::App for PhotoCraftAndroidApp {
     }
 }
 
-/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
-/// app's UI scale to 150 % for phones while tablets are left at their own sizing. `None` when the
-/// answer cannot be read, in which case the UI scale is left alone. Android's own form-factor test
-/// (`smallestScreenWidthDp < 600`, the `sw600dp` boundary): stable across rotation, and about screen
-/// size rather than density.
 #[cfg(target_os = "android")]
-fn device_is_phone(app: &AndroidApp) -> Option<bool> {
-    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
-    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
-        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
-        Ok(env
-            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
-            .z()?)
-    });
-    match result {
-        Ok(is_phone) => Some(is_phone),
-        Err(error) => {
-            log::warn!("Could not determine the screen class: {error}");
-            None
+fn migrate_desktop_scale(app: &mut PhotocraftApp, prefs_path: &Path) {
+    let Some(dir) = prefs_path.parent() else { return };
+    let marker = dir.join(".artcraft-desktop-scale-v1");
+    if marker.exists() {
+        return;
+    }
+
+    let backup = dir.join("preferences.json.before-artcraft-desktop-scale-v1");
+    if prefs_path.is_file() && !backup.is_file() {
+        if let Err(error) = fs::copy(prefs_path, &backup) {
+            log::warn!("Backing up UI preferences: {error}");
+            return;
         }
+    }
+
+    if let Err(error) = app.session.execute(
+        "prefs.set",
+        serde_json::json!({"values": {"interface.uiScale": "auto"}}),
+    ) {
+        log::warn!("Could not set the desktop UI scale: {error}");
+        return;
+    }
+    let serialized = app.session.prefs_to_json();
+    let Some(save) = app.services.save_prefs.as_mut() else {
+        log::warn!("Could not save the desktop UI scale: no preferences writer");
+        return;
+    };
+    if let Err(error) = save(&serialized) {
+        log::warn!("Could not save the desktop UI scale: {error}");
+        return;
+    }
+    let temporary = dir.join(".artcraft-desktop-scale-v1.tmp");
+    if let Err(error) = fs::write(&temporary, b"1").and_then(|()| fs::rename(&temporary, &marker)) {
+        log::warn!("Could not record the desktop UI scale migration: {error}");
     }
 }
 
@@ -841,12 +854,7 @@ fn android_main(android_app: AndroidApp) {
                     app_intent_inbox.clone(),
                 ),
             );
-            // First launch on a phone-class screen: raise the UI scale to 150 % (the app saves it
-            // through `save_prefs` on its normal schedule). Runs only while `preferences.json` does
-            // not exist yet, so a user who changes the scale later keeps their choice.
-            if !prefs_path.exists() && device_is_phone(&app_bridge.app) == Some(true) {
-                let _ = app.session.execute("prefs.set", serde_json::json!({"values": {"interface.uiScale": "150"}}));
-            }
+            migrate_desktop_scale(&mut app, &prefs_path);
             // Hand the canvas the live render state when the device is a real GPU, and record the
             // adapter for Help › System Info either way — without this the canvas stays on the CPU
             // compositor and System Info reports no adapter ("unknown").
