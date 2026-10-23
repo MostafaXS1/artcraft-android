@@ -2104,75 +2104,62 @@ PERSIST_RECIPES = {
     },
 }
 
-# ---- First-launch UI scale on small screens ----------------------------------------------------
-# On a phone-class screen (smallestScreenWidthDp < 600, Android's own sw600dp tablet boundary —
-# see SafActivity.isPhoneDevice) the desktop-sized interface is uncomfortably small, so the *first*
-# launch raises the app's UI scale to 150%. Tablets, and every later launch, are left exactly as the
-# user set them: the bootstrap only runs when this app's own settings file does not exist yet.
-#
-# The apps do not share one scale key or representation (int percent, choice string, f32 factor,
-# `InterfaceSize` percentage), so each entry below spells out, per app:
-#   "file"  — a settings file whose absence means "first launch".
-#   "set"   — Rust run once after `persist_load`, against the loaded app state, to raise the scale.
-# LightCraft has no persisted interface scale at all, so it is absent and untouched. PhotoCraft
-# ships its own launcher and carries its own copy of this bootstrap, so it is absent for the same
-# reason (VectorCraft is listed here, but its adapter's copy is the one that runs).
-# `@UI@`/`@ENGINE@` are filled in like the recipes above.
-UI_SCALE_BOOTSTRAP = {
+# ---- Initial Android desktop-scale preference migration ----------------------------------------
+# A native scale based on surface pixels makes 1280 × 720 the reference viewport. Any saved UI
+# scaling override from older Android launchers would multiply or replace that native scale.
+# Reset only once, at the first launch with this policy, and keep a copy of the previous settings.
+# The marker prevents the launcher from replacing later user-selected application zoom levels.
+# `@UI@`/`@ENGINE@` are filled in from each app's actual crate names.
+UI_SCALE_MIGRATION = {
     "effectcraft": {
         "file": "prefs.json",
-        # EffectCraft stores prefs through `DirConfig`; `prefs.set` clamps to 75–200 %.
-        "set": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "150"}));''',
+        "apply": '''inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "100"})).is_ok()''',
+        "persist": '''persist_write_checked(dir, "prefs.json", &serde_json::to_vec_pretty(&inner.session.prefs).map_err(std::io::Error::other)?)''',
     },
     "filmcraft": {
         "file": "preferences.json",
-        "set": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "150"}));''',
-    },
-    "vectorcraft": {
-        "file": "ui.json",
-        # VectorCraft's scale is a factor (1.0 is the system's own size); 75% on a phone.
-        # The adapter ships its own launcher, so its copy of this bootstrap is the one that
-        # runs; this entry keeps the value in the builder's own table as well.
-        "set": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "uiScaling", "value": 0.75}));''',
+        "apply": '''inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "auto"})).is_ok()''',
+        "persist": '''inner.session.prefs.save(&dir.join("preferences.json"))''',
     },
     "wordcraft": {
         "file": "ui.json",
-        "set": '''inner.ui.interface_size = @UI@::theme::InterfaceSize::from_percent(150.0).unwrap_or_default();''',
+        "apply": '''{ inner.ui.interface_size = @UI@::theme::InterfaceSize::AUTO; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", &serde_json::to_vec_pretty(&inner.prefs()).map_err(std::io::Error::other)?)''',
     },
     "designcraft": {
         "file": "ui.json",
-        # DesignCraft's scale is a factor (1.0 is the system's own size); 75% on a phone.
-        "set": '''inner.ui.ui_scale = 0.75;''',
+        "apply": '''{ inner.ui.ui_scale = 1.0; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", &serde_json::to_vec_pretty(&inner.ui).map_err(std::io::Error::other)?)''',
     },
     "deckcraft": {
         "file": "ui.json",
-        # DeckCraft's scale is a factor (1.0 is the system's own size); 75% on a phone.
-        "set": '''inner.ui.ui_scale = 0.75;''',
+        "apply": '''{ inner.ui.ui_scale = 1.0; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", &serde_json::to_vec_pretty(&inner.ui).map_err(std::io::Error::other)?)''',
     },
     "soundcraft": {
         "file": "ui.json",
-        # SoundCraft's slider tops out at 1.5, so 150 % is its maximum.
-        "set": '''inner.ui.ui_scale = 1.5;''',
+        "apply": '''{ inner.ui.ui_scale = 1.0; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", &serde_json::to_vec_pretty(&inner.ui).map_err(std::io::Error::other)?)''',
     },
     "gridcraft": {
         "file": "ui.json",
-        # GridCraft's scale is a percentage (75–200); 75% on a phone.
-        "set": '''inner.ui.interface_scale = 75;''',
+        "apply": '''{ inner.ui.interface_scale = 100; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", &serde_json::to_vec_pretty(&inner.ui).map_err(std::io::Error::other)?)''',
     },
     "pdfcraft": {
         "file": "ui.json",
-        "set": '''inner.ui_scale = @UI@::ui_scale::valid(1.5);''',
+        "apply": '''{ inner.ui_scale = None; true }''',
+        "persist": '''persist_write_checked(dir, "ui.json", inner.persist().as_bytes())''',
     },
     "figcraft": {
         "file": "state.json",
-        # FigCraft keeps the scale in the engine's preferences, as a factor (1.0 is the system's
-        # own size); 75% on a phone.
-        "set": '''inner.session.prefs.ui_scale = 0.75;''',
+        "apply": '''{ inner.session.prefs.ui_scale = 1.0; true }''',
+        "persist": '''persist_write_checked(dir, "state.json", serde_json::to_string(&serde_json::json!({ "prefs": inner.session.prefs })).map_err(std::io::Error::other)?.as_bytes())''',
     },
     "cadcraft": {
         "file": "profile.json",
-        # CadCraft keeps the scale in its options, which are saved with the profile.
-        "set": '''inner.options.interface_scale = 0.75;''',
+        "apply": '''{ inner.options.interface_scale = 1.0; true }''',
+        "persist": '''persist_write_checked(dir, "profile.json", inner.profile_json().as_bytes())''',
     },
 }
 
@@ -2239,15 +2226,18 @@ fn persist_read(dir: &std::path::Path, name: &str) -> Option<Vec<u8>> {
 /// Write `bytes` to `dir/name` through a temporary file renamed over the old one, so a crash leaves
 /// the old file or the new one whole, never a truncated one.
 #[allow(dead_code)]
-fn persist_write(dir: &std::path::Path, name: &str, bytes: &[u8]) {
-    if let Err(error) = std::fs::create_dir_all(dir) {
-        log::warn!("settings: {}: {error}", dir.display());
-        return;
-    }
+fn persist_write_checked(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
     let path = dir.join(name);
     let temporary = path.with_extension("tmp");
-    let written = std::fs::write(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, &path));
-    if let Err(error) = written {
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(&temporary, &path)
+}
+
+#[allow(dead_code)]
+fn persist_write(dir: &std::path::Path, name: &str, bytes: &[u8]) {
+    if let Err(error) = persist_write_checked(dir, name, bytes) {
+        let path = dir.join(name);
         log::warn!("settings: {}: {error}", path.display());
     }
 }
@@ -2377,28 +2367,42 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
     persist_fields = "\n    persist: Option<std::path::PathBuf>,\n    persist_last: Option<std::time::Instant>,"
     # Open a launch on the app's own homepage (see PERSIST_AFTER_LOAD); runs after `persist_load`.
     _after = PERSIST_AFTER_LOAD.get(app, "").replace("@UI@", ui_ident)
-    _bootstrap = UI_SCALE_BOOTSTRAP.get(app)
-    if _bootstrap:
-        # Run only on a true first launch (this app's settings file still absent) on a phone-class
-        # screen. The set runs *after* `persist_load` so nothing the loader applies can overwrite it,
-        # then `persist_save` writes it at once; a present file means the bootstrap never runs again,
-        # so a user who changes the scale later keeps their choice.
-        _set = _bootstrap["set"].replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
-        _bootstrap_body = (
+    _migration = UI_SCALE_MIGRATION.get(app)
+    if _migration:
+        _apply = _migration["apply"].replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
+        _save_scale = _migration["persist"].replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
+        _migration_body = (
             "let persist = persist_dir(&app);\n"
             "        if let Some(dir) = &persist {\n"
-            f'            let scale_first_launch = !dir.join("{_bootstrap["file"]}").exists();\n'
             "            persist_load(&mut inner, dir);\n"
             + _after
-            + "            if scale_first_launch && device_is_phone(&app) == Some(true) {\n"
-            f"                {_set}\n"
-            "                persist_save(&mut inner, dir);\n"
+            + '            if !dir.join(".artcraft-desktop-scale-v1").exists() {\n'
+            + f'                let original = dir.join("{_migration["file"]}");\n'
+            + f'                let backup = dir.join("{_migration["file"]}.before-artcraft-desktop-scale-v1");\n'
+            + "                let can_change = if !original.is_file() || backup.is_file() {\n"
+            + "                    true\n"
+            + "                } else {\n"
+            + "                    match std::fs::copy(&original, &backup) {\n"
+            + "                        Ok(_) => true,\n"
+            + '                        Err(error) => { log::warn!("Backing up UI preferences: {error}"); false }\n'
+            + "                    }\n"
+            + "                };\n"
+            + f"                if can_change && ({_apply}) {{\n"
+            + "                    let saved = (|| -> std::io::Result<()> {\n"
+            + f"                        {_save_scale}\n"
+            + "                    })();\n"
+            + "                    if let Err(error) = saved {\n"
+            + '                        log::warn!("Could not save the desktop UI scale: {error}");\n'
+            + '                    } else if let Err(error) = persist_write_checked(dir, ".artcraft-desktop-scale-v1", b"1") {\n'
+            + '                        log::warn!("Could not record the desktop UI scale migration: {error}");\n'
+            + "                    }\n"
+            + "                }\n"
             "            }\n"
             "        }\n"
             "        "
         )
     else:
-        _bootstrap_body = (
+        _migration_body = (
             "let persist = persist_dir(&app);\n"
             "        if let Some(dir) = &persist {\n"
             "            persist_load(&mut inner, dir);\n"
@@ -2406,7 +2410,7 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
             + "        }\n"
             "        "
         )
-    persist_new_body = _bootstrap_body
+    persist_new_body = _migration_body
     persist_new_init = ", persist, persist_last: None"
     persist_methods = PERSIST_METHODS
     persist_logic = "        self.persist_tick();\n"
@@ -2826,34 +2830,6 @@ fn finish_activity(app: &AndroidApp) {
             log::error!("Could not finish the activity: {error}");
         }
     }));
-}
-
-/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
-/// app's UI scale to 150% for phones while tablets are left at their own sizing. Returns `None`
-/// when the answer cannot be read, in which case the caller leaves the UI scale alone.
-///
-/// The decision is Android's own form-factor test (`smallestScreenWidthDp < 600`, the `sw600dp`
-/// boundary): it is the shortest screen edge in dp, so it is stable across rotation, and it
-/// describes screen size rather than density. Called once, on the Java main thread, using the same
-/// activity-via-JNI pattern as the fullscreen and bar-appearance helpers above.
-fn device_is_phone(app: &AndroidApp) -> Option<bool> {
-    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
-    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
-        // SAFETY: AndroidApp retains this global Activity reference; as_cast_raw borrows it.
-        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
-        Ok(env
-            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
-            .z()?)
-    });
-    match result {
-        Ok(is_phone) => Some(is_phone),
-        Err(error) => {
-            log::warn!("Could not determine the screen class: {error}");
-            None
-        }
-    }
 }
 
 /// Reconstruct egui's modifier state on Android.
@@ -3725,6 +3701,7 @@ else
     rm -rf "$SRC/vendor/winit"
     cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
 fi
+python3 "$ROOT/lib/ensure_android_winit_jni.py" "$SRC/vendor/winit/Cargo.toml"
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib

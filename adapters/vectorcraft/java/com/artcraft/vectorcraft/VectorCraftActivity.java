@@ -149,22 +149,6 @@ public final class VectorCraftActivity extends GameActivity {
         return appStorageDir().getAbsolutePath();
     }
 
-    /**
-     * True when the device is a phone-class (small) screen, so the first launch can raise the app's
-     * UI scale to a comfortable 150% for it. This is Android's own form-factor test:
-     * {@code smallestScreenWidthDp} is the *shortest* screen edge in density-independent pixels (so
-     * it does not flip with rotation), and 600dp is the same {@code sw600dp} boundary the platform
-     * and Play Store use to bucket tablets. Density ("dpi") is deliberately not used — it describes
-     * pixel size, not screen size. Called once by the Rust shell over JNI.
-     */
-    public boolean isPhoneDevice() {
-        try {
-            return getResources().getConfiguration().smallestScreenWidthDp < 600;
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not read the screen size; assuming a phone", error);
-            return true;
-        }
-    }
 
     /**
      * The app's private storage root: the app-specific external directory

@@ -478,43 +478,14 @@ fn persist_read(dir: &Path, name: &str) -> Option<Vec<u8>> {
     fs::read(dir.join(name)).ok()
 }
 
-/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
-/// app's UI scale to 150 % for phones while tablets are left at their own sizing. Returns `None`
-/// when the answer cannot be read, in which case the UI scale is left alone. Android's own
-/// form-factor test (`smallestScreenWidthDp < 600`, the `sw600dp` boundary) is used: it is stable
-/// across rotation and describes screen size rather than density.
-fn device_is_phone(app: &AndroidApp) -> Option<bool> {
-    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
-    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
-        let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
-        Ok(env
-            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
-            .z()?)
-    });
-    match result {
-        Ok(is_phone) => Some(is_phone),
-        Err(error) => {
-            log::warn!("Could not determine the screen class: {error}");
-            None
-        }
-    }
-}
-
 /// Write `bytes` to `dir/name` through a temporary file renamed over the old one, so a crash leaves
 /// the old file or the new one whole, never a truncated one.
-fn persist_write(dir: &Path, name: &str, bytes: &[u8]) {
-    if let Err(error) = fs::create_dir_all(dir) {
-        log::warn!("settings: {}: {error}", dir.display());
-        return;
-    }
+fn persist_write(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
     let path = dir.join(name);
     let temporary = path.with_extension("tmp");
-    let written = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, &path));
-    if let Err(error) = written {
-        log::warn!("settings: {}: {error}", path.display());
-    }
+    fs::write(&temporary, bytes)?;
+    fs::rename(&temporary, &path)
 }
 
 /// Read a saved `ui.json` leniently: a docking layout or hidden-panel entry this version cannot
@@ -563,12 +534,11 @@ fn persist_load(app: &mut VectorcraftApp, dir: &Path) {
 }
 
 /// Save the UI state and engine preferences, as the desktop app does on exit.
-fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
+fn persist_save(app: &mut VectorcraftApp, dir: &Path) -> std::io::Result<()> {
     let mut ui = app.ui.clone();
     ui.engine_prefs = app.session.prefs.to_json();
-    if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
-        persist_write(dir, "ui.json", &bytes);
-    }
+    let bytes = serde_json::to_vec_pretty(&ui).map_err(std::io::Error::other)?;
+    persist_write(dir, "ui.json", &bytes)
 }
 
 /// Reconstruct egui's modifier state on Android.
@@ -831,13 +801,17 @@ impl VectorCraftAndroidApp {
             return;
         }
         self.persist_last = Some(now);
-        persist_save(&mut self.inner, &dir);
+        if let Err(error) = persist_save(&mut self.inner, &dir) {
+            log::warn!("settings: {}: {error}", dir.display());
+        }
     }
 
     /// Save now: the window lost focus (the app is being backgrounded) or it is exiting.
     fn persist_now(&mut self) {
         if let Some(dir) = self.persist.clone() {
-            persist_save(&mut self.inner, &dir);
+            if let Err(error) = persist_save(&mut self.inner, &dir) {
+                log::warn!("settings: {}: {error}", dir.display());
+            }
         }
     }
 }
@@ -926,14 +900,37 @@ fn android_main(android_app: AndroidApp) {
             );
             let persist = persist_dir(&app_bridge.app);
             if let Some(dir) = &persist {
-                // First launch on a phone-class screen: set the UI scale to 75 % before the app
-                // reads its settings, then save it, so a user who changes it later keeps their
-                // choice (this runs only while `ui.json` does not exist yet). VectorCraft draws
-                // its work on a canvas, so a phone gets a smaller interface, not a larger one.
-                if !dir.join("ui.json").exists() && device_is_phone(&app_bridge.app) == Some(true) {
-                    let _ = app.session.execute("prefs.set", &serde_json::json!({"key": "uiScaling", "value": 0.75}));
-                }
                 persist_load(&mut app, dir);
+                if !dir.join(".artcraft-desktop-scale-v1").exists() {
+                    let original = dir.join("ui.json");
+                    let backup = dir.join("ui.json.before-artcraft-desktop-scale-v1");
+                    let backed_up = if !original.is_file() || backup.is_file() {
+                        true
+                    } else {
+                        match fs::copy(&original, &backup) {
+                            Ok(_) => true,
+                            Err(error) => {
+                                log::warn!("Backing up UI preferences: {error}");
+                                false
+                            }
+                        }
+                    };
+                    if backed_up {
+                        match app.session.execute(
+                            "prefs.set",
+                            &serde_json::json!({"key": "uiScaling", "value": 1.0}),
+                        ) {
+                            Ok(_) => {
+                                if let Err(error) = persist_save(&mut app, dir).and_then(|()| {
+                                    persist_write(dir, ".artcraft-desktop-scale-v1", b"1")
+                                }) {
+                                    log::warn!("Could not persist the desktop UI scale: {error}");
+                                }
+                            }
+                            Err(error) => log::warn!("Could not set the desktop UI scale: {error}"),
+                        }
+                    }
+                }
             }
             Ok(Box::new(VectorCraftAndroidApp {
                 inner: app,

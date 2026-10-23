@@ -12,6 +12,7 @@ use android_activity::input::{
 use android_activity::{
     AndroidApp, AndroidAppWaker, ConfigurationRef, InputStatus, MainEvent, Rect,
 };
+use jni::{jni_sig, jni_str, objects::JObject, JavaVM};
 use tracing::{debug, trace, warn};
 
 use crate::cursor::Cursor;
@@ -28,7 +29,64 @@ use crate::window::{
 };
 
 mod device_kind;
+mod display_scale;
 mod keycodes;
+
+static DISPLAY_MODE_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The display mode is stable while system bars and the keyboard resize the app's surface.
+fn physical_display_mode(app: &AndroidApp) -> Option<PhysicalSize<u32>> {
+    let packed = DISPLAY_MODE_SIZE.load(Ordering::Acquire);
+    if packed != 0 {
+        return Some(PhysicalSize::new((packed >> 32) as u32, packed as u32));
+    }
+
+    // SAFETY: AndroidApp retains the VM for the entire Activity lifetime.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<(u32, u32)> {
+        let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+        // SAFETY: The Activity remains owned by AndroidApp, which keeps a global reference.
+        let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&activity_raw)? };
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getWindowManager"),
+                jni_sig!("()Landroid/view/WindowManager;"),
+                &[],
+            )?
+            .l()?;
+        let display = env
+            .call_method(
+                &manager,
+                jni_str!("getDefaultDisplay"),
+                jni_sig!("()Landroid/view/Display;"),
+                &[],
+            )?
+            .l()?;
+        let mode = env
+            .call_method(
+                &display,
+                jni_str!("getMode"),
+                jni_sig!("()Landroid/view/Display$Mode;"),
+                &[],
+            )?
+            .l()?;
+        let width = env
+            .call_method(&mode, jni_str!("getPhysicalWidth"), jni_sig!("()I"), &[])?
+            .i()?;
+        let height = env
+            .call_method(&mode, jni_str!("getPhysicalHeight"), jni_sig!("()I"), &[])?
+            .i()?;
+        Ok((width.max(0) as u32, height.max(0) as u32))
+    });
+    let (width, height) = result.ok()?;
+    display_scale::pixels_per_point(width, height)?;
+    DISPLAY_MODE_SIZE.store(
+        (u64::from(width) << 32) | u64::from(height),
+        Ordering::Release,
+    );
+    Some(PhysicalSize::new(width, height))
+}
 
 pub(crate) use crate::cursor::{
     NoCustomCursor as PlatformCustomCursor, NoCustomCursor as PlatformCustomCursorSource,
@@ -405,24 +463,20 @@ impl<T: 'static> EventLoop<T> {
                     );
                 }
                 MainEvent::ConfigChanged { .. } => {
+                    DISPLAY_MODE_SIZE.store(0, Ordering::Release);
                     let monitor = MonitorHandle::new(self.android_app.clone());
-                    let old_scale_factor = monitor.scale_factor();
                     let scale_factor = monitor.scale_factor();
-                    if (scale_factor - old_scale_factor).abs() < f64::EPSILON {
-                        let new_inner_size = Arc::new(Mutex::new(
-                            MonitorHandle::new(self.android_app.clone()).size(),
-                        ));
-                        let event = event::Event::WindowEvent {
-                            window_id: window::WindowId(WindowId),
-                            event: event::WindowEvent::ScaleFactorChanged {
-                                inner_size_writer: InnerSizeWriter::new(Arc::downgrade(
-                                    &new_inner_size,
-                                )),
-                                scale_factor,
-                            },
-                        };
-                        callback(event, self.window_target());
-                    }
+                    let new_inner_size = Arc::new(Mutex::new(monitor.size()));
+                    let event = event::Event::WindowEvent {
+                        window_id: window::WindowId(WindowId),
+                        event: event::WindowEvent::ScaleFactorChanged {
+                            inner_size_writer: InnerSizeWriter::new(Arc::downgrade(
+                                &new_inner_size,
+                            )),
+                            scale_factor,
+                        },
+                    };
+                    callback(event, self.window_target());
                 }
                 MainEvent::LowMemory => {
                     callback(event::Event::MemoryWarning, self.window_target());
@@ -1899,11 +1953,8 @@ impl MonitorHandle {
     }
 
     pub fn scale_factor(&self) -> f64 {
-        self.app
-            .config()
-            .density()
-            .map(|dpi| dpi as f64 / 160.0)
-            .unwrap_or(1.0)
+        let size = physical_display_mode(&self.app).unwrap_or_else(|| self.size());
+        display_scale::pixels_per_point(size.width, size.height).unwrap_or(1.0)
     }
 
     pub fn refresh_rate_millihertz(&self) -> Option<u32> {
