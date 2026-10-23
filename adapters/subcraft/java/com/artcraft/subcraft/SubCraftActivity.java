@@ -25,7 +25,6 @@ import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
 import android.view.Display;
@@ -164,19 +163,6 @@ public final class SubCraftActivity extends GameActivity {
     };
 
     public String safFilesDir() { return appStorageDir().getAbsolutePath(); }
-
-    /**
-     * True when the screen is small enough (phone) to apply the app's own UI scale;
-     * larger screens (tablets) stay at Auto. Uses smallestScreenWidthDp per Android adaptive guidelines.
-     */
-    public boolean isHighDensityDevice() {
-        try {
-            return getResources().getConfiguration().smallestScreenWidthDp < 600;
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not read screen size; leaving UI scale at Auto", error);
-            return false;
-        }
-    }
 
     /**
      * The app's private storage root: the app-specific external directory

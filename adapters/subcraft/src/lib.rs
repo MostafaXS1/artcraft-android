@@ -83,33 +83,6 @@ fn install_persist_env(app: &AndroidApp) {
     log::info!("recovery directory: {}", recovery.display());
 }
 
-/// Ask the Activity whether the screen is dense enough (>600 dpi) to give the app its own UI scale
-/// instead of the system's. Returns `None` when the answer cannot be read. See
-/// `SubCraftActivity.isHighDensityDevice`.
-///
-/// SubCraft has no persisted interface scale of its own (its UI-size preference is applied by the
-/// app), so nothing calls this yet; it mirrors the other adapters' bootstrap so the rule lives in
-/// one place on the Java side.
-#[allow(dead_code)]
-fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
-    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
-    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
-        let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
-        Ok(env
-            .call_method(&*activity, jni::jni_str!("isHighDensityDevice"), jni::jni_sig!("()Z"), &[])?
-            .z()?)
-    });
-    match result {
-        Ok(is_dense) => Some(is_dense),
-        Err(error) => {
-            log::warn!("Could not determine the screen density: {error}");
-            None
-        }
-    }
-}
-
 /// Give egui a real screen size on the frames where winit has not reported one yet.
 ///
 /// `egui-winit` leaves `RawInput::screen_rect` as `None` while `Window::inner_size()` is zero, which
