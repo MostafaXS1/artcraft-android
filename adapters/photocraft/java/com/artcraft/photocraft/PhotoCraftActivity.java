@@ -22,6 +22,7 @@ import android.view.DragEvent;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -58,6 +59,12 @@ import java.util.concurrent.TimeUnit;
 /** GameActivity subclass that supplies Android SAF open/save results to the Rust UI shell. */
 public final class PhotoCraftActivity extends GameActivity {
     private static final String TAG = "PhotoCraftSAF";
+    // KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY / _SECONDARY (API 34), spelled out so the constants
+    // also resolve on older compile SDKs while still matching Samsung's event.
+    private static final int SPEN_BUTTON_KEYCODE = 308;
+    private static final int SPEN_BUTTON_SECONDARY_KEYCODE = 309;
+    /** Implemented in Rust: queues Show/Hide All Panels for the next frame. */
+    private static native void pcSpenButton();
     private static final int REQ_OPEN = 0x5043;
     private static final int REQ_SAVE = 0x5044;
     private static final int REQ_PERMISSIONS = 0x5045;
@@ -74,6 +81,9 @@ public final class PhotoCraftActivity extends GameActivity {
     // hands it to the Rust shell as egui IME events.
     private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();
     private EditText imeView;
+    // Some One UI releases deliver one barrel-button press as both a key and a motion event.
+    // Debounce those twins so one physical click always toggles the mode exactly once.
+    private volatile long lastSpenModeToggleAt = 0L;
     // True between imeShow() and imeHide(); suppresses a deferred show that a quick hide overtook.
     private volatile boolean imeWanted = false;
     // Some IMEs report one backspace press twice, through two different calls:
@@ -154,6 +164,19 @@ public final class PhotoCraftActivity extends GameActivity {
             return getResources().getDisplayMetrics().densityDpi > 600;
         } catch (Throwable error) {
             Log.w(TAG, "Could not read the screen density; leaving the UI scale at Auto", error);
+            return false;
+        }
+    }
+
+    /**
+     * Android's own tablet boundary (the shortest screen edge in dp). Unlike density, this is
+     * what decides whether the canvas-first drawing mode should be offered by default.
+     */
+    public boolean isTabletDevice() {
+        try {
+            return getResources().getConfiguration().smallestScreenWidthDp >= 600;
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not read the screen size class; leaving drawing mode off", error);
             return false;
         }
     }
@@ -258,6 +281,103 @@ public final class PhotoCraftActivity extends GameActivity {
         setIntent(intent);
         applyImmersiveFullscreen();
         handleIncomingFiles(intent);
+    }
+
+    /**
+     * The S Pen's barrel button toggles PhotoCraft's canvas-first drawing mode.
+     *
+     * <p>Samsung reports the button in three different ways depending on the Android version and
+     * whether the pen is hovering or touching: as {@code KEYCODE_STYLUS_BUTTON_PRIMARY}, as a
+     * motion {@code ACTION_BUTTON_PRESS} with {@code BUTTON_STYLUS_PRIMARY}, or both. Consume every
+     * form here, before GameActivity forwards it to the native input queue, so the app toggles
+     * drawing mode exactly once per press. The button's release is consumed without a second action.
+     */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() == SPEN_BUTTON_KEYCODE
+                || event.getKeyCode() == SPEN_BUTTON_SECONDARY_KEYCODE
+                // The Samsung RemoteAction (res/xml/remote_actions.xml) maps a barrel-button
+                // click to BUTTON_1 for apps that publish one.
+                || event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_1) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                requestDrawingModeToggle();
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (isSpenButtonAction(event)) {
+            if (isSpenButtonPress(event)) {
+                requestDrawingModeToggle();
+            }
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (isSpenButtonAction(event)) {
+            if (isSpenButtonPress(event)) {
+                requestDrawingModeToggle();
+            }
+            return true;
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    /**
+     * The S Pen button's own press/release action, not the pen's touch stream. Samsung reports
+     * the barrel button as {@code BUTTON_STYLUS_PRIMARY} on current builds, but older ones use a
+     * plain primary/secondary button on a stylus tool; accept any button from a pen.
+     */
+    private static boolean isSpenButtonAction(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action != MotionEvent.ACTION_BUTTON_PRESS && action != MotionEvent.ACTION_BUTTON_RELEASE) {
+            return false;
+        }
+        if ((event.getActionButton() & MotionEvent.BUTTON_STYLUS_PRIMARY) != 0) {
+            return true;
+        }
+        if (event.getPointerCount() == 0) {
+            return false;
+        }
+        int tool = event.getToolType(0);
+        return tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER;
+    }
+
+    /** Only the press toggles; the matching release is consumed without a second toggle. */
+    private static boolean isSpenButtonPress(MotionEvent event) {
+        return event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS;
+    }
+
+    /**
+     * Queue a drawing-mode toggle for the Rust shell, then wake the native loop so the request is
+     * read on the next frame.
+     */
+    private void requestDrawingModeToggle() {
+        try {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastSpenModeToggleAt < 120L) {
+                return;
+            }
+            lastSpenModeToggleAt = now;
+            Log.i(TAG, "S Pen button: toggle drawing mode");
+            pcSpenButton();
+            // The loop otherwise sleeps in ALooper_pollOnce until another input arrives (the
+            // same wake the IME bridge uses).
+            super.onKeyDown(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            super.onKeyUp(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not toggle drawing mode from the S Pen button", error);
+        }
     }
 
     /**

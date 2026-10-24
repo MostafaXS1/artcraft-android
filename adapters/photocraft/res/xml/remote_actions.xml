@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung S Pen RemoteAction: a single barrel-button click arrives as KEYCODE_BUTTON_1,
+     which PhotoCraftActivity forwards to the shell as a drawing-mode toggle. -->
+<remote-actions version="1.2" actionset_label="@string/spen_actions_label">
+    <action
+        id="toggle_panels"
+        label="@string/spen_toggle_panels"
+        priority="1"
+        trigger_key="BUTTON_1">
+        <preference name="gesture" value="click" />
+        <preference name="button_only" value="true" />
+    </action>
+</remote-actions>

@@ -77,3 +77,10 @@ intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["andr
 [[package.metadata.android.application.activity.meta_data]]
 name = "android.app.lib_name"
 value = "photocraft_android"
+
+# Samsung's S Pen framework only hands the barrel button to an app that publishes a
+# RemoteAction; without it PhoneWindowManager consumes the press for Air Command. The table
+# maps a single click to BUTTON_1, which PhotoCraftActivity catches and forwards to Rust.
+[[package.metadata.android.application.activity.meta_data]]
+name = "com.samsung.android.support.REMOTE_ACTION"
+resource = "@xml/remote_actions"
