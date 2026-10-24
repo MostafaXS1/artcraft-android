@@ -415,6 +415,9 @@ fn poll_answers(state: &Arc<PickState>, bridge: &AndroidFileBridge, ctx: &egui::
         let _ = sender.send(paths);
         ctx.request_repaint();
     }
+    if !state.is_empty() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+    }
 }
 
 /// Write `bytes` to `path`, then copy them to the selected SAF document when `path` is staged.

@@ -358,6 +358,9 @@ impl PickerState {
             reply.send(answer);
             ctx.request_repaint();
         }
+        if !self.replies.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
     }
 }
 
@@ -793,6 +796,9 @@ impl eframe::App for PhotoCraftAndroidApp {
         self.staged_prune_tick();
         self.persist_tick();
         self.inner.logic(ctx, frame);
+        if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

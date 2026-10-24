@@ -364,7 +364,11 @@ impl<T: 'static> EventLoop<T> {
         trace!("Mainloop iteration");
 
         let cause = self.cause;
-        let mut pending_redraw = self.pending_redraw;
+        let mut pending_redraw = self.pending_redraw
+            || matches!(
+                cause,
+                StartCause::Init | StartCause::Poll | StartCause::ResumeTimeReached { .. }
+            );
         let mut resized = false;
 
         callback(event::Event::NewEvents(cause), self.window_target());
