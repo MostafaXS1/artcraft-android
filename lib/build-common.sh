@@ -361,12 +361,16 @@ find_android_ndk() {
     return 1
 }
 
-# The newest command-line tools package for Linux, from Google's own repository index. The
-# archive carries `sdkmanager`, which installs the platform, the build tools and the NDK.
+# The newest command-line tools package for this platform, from Google's own repository index.
+# The archive carries `sdkmanager`, which installs the platform, the build tools and the NDK.
+# macOS needs the `-mac-` package: the Linux one's sdkmanager wraps a Linux-only binary.
 android_cmdline_tools_url() {
     python3 - <<'PY'
 import re
+import sys
 import urllib.request
+
+flavour = "mac" if sys.platform == "darwin" else "linux"
 
 best = 0
 for index in ("repository2-3.xml", "repository2-1.xml"):
@@ -377,10 +381,10 @@ for index in ("repository2-3.xml", "repository2-1.xml"):
             data = response.read().decode("utf-8", "replace")
     except Exception:
         continue
-    for number in re.findall(r"commandlinetools-linux-(\d+)_latest\.zip", data):
+    for number in re.findall(rf"commandlinetools-{flavour}-(\d+)_latest\.zip", data):
         best = max(best, int(number))
 if best:
-    print(f"https://dl.google.com/android/repository/commandlinetools-linux-{best}_latest.zip")
+    print(f"https://dl.google.com/android/repository/commandlinetools-{flavour}-{best}_latest.zip")
 PY
 }
 
@@ -440,7 +444,7 @@ if [[ ! -d "$SDK/platforms/android-$TARGET_SDK" || ! -d "$SDK/build-tools" || -z
 fi
 [[ -d "$SDK/platforms/android-$TARGET_SDK" ]] || fail "Android SDK platform android-$TARGET_SDK not found under $SDK/platforms. Install it with sdkmanager or set ARTCRAFT_TARGET_SDK to an installed platform."
 [[ -d "$SDK/build-tools" ]] || fail "Android build-tools directory missing under $SDK."
-BUILD_TOOLS="${ARTCRAFT_BUILD_TOOLS_VERSION:-$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)}"
+BUILD_TOOLS="${ARTCRAFT_BUILD_TOOLS_VERSION:-$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r dir; do basename "$dir"; done | sort -V | tail -n 1)}"
 [[ -n "$BUILD_TOOLS" && -d "$SDK/build-tools/$BUILD_TOOLS" ]] || fail "No usable Android Build Tools installation found."
 [[ -n "$NDK" && -d "$NDK" ]] || fail "No Android NDK found. Install one using Android SDK Manager."
 export ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK"
