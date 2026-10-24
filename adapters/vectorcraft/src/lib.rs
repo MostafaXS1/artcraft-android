@@ -287,6 +287,13 @@ impl PickState {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&id)
     }
+
+    fn is_empty(&self) -> bool {
+        self.senders
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+    }
 }
 
 /// A MIME type for an open dialog, from its first file-type filter (every file when it has none).
