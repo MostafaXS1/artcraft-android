@@ -475,7 +475,7 @@ mod saf {
     /// happened are remembered, so they are never pushed into a new document.
     #[derive(Default)]
     pub struct SaveMirror {
-        entries: Mutex<HashMap<u64, Tracked>>,
+        entries: Mutex<HashMap<String, Tracked>>,
     }
 
     #[derive(Default)]
@@ -493,17 +493,21 @@ mod saf {
     const SCAN_INTERVAL: Duration = Duration::from_millis(200);
 
     impl SaveMirror {
-        /// Watch `path` (a staged save destination) for writes.
-        pub fn track(&self, id: u64, path: &str) {
+        /// Watch `path` (a staged save or open destination) for writes.
+        pub fn track(&self, _id: u64, path: &str) {
+            let mut entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some(existing) = entries.get_mut(path) {
+                for candidate in family(path) {
+                    existing.stamps.entry(candidate.clone()).or_insert_with(|| file_stamp(&candidate));
+                }
+                return;
+            }
             let mut tracked = Tracked { path: path.to_owned(), ..Tracked::default() };
             for candidate in family(path) {
                 tracked.stamps.insert(candidate.clone(), file_stamp(&candidate));
             }
             tracked.scanned = Some(Instant::now());
-            self.entries
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .insert(id, tracked);
+            entries.insert(path.to_owned(), tracked);
         }
 
         /// Commit every tracked file whose contents changed since the last sync.

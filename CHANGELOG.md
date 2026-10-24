@@ -3,6 +3,11 @@
 ## v37 — 2026-10-20
 
 ### Fixed
+- Two-way Storage Access Framework (SAF) auto-sync and document autosave across all 14 apps. Files
+  opened via system file pickers or incoming intents (`ACTION_VIEW`/`ACTION_SEND`) are now tracked by
+  path in `SaveMirror`. The periodic 2-second background tick and focus-lost (`WindowFocused(false)`) /
+  exit handlers automatically flush dirty documents with paths to disk, and `SaveMirror.sync()`
+  immediately streams changes back to the original SAF document URI via Android's `ContentResolver`.
 - Typing on the soft keyboard lagged by up to half a second — a backspace above all: the letter
   stayed until the next scheduled frame. The keyboard's events are queued by the Activity and
   drained by the shell once per frame, but the shell's loop sleeps in `ALooper_pollOnce` while

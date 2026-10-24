@@ -214,7 +214,13 @@ fn install_saf_launcher(bridge: saf::Bridge, state: Arc<SafState>) {
         let id = state.next_id();
         let answer = match kind {
             rfd::artcraft_saf::Kind::Open { multiple } => {
-                bridge.pick_open_blocking(id, multiple, saf::PICK_TIMEOUT)
+                let answer = bridge.pick_open_blocking(id, multiple, saf::PICK_TIMEOUT);
+                if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
+                    for path in paths {
+                        state.mirror.track(id, path);
+                    }
+                }
+                answer
             }
             rfd::artcraft_saf::Kind::Save(ref name) => {
                 let answer = bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT);
@@ -266,13 +272,16 @@ impl eframe::App for SubCraftAndroidApp {
         // the system handed us through the app's own picker queue.
         self.state.mirror.sync(&self.bridge);
         watch_incoming(&self.bridge, ctx);
-        drain_incoming(&self.bridge, &mut self.intent_warmup);
+        drain_incoming(&self.bridge, &self.state, &mut self.intent_warmup);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         ensure_screen_rect(&self.app, ctx, raw);
         self.ime.poll(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
+        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
+            self.state.mirror.sync(&self.bridge);
+        }
         self.inner.raw_input_hook(ctx, raw);
     }
 
@@ -289,6 +298,7 @@ impl eframe::App for SubCraftAndroidApp {
 
     // Built with `wgpu` only (no `glow`), so `on_exit` takes no GL context (eframe 0.36).
     fn on_exit(&mut self) {
+        self.state.mirror.sync(&self.bridge);
         self.inner.on_exit();
     }
 }
@@ -326,7 +336,7 @@ fn watch_incoming(bridge: &saf::Bridge, ctx: &egui::Context) {
 /// Deliver any file the system handed the app (an intent it is registered for). Each staged path is
 /// offered to SubCraft's own picker queue, exactly like a document chosen in the open picker: a
 /// `.subcraft` project opens as a project, everything else as a mesh.
-fn drain_incoming(bridge: &saf::Bridge, warmup: &mut i64) {
+fn drain_incoming(bridge: &saf::Bridge, state: &SafState, warmup: &mut i64) {
     if *warmup > 0 {
         *warmup -= 1;
         return;
@@ -338,6 +348,7 @@ fn drain_incoming(bridge: &saf::Bridge, warmup: &mut i64) {
         match bridge.intent_poll() {
             Ok(Some(path)) => {
                 log::info!("Opening the file the system handed the app: {path}");
+                state.mirror.track(0, &path);
                 let path = PathBuf::from(path);
                 if is_project(&path) {
                     subcraft_ui::files::deliver_android(subcraft_ui::files::Purpose::OpenProject, vec![path]);

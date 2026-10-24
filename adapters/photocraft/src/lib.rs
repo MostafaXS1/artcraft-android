@@ -573,6 +573,7 @@ struct PhotoCraftAndroidApp {
     // when the one-time orphan sweep of the directory is due.
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
+    persist_last: Option<std::time::Instant>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -718,6 +719,21 @@ impl PhotoCraftAndroidApp {
         }
         self.staged_seen = current;
     }
+
+    fn persist_tick(&mut self) {
+        let now = std::time::Instant::now();
+        if self.persist_last.is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.persist_last = Some(now);
+        self.persist_now();
+    }
+
+    fn persist_now(&mut self) {
+        if self.inner.session.documents().iter().any(|d| d.is_dirty() && d.path.is_some()) {
+            let _ = self.inner.session.execute("file.save", serde_json::json!({}));
+        }
+    }
 }
 
 impl Drop for PhotoCraftAndroidApp {
@@ -735,6 +751,7 @@ impl eframe::App for PhotoCraftAndroidApp {
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
+        self.persist_tick();
         self.inner.logic(ctx, frame);
     }
 
@@ -746,7 +763,14 @@ impl eframe::App for PhotoCraftAndroidApp {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.ime.poll(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
+        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
+            self.persist_now();
+        }
         self.inner.raw_input_hook(ctx, raw);
+    }
+
+    fn on_exit(&mut self) {
+        self.persist_now();
     }
 }
 
@@ -890,6 +914,7 @@ fn android_main(android_app: AndroidApp) {
                 intent_warmup: 2,
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+                persist_last: None,
             }))
         }),
     );

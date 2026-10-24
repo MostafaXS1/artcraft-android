@@ -584,6 +584,9 @@ fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
     if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
         persist_write(dir, "ui.json", &bytes);
     }
+    if app.session.documents().iter().any(|doc| doc.is_dirty() && doc.path.is_some()) {
+        let _ = app.session.execute("file.save", serde_json::json!({}));
+    }
 }
 
 /// Reconstruct egui's modifier state on Android.

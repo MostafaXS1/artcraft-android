@@ -374,29 +374,30 @@ pub fn picker_paths(value: &serde_json::Value) -> Vec<String> {
 /// storage, so later saves to the same path sync too.
 #[derive(Default)]
 pub struct SaveMirror {
-    entries: Mutex<HashMap<u64, (String, u64, u64)>>,
+    entries: Mutex<HashMap<String, (u64, u64)>>,
 }
 
 impl SaveMirror {
-    /// Watch `path` (a staged save destination) for writes.
-    pub fn track(&self, id: u64, path: &str) {
+    /// Watch `path` (a staged save or open destination) for writes.
+    pub fn track(&self, _id: u64, path: &str) {
         let (mtime, size) = file_stamp(path);
-        self.entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(id, (path.to_owned(), mtime, size));
+        let mut entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
+        entries.entry(path.to_owned()).or_insert((mtime, size));
     }
 
     /// Commit every tracked file whose contents changed since the last sync.
     pub fn sync(&self, bridge: &Bridge) {
         let mut entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
-        for (_id, (path, mtime, size)) in entries.iter_mut() {
+        for (path, (mtime, size)) in entries.iter_mut() {
             let (now_mtime, now_size) = file_stamp(path);
             if (now_mtime, now_size) == (*mtime, *size) {
                 continue;
             }
             *mtime = now_mtime;
             *size = now_size;
+            if now_size == 0 {
+                continue;
+            }
             match bridge.commit(path) {
                 Ok(status) if status == "NONE" || status == "OK" => {}
                 Ok(status) => log::error!("Could not save {path}: {status}"),

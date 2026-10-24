@@ -626,7 +626,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "55"
+GENERATOR_VERSION = "56"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -789,7 +789,12 @@ fn saf_next_id(state: &SafState) -> u64 {
 fn saf_open_paths(bridge: &saf::Bridge, state: &SafState) -> Vec<String> {
     let id = saf_next_id(state);
     match bridge.pick_blocking(id, None, saf::PICK_TIMEOUT) {
-        Ok(saf::PickAnswer::Paths(paths)) => paths,
+        Ok(saf::PickAnswer::Paths(paths)) => {
+            for path in &paths {
+                state.mirror.track(id, path);
+            }
+            paths
+        }
         Ok(saf::PickAnswer::Cancelled) => Vec::new(),
         Err(error) => {
             log::error!("Android open picker: {error}");
@@ -859,7 +864,13 @@ pub struct SafState {
 fn saf_pick_open(bridge: &saf::Bridge, state: &SafState) -> Option<String> {
     let id = saf_next_id(state);
     match bridge.pick_blocking(id, None, saf::PICK_TIMEOUT) {
-        Ok(saf::PickAnswer::Paths(paths)) => paths.into_iter().next(),
+        Ok(saf::PickAnswer::Paths(paths)) => {
+            let path = paths.into_iter().next();
+            if let Some(path) = &path {
+                state.mirror.track(id, path);
+            }
+            path
+        }
         Ok(saf::PickAnswer::Cancelled) => None,
         Err(error) => {
             log::error!("Android open picker: {error}");
@@ -1503,11 +1514,9 @@ fn saf_file_dialog(
         let answer = match bridge.pick_blocking_worker(id, save_name, timeout) {
             Ok(saf::PickAnswer::Paths(paths)) => {
                 // WordCraft's file API is path-based: it writes the document itself, so watch the
-                // staged save destination and mirror the write to the chosen SAF document later.
-                if save_name.is_some() {
-                    if let Some(path) = paths.first() {
-                        state.mirror.track(id, path);
-                    }
+                // staged destination and mirror any writes to the chosen SAF document later.
+                for path in &paths {
+                    state.mirror.track(id, path);
                 }
                 PICKED_PATHS
             }
@@ -1756,7 +1765,12 @@ fn saf_write_and_commit(bridge: &saf::Bridge, path: &str, bytes: &[u8]) -> Resul
 fn saf_open_paths_many(bridge: &saf::Bridge, state: &SafState) -> Vec<String> {
     let id = saf_next_id(state);
     match bridge.pick_open_blocking(id, true, saf::PICK_TIMEOUT) {
-        Ok(saf::PickAnswer::Paths(paths)) => paths,
+        Ok(saf::PickAnswer::Paths(paths)) => {
+            for path in &paths {
+                state.mirror.track(id, path);
+            }
+            paths
+        }
         Ok(saf::PickAnswer::Cancelled) => Vec::new(),
         Err(error) => {
             log::error!("Android open picker: {error}");
@@ -1923,13 +1937,11 @@ fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
         } else {
             None
         };
-        // A save's staged destination is written by the app itself; watch it so the write is
+        // The staged destination is written by the app itself; watch it so any writes are
         // mirrored to the chosen SAF document.
-        if kind == "save" {
-            if let Some(ref paths) = paths {
-                if let Some(path) = paths.first() {
-                    state.mirror.track(id, &path.to_string_lossy());
-                }
+        if let Some(ref paths) = paths {
+            for path in paths {
+                state.mirror.track(id, &path.to_string_lossy());
             }
         }
         rfd::artcraft_saf::deliver(id, paths);
@@ -2098,6 +2110,9 @@ PERSIST_RECIPES = {
         "save": '''match serde_json::to_vec_pretty(&inner.prefs()) {
         Ok(bytes) => persist_write(dir, "ui.json", &bytes),
         Err(error) => log::warn!("saving settings: {error}"),
+    }
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },
     "designcraft": {
@@ -2116,6 +2131,9 @@ PERSIST_RECIPES = {
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&inner.session.prefs) {
         persist_write(dir, "prefs.json", &bytes);
+    }
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },
     "lightcraft": {
@@ -2145,6 +2163,9 @@ PERSIST_RECIPES = {
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&inner.session.prefs) {
         persist_write(dir, "prefs.json", &bytes);
+    }
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },
     "deckcraft": {
@@ -2155,16 +2176,24 @@ PERSIST_RECIPES = {
     if let Some(prefs) = prefs {
         inner.session.prefs = prefs;
     }''',
-        "save": '''@UI@::settings::save(dir, &inner.ui, &inner.session.prefs);''',
+        "save": '''@UI@::settings::save(dir, &inner.ui, &inner.session.prefs);
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.run("file.save", serde_json::json!({}));
+    }''',
     },
     "soundcraft": {
         "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
         if let Ok(ui) = serde_json::from_slice::<@UI@::UiState>(&bytes) {
             inner.ui = ui;
         }
-    }''',
+    }
+    inner.autosave_dir = Some(dir.join("autosave"));
+    inner.leftovers = @ENGINE@::autosave::leftovers(&dir.join("autosave"));''',
         "save": '''if let Ok(bytes) = serde_json::to_vec_pretty(&inner.ui) {
         persist_write(dir, "ui.json", &bytes);
+    }
+    if inner.engine.is_dirty() && inner.engine.path.is_some() {
+        let _ = inner.run("session.save", serde_json::json!({}));
     }''',
     },
     "cadcraft": {
@@ -2187,12 +2216,18 @@ PERSIST_RECIPES = {
     inner.session.set_lisp_support_dir(Some(dir.join("support")));''',
         "save": '''persist_write(dir, "prefs.json", inner.prefs_json().as_bytes());
     persist_write(dir, "profile.json", inner.profile_json().as_bytes());
-    persist_write(dir, "autosave.json", @UI@::autosave::prefs_json().as_bytes());''',
+    persist_write(dir, "autosave.json", @UI@::autosave::prefs_json().as_bytes());
+    if inner.session.docs.iter().any(|d| d.is_dirty() && d.path.is_some()) {
+        let _ = inner.run("qsave", serde_json::json!({}));
+    }''',
     },
     "effectcraft": {
         "load": '''inner.session.config = Some(std::sync::Arc::new(@ENGINE@::config::DirConfig::new(dir)));
     inner.session.load_settings();''',
-        "save": '''inner.session.save_prefs();''',
+        "save": '''inner.session.save_prefs();
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.session.execute("file.save", serde_json::json!({}));
+    }''',
     },
     "filmcraft": {
         "load": '''let cfg = @ENGINE@::autosave::AutosaveConfig::new(dir.to_path_buf());
@@ -2202,6 +2237,9 @@ PERSIST_RECIPES = {
         "save": '''let prefs = inner.session.prefs.clone();
     if let Err(error) = inner.session.set_prefs(prefs) {
         log::warn!("saving preferences: {error}");
+    }
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.session.execute("file.save", serde_json::json!({}));
     }''',
     },
     "pdfcraft": {
@@ -2210,9 +2248,7 @@ PERSIST_RECIPES = {
             inner.restore(json);
         }
     }
-    if let Some(recovery) = @UI@::RecoveryStore::default_dir() {
-        inner.enable_recovery(@UI@::RecoveryStore::new(recovery));
-    }''',
+    inner.enable_recovery(@UI@::RecoveryStore::new(dir.join("recovery")));''',
         "save": '''persist_write(dir, "ui.json", inner.persist().as_bytes());''',
     },
     "figcraft": {
@@ -2226,6 +2262,9 @@ PERSIST_RECIPES = {
         "save": '''match serde_json::to_string(&serde_json::json!({ "prefs": inner.session.prefs })) {
         Ok(json) => persist_write(dir, "state.json", json.as_bytes()),
         Err(error) => log::warn!("saving preferences: {error}"),
+    }
+    if inner.session.dirty && inner.session.path.is_some() {
+        let _ = inner.session.execute("file.save", serde_json::json!({}));
     }''',
     },
 }
@@ -2392,6 +2431,7 @@ PERSIST_METHODS = r'''
         if let Some(dir) = self.persist.clone() {
             persist_save(&mut self.inner, &dir);
         }
+        self.saf_state.mirror.sync(&self.saf_bridge);
     }
 '''
 
@@ -3206,6 +3246,7 @@ fn install_cadcraft_io() {
             intent_method = f'''
     fn open_incoming(&mut self, path: &str) {{
         log::info!("Opening the file the system handed the app: {{path}}");
+        self.saf_state.mirror.track(0, path);
 {intent_body}    }}
 
     /// Watch for files the system (or another app's drop) handed the app while it was idle.
