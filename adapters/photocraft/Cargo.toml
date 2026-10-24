@@ -13,6 +13,7 @@ photocraft-ui-egui = { path = "../../crates/ui-egui" }
 photocraft-io = { path = "../../crates/io" }
 photocraft-doc = { path = "../../crates/doc" }
 photocraft-codecs = { path = "../../crates/codecs" }
+photocraft-format = { path = "../../crates/format" }
 eframe = { workspace = true, features = ["wgpu", "persistence", "android-game-activity"] }
 egui = { workspace = true }
 egui-winit = "0.36"

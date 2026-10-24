@@ -626,7 +626,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "56"
+GENERATOR_VERSION = "57"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2131,9 +2131,6 @@ PERSIST_RECIPES = {
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&inner.session.prefs) {
         persist_write(dir, "prefs.json", &bytes);
-    }
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },
     "lightcraft": {
@@ -2163,9 +2160,6 @@ PERSIST_RECIPES = {
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&inner.session.prefs) {
         persist_write(dir, "prefs.json", &bytes);
-    }
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },
     "deckcraft": {
@@ -2176,10 +2170,7 @@ PERSIST_RECIPES = {
     if let Some(prefs) = prefs {
         inner.session.prefs = prefs;
     }''',
-        "save": '''@UI@::settings::save(dir, &inner.ui, &inner.session.prefs);
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.run("file.save", serde_json::json!({}));
-    }''',
+        "save": '''@UI@::settings::save(dir, &inner.ui, &inner.session.prefs);''',
     },
     "soundcraft": {
         "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
@@ -2224,10 +2215,7 @@ PERSIST_RECIPES = {
     "effectcraft": {
         "load": '''inner.session.config = Some(std::sync::Arc::new(@ENGINE@::config::DirConfig::new(dir)));
     inner.session.load_settings();''',
-        "save": '''inner.session.save_prefs();
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.session.execute("file.save", serde_json::json!({}));
-    }''',
+        "save": '''inner.session.save_prefs();''',
     },
     "filmcraft": {
         "load": '''let cfg = @ENGINE@::autosave::AutosaveConfig::new(dir.to_path_buf());
@@ -2237,9 +2225,6 @@ PERSIST_RECIPES = {
         "save": '''let prefs = inner.session.prefs.clone();
     if let Err(error) = inner.session.set_prefs(prefs) {
         log::warn!("saving preferences: {error}");
-    }
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.session.execute("file.save", serde_json::json!({}));
     }''',
     },
     "pdfcraft": {
@@ -2262,9 +2247,6 @@ PERSIST_RECIPES = {
         "save": '''match serde_json::to_string(&serde_json::json!({ "prefs": inner.session.prefs })) {
         Ok(json) => persist_write(dir, "state.json", json.as_bytes()),
         Err(error) => log::warn!("saving preferences: {error}"),
-    }
-    if inner.session.dirty && inner.session.path.is_some() {
-        let _ = inner.session.execute("file.save", serde_json::json!({}));
     }''',
     },
 }

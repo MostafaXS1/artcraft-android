@@ -585,7 +585,7 @@ fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
         persist_write(dir, "ui.json", &bytes);
     }
     if app.session.documents().iter().any(|doc| doc.is_dirty() && doc.path.is_some()) {
-        let _ = app.session.execute("file.save", serde_json::json!({}));
+        let _ = app.session.execute("file.save", &serde_json::json!({}));
     }
 }
 

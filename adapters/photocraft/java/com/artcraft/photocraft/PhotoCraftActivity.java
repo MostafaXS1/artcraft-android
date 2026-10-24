@@ -839,10 +839,27 @@ public final class PhotoCraftActivity extends GameActivity {
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
+        try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r")) {
+            if (pfd != null) {
+                try (FileInputStream in = new FileInputStream(pfd.getFileDescriptor());
+                     FileOutputStream out = new FileOutputStream(destination)) {
+                    java.nio.channels.FileChannel inChannel = in.getChannel();
+                    java.nio.channels.FileChannel outChannel = out.getChannel();
+                    long size = inChannel.size();
+                    long transferred = 0;
+                    while (transferred < size) {
+                        long count = outChannel.transferFrom(inChannel, transferred, size - transferred);
+                        if (count <= 0) break;
+                        transferred += count;
+                    }
+                    return;
+                }
+            }
+        } catch (Exception ignored) { }
         InputStream input = getContentResolver().openInputStream(uri);
         if (input == null) throw new Exception("Android document provider did not open the selected file");
         try (InputStream in = input; FileOutputStream out = new FileOutputStream(destination)) {
-            byte[] buffer = new byte[64 * 1024];
+            byte[] buffer = new byte[256 * 1024];
             int count;
             while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
             out.flush();

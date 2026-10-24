@@ -12,12 +12,16 @@ use jni::{
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
 use photocraft_engine::Session;
+use photocraft_format::RecoveryStore;
 use photocraft_ui_egui::{
-    FileDialogAnswer, FileDialogReply, FileDialogRequest, Inbox, PhotocraftApp, Services,
+    FileDialogAnswer, FileDialogReply, FileDialogRequest, Inbox, PhotocraftApp, Recoverable,
+    Services,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -388,11 +392,24 @@ fn write_mobile(bridge: &AndroidFileBridge, path: &str, bytes: &[u8]) -> Result<
     }
 }
 
+type SharedRecovery = Rc<RefCell<Option<RecoveryStore>>>;
+
+fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R) -> Result<R, String> {
+    let mut slot = store.try_borrow_mut().map_err(|_| "crash recovery is busy".to_string())?;
+    Ok(f(slot.as_mut().ok_or("no config directory")?))
+}
+
 fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: PathBuf, inbox: Inbox) -> Services {
     let write_bridge = bridge.clone_for_services();
     let save_bridge = bridge.clone_for_services();
     let prefs_bridge = bridge.clone_for_services();
     let load_prefs_path = prefs_path.clone();
+
+    let recovery_dir = prefs_path.parent().map(|p| p.join("recovery"));
+    let recover_dir = recovery_dir.clone();
+    let store: SharedRecovery = Rc::new(RefCell::new(recovery_dir.map(RecoveryStore::new)));
+    let (s1, s2, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone());
+
     Services {
         // Files the system asked us to open (ACTION_VIEW/ACTION_SEND) are queued here and drained
         // by the app's own per-frame inbox, exactly like a document chosen in the picker.
@@ -483,6 +500,29 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
                 &EncodeOptions::default(),
             )
             .map_err(|e| e.to_string())
+        })),
+        autosave: Some(Box::new(move |doc: &Arc<Document>, revision: u64, path: Option<&str>| {
+            with_store(&s1, |s| s.autosave_checked(doc, revision, path.map(str::to_string)))?
+        })),
+        autosave_results: Some(Box::new(move || with_store(&s4, RecoveryStore::take_completed).unwrap_or_default())),
+        flush_autosaves: Some(Box::new(move || with_store(&s5, RecoveryStore::flush).unwrap_or_default())),
+        discard_autosave: Some(Box::new(move |id: u64| {
+            let _ = with_store(&s2, |s| s.discard(id));
+        })),
+        recover: Some(Box::new(move || {
+            let Some(dir) = recover_dir.as_ref() else { return Vec::new() };
+            photocraft_format::list_recovery(dir)
+                .into_iter()
+                .map(|e| Recoverable {
+                    key: e.info.key.clone(),
+                    name: e.info.document_name.clone(),
+                    path: e.info.original_path.clone(),
+                    load: Box::new(move || photocraft_format::recover(&e).map_err(|e| e.to_string())),
+                })
+                .collect()
+        })),
+        adopt_autosave: Some(Box::new(move |id: u64, key: &str| {
+            let _ = with_store(&store, |s| s.adopt(id, key));
         })),
         ..Services::default()
     }
@@ -730,8 +770,8 @@ impl PhotoCraftAndroidApp {
     }
 
     fn persist_now(&mut self) {
-        if self.inner.session.documents().iter().any(|d| d.is_dirty() && d.path.is_some()) {
-            let _ = self.inner.session.execute("file.save", serde_json::json!({}));
+        if let Some(flush) = self.inner.services.flush_autosaves.as_mut() {
+            let _ = flush();
         }
     }
 }
@@ -884,6 +924,7 @@ fn android_main(android_app: AndroidApp) {
                     app_intent_inbox.clone(),
                 ),
             );
+            app.background_jobs = true;
             // A high-density screen gets the app's 150 % UI scale; every other screen keeps its own
             // default, Auto. Applied once (`device_scale_first_time`), which covers a first launch
             // and an upgrade from a build without this bootstrap; a user who sets the scale by hand
