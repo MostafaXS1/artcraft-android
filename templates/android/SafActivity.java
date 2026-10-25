@@ -3,12 +3,14 @@ package __PACKAGE__;
 import android.Manifest;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.pdf.PdfRenderer;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -83,6 +85,9 @@ public final class __CLASS__ extends GameActivity {
     private final Map<Integer, Long> requestIds = new HashMap<>();
     private final Map<Long, String> suggestedNames = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private AudioManager audioManager;
+    private int originalAudioMode = AudioManager.MODE_NORMAL;
+    private boolean originalSpeakerphoneOn = false;
 
     // The caption-bar (desktop window title bar) height the content view is padded by, so an
     // inset dispatch that finds the same height leaves the view — and its layout — alone.
@@ -213,21 +218,38 @@ public final class __CLASS__ extends GameActivity {
         runOnUiThread(() -> {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if (Environment.isExternalStorageManager()) return;
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                    intent.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(intent);
+                    if (!Environment.isExternalStorageManager()) {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                        intent.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                    }
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) return;
-                    requestPermissions(
-                            new String[] {
-                                Manifest.permission.READ_EXTERNAL_STORAGE,
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE
-                            },
-                            REQ_PERMISSIONS);
+                    if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(
+                                new String[] {
+                                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                                },
+                                REQ_PERMISSIONS);
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Could not request file access", e);
+            }
+            // Request microphone permission for apps that open audio input (SoundCraft)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_PERMISSIONS);
+                }
+            }
+        });
+    }
+
+    public void safRequestMicrophonePermission() {
+        runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return;
+                requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQ_PERMISSIONS);
             }
         });
     }
@@ -467,9 +489,25 @@ public final class __CLASS__ extends GameActivity {
         }
     }
 
+    private void setupAudioRouting() {
+        try {
+            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager != null) {
+                originalAudioMode = audioManager.getMode();
+                originalSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                audioManager.setSpeakerphoneOn(true);
+                Log.i(TAG, "Configured audio routing for telephony/speakerphone");
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "Could not configure audio routing", error);
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setupAudioRouting();
         applyEdgeToEdge();
         applyImmersiveFullscreen();
         Window window = getWindow();
@@ -506,6 +544,14 @@ public final class __CLASS__ extends GameActivity {
      */
     @Override
     protected void onDestroy() {
+        try {
+            if (audioManager != null) {
+                audioManager.setSpeakerphoneOn(originalSpeakerphoneOn);
+                audioManager.setMode(originalAudioMode);
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "Could not restore audio routing", error);
+        }
         if (isFinishing()) {
             io.shutdown();
             try {

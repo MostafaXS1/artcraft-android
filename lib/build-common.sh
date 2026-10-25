@@ -2641,6 +2641,7 @@ try:
         "filmcraft": ("audio", "audio.rs", ()),
         "effectcraft": ("audio_out", "audio_out.rs", ()),
         "deckcraft": ("audio", "audio.rs", ("deckcraft-media = { workspace = true }",)),
+        "soundcraft": ("audio", "audio.rs", ()),
     }
     cpal_dep = "".join(f"{dep}\n" for dep in ('cpal = "0.16"', *AUDIO_MODULES[app][2])) if app in AUDIO_MODULES else ''
     # EffectCraft's Android launcher must build a fully wired session (`effectcraft-host`), not a
@@ -2745,6 +2746,15 @@ name = "android.permission.MANAGE_EXTERNAL_STORAGE"
 # templates/android/UpdateCheck.java). Without this the request fails and no update is offered.
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
+
+# Audio input for recording (SoundCraft, FilmCraft voice-over, etc.). Required at runtime;
+# cpal's AAudio backend requests the input stream only if the app opens it, but Android rejects
+# the stream without the manifest permission.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MODIFY_AUDIO_SETTINGS"
 
 [package.metadata.android.application]
 label = "{title}"
