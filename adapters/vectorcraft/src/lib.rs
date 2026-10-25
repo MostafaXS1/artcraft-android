@@ -585,6 +585,8 @@ fn persist_load(app: &mut VectorcraftApp, dir: &Path) {
         app.ui = ui.sanitized();
     }
     vectorcraft_ui_egui::prefs_dialog::restore(app);
+    let recovery = dir.join("Data Recovery").to_string_lossy().to_string();
+    app.session.recovery.set_default_folder(Some(recovery));
 }
 
 /// Save the UI state and engine preferences, as the desktop app does on exit.
@@ -594,8 +596,10 @@ fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
     if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
         persist_write(dir, "ui.json", &bytes);
     }
-    if app.session.documents().iter().any(|doc| doc.is_dirty() && doc.path.is_some()) {
-        let _ = app.session.execute("file.save", &serde_json::json!({}));
+    if app.session.documents().iter().any(|doc| doc.is_dirty()) {
+        vectorcraft_ui_egui::recovery::tick(app, 0.0);
+        vectorcraft_ui_egui::recovery::tick(app, 1e9);
+        vectorcraft_ui_egui::background::wait_all(app);
     }
 }
 
@@ -660,6 +664,7 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 
 fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> Services {
     let write_bridge = bridge.clone_for_services();
+    let write_shared_bridge = bridge.clone_for_services();
     let pick_bridge = bridge.clone_for_services();
     let pick_state = state.clone();
     Services {
@@ -672,6 +677,9 @@ fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> S
         })),
         write: Some(Box::new(move |path: &str, bytes: &[u8]| {
             write_mobile(&write_bridge, path, bytes)
+        })),
+        write_shared: Some(Arc::new(move |path: &str, bytes: &[u8]| {
+            write_mobile(&write_shared_bridge, path, bytes)
         })),
         // Shown off the UI thread, so `ask` never calls these; they make the dialogs count as
         // available (`picks::can`).

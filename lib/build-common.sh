@@ -626,7 +626,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "57"
+GENERATOR_VERSION = "58"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2125,12 +2125,20 @@ PERSIST_RECIPES = {
         if let Ok(prefs) = serde_json::from_slice::<@ENGINE@::Prefs>(&bytes) {
             inner.session.prefs = prefs;
         }
+    }
+    let recovery_root = dir.join("Recovery");
+    if let Ok(run_dir) = @ENGINE@::recovery::run_dir(&recovery_root) {
+        inner.session.recovery_dir = Some(run_dir);
+        let _ = inner.session.execute("file.recovery.open", &serde_json::json!({}));
     }''',
         "save": '''if let Ok(bytes) = serde_json::to_vec_pretty(&inner.ui) {
         persist_write(dir, "ui.json", &bytes);
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&inner.session.prefs) {
         persist_write(dir, "prefs.json", &bytes);
+    }
+    if inner.session.recovery_dir.is_some() && inner.session.documents().iter().any(|d| d.is_dirty()) {
+        let _ = inner.session.execute("file.recovery.save", &serde_json::json!({}));
     }''',
     },
     "lightcraft": {
@@ -2139,10 +2147,18 @@ PERSIST_RECIPES = {
             Ok(ui) => inner.ui = ui.sanitized(),
             Err(error) => log::warn!("settings: {error}"),
         }
+    }
+    let lib_dir = dir.join("library");
+    inner.ui.settings.library_path = lib_dir.to_string_lossy().into_owned();
+    if let Err(error) = inner.session.open_library(&lib_dir, false) {
+        log::warn!("opening library in {}: {error}", lib_dir.display());
     }''',
         "save": '''if let Ok(bytes) = serde_json::to_vec_pretty(&inner.ui) {
         persist_write(dir, "ui.json", &bytes);
-    }''',
+    }
+    let _ = inner.session.persist();
+    inner.session.save_view();
+    let _ = inner.session.save_prefs();''',
     },
     "gridcraft": {
         "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
@@ -2213,18 +2229,33 @@ PERSIST_RECIPES = {
     }''',
     },
     "effectcraft": {
-        "load": '''inner.session.config = Some(std::sync::Arc::new(@ENGINE@::config::DirConfig::new(dir)));
-    inner.session.load_settings();''',
-        "save": '''inner.session.save_prefs();''',
+        "load": '''inner.session.autosave.background = true;
+    inner.session.config = Some(std::sync::Arc::new(@ENGINE@::config::DirConfig::new(dir)));
+    inner.session.load_settings();
+    if let Some(recovery) = inner.session.begin_recovery() {
+        inner.offer_recovery(recovery);
+    }''',
+        "save": '''inner.session.save_prefs();
+    if inner.session.dirty {
+        let _ = inner.session.autosave_now();
+        let _ = inner.session.autosave_wait();
+    }''',
     },
     "filmcraft": {
         "load": '''let cfg = @ENGINE@::autosave::AutosaveConfig::new(dir.to_path_buf());
     if let Err(error) = inner.session.start_autosave(cfg) {
         log::warn!("auto-save and crash recovery unavailable: {error}");
+    } else if !inner.session.recovery_candidates().is_empty() {
+        inner.dialog = Some(@UI@::Dialog::Recovery);
     }''',
         "save": '''let prefs = inner.session.prefs.clone();
     if let Err(error) = inner.session.set_prefs(prefs) {
         log::warn!("saving preferences: {error}");
+    }
+    let _ = inner.session.execute("file.autoSaveNow", serde_json::json!({}));
+    inner.session.sync_persistence();
+    if let Some(p) = inner.session.persistence.as_ref() {
+        p.flush();
     }''',
     },
     "pdfcraft": {
