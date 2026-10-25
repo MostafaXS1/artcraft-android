@@ -153,7 +153,7 @@ fi
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
 # release of this repository on launch and offers the download when GitHub has a newer one
 # (see templates/android/UpdateCheck.java). Bump it when a release is published.
-BUILDER_VERSION="0.2.0"
+BUILDER_VERSION="0.4.0"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 

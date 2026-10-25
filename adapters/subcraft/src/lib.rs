@@ -54,7 +54,8 @@ static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 /// Point the settings/cache roots at app-private storage before the app reads them. `HOME` and
 /// `XDG_DATA_HOME` are set by [`system_fonts::install_font_env`] to the *internal* directory (it
 /// needs it for the font symlinks); the external app directory is preferred for the settings and
-/// caches so they stay reachable over USB.
+/// caches so they stay reachable over USB. This also ensures autosave and crash recovery files are
+/// stored under Android/data/com.artcraft.subcraft/files, where the user can access them via MTP.
 #[allow(unused_unsafe)]
 fn install_persist_env(app: &AndroidApp) {
     let Some(base) = app.external_data_path().or_else(|| app.internal_data_path()) else {
@@ -62,15 +63,24 @@ fn install_persist_env(app: &AndroidApp) {
     };
     let config = base.join("config");
     let cache = base.join("cache");
+    let autosave = base.join("autosave");
+    let recovery = base.join("recovery");
     let _ = std::fs::create_dir_all(&config);
     let _ = std::fs::create_dir_all(&cache);
+    let _ = std::fs::create_dir_all(&autosave);
+    let _ = std::fs::create_dir_all(&recovery);
     // SAFETY: `android_main` runs before the app starts any worker thread, so no other thread is
     // reading the environment here.
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
     }
+    // Ensure SubCraft uses the external app-private directory for preferences and autosaves,
+    // matching the behavior of other ArtCraft apps. Some SubCraft versions read settings from
+    // standard locations; create the autosave/recovery dirs here so they are present.
     log::info!("settings directory: {}", config.display());
+    log::info!("autosave directory: {}", autosave.display());
+    log::info!("recovery directory: {}", recovery.display());
 }
 
 /// Ask the Activity whether the screen is dense enough (>600 dpi) to give the app its own UI scale

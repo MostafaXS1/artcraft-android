@@ -1300,3 +1300,646 @@ SubCraft uses external app-private storage via `install_persist_env()`:
 **Document Version:** 55  
 **Last Updated:** October 25, 2026  
 **Maintained by:** ArtCraft Android Builder Team
+
+
+## 36. Build Environment & Toolchain Deep Dive
+
+### 36.1 Required Tools
+| Tool | Purpose | Discovery/Installation |
+|------|---------|------------------------|
+| `git` | Source checkout/patching | Must be installed |
+| `python3` with `tomllib` | Cargo.toml parsing, template generation | Python 3.11+ required |
+| `cargo` | Rust toolchain | Must be installed |
+| `rustc` | Rust compiler | Must be installed |
+| `cargo-ndk` | Android NDK cargo wrapper | Installed if missing via `cargo install cargo-ndk` |
+| `ndk-build`/`cmake` | NDK components | Via SDK/NDK |
+| `jdk`/`javac` | Java compilation for Android | OpenJDK 17-23, downloaded from Adoptium if missing |
+| `aapt2`/`zipalign`/`apksigner` | APK packaging/signing | From Android SDK build-tools |
+| `gradle`/`gradlew` | Android build system | Wrapper copied from templates/gradle/ |
+| `adb` | Device testing | For on-device verification |
+
+### 36.2 SDK/NDK/JDK Discovery
+**Search paths:**
+- Environment: `ANDROID_HOME`, `ANDROID_SDK_ROOT`
+- Common locations: `$HOME/Android/Sdk`, `/opt/android-sdk`, `/usr/local/android-sdk`
+- NDK: `ndk/` or `ndk-bundle/` under SDK, or latest in `ndk/`
+- JDK: `.cache/jdk/temurin-21*`, system Java, or downloaded from Adoptium API
+
+**Bootstrap behavior:**
+- If SDK missing, may attempt to download cmdline-tools
+- If JDK missing, downloads Temurin JDK to `.cache/jdk/`
+- Links JDK to `/opt/jdk/temurin-21` in CI
+
+### 36.3 Cross-compilation Setup
+- Target: `aarch64-linux-android` (64-bit ARM only)
+- `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` set by cargo-ndk
+- `NDK_HOME`/`ANDROID_NDK_HOME` configured
+- `MIN_SDK_VERSION` written to `.artcraft-gradle.properties` for cargo-ndk
+- Rust flags and link args configured by cargo-ndk
+
+### 36.4 Build Directories
+```
+.artcraft-build.lock          # Global build lock (flock)
+.cache/jdk/                   # Downloaded JDKs
+keys/                         # Signing keystore
+  ├── artcraft-builder.jks
+  └── .keystore-password
+source/                       # Upstream source checkouts (preserved)
+  ├── <app>/                  # Main app source
+  └── craft-fonts/            # Shared fonts (optional)
+build/                        # Isolated build dirs
+  └── <app>/
+      └── target/             # Cargo target for this app
+output/                       # Built APKs
+logs/                         # Build logs with timestamps
+android-sdk/                  # SDK if bootstrapped
+```
+
+## 37. Cargo Workspace Patching Details
+
+### 37.1 Patch Mechanism
+The build system uses Python to perform regex replacements in the root `Cargo.toml` `[patch.crates-io]` section. Patches are applied to `source/$APP/Cargo.toml`.
+
+**Replacement patterns:**
+```python
+# Example patterns
+r'egui-winit\s*=\s*[^\n]+'
+# becomes
+'egui-winit = { path = "vendor/egui-winit" }'
+```
+
+### 37.2 Vendor Directory Structure
+```
+vendor/
+├── android-activity/   # Patched android-activity 0.6
+├── arboard/            # Patched arboard
+├── egui-wgpu/          # Patched egui-wgpu
+├── egui-winit/         # Patched egui-winit
+├── rfd/                # Patched rfd
+└── winit/              # Patched winit
+```
+
+Each vendor crate is copied from `ROOT/vendor/` to `SRC/vendor/` during build. `target/` dirs removed to force recompilation.
+
+### 37.3 Special Cases
+- **Apps that already vendor winit**: Only `src/platform_impl/android` is overwritten from our vendor
+- **rfd usage detection**: If app uses rfd, it's patched to use Android SAF backend
+- **arboard usage**: Patched for Android clipboard
+
+## 38. Android Manifest & Metadata Generation
+
+### 38.1 Cargo Metadata Structure
+In `Cargo.toml` `[package.metadata.android]`:
+```toml
+[package.metadata.android]
+package = "com.artcraft.app"
+apk_name = "app-1.0.0"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.application]]
+label = "App Name"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".MainActivity"
+config_changes = "orientation|keyboard|keyboardHidden|..."
+exported = true
+launch_mode = "singleTask"
+intent_filter = [...]
+```
+
+### 38.2 Generated AndroidManifest.xml
+The `lib/android_project.py` script converts Cargo metadata to AndroidManifest.xml:
+- No package attribute (AGP namespace)
+- Permissions from uses_permission entries
+- Application with label/theme/icon
+- Activity with all attributes
+- Intent filters from activity.intent_filter
+- meta-data entries
+- No uses-sdk (handled by defaultConfig)
+
+### 38.3 File Associations in Manifest
+File associations are added via `file_associations.py` which patches:
+- `intent_filter` in Cargo.toml metadata
+- Generates VIEW/SEND/SEND_MULTIPLE filters with proper MIME types and extensions
+- Handles pathPattern escaping for extension-based matching
+
+## 39. SAF Bridge Implementation Details
+
+### 39.1 Java Side (SafActivity)
+**Key methods:**
+- `safRequestOpen(long id, boolean multiple)` - Launches ACTION_OPEN_DOCUMENT
+- `safRequestSave(long id, String suggestedName)` - Launches ACTION_CREATE_DOCUMENT
+- `safRequestFolder(long id)` - Launches ACTION_OPEN_DOCUMENT_TREE (API 21+)
+- `safPoll()` - Returns queued JSON results as string
+- `safCommit(String path)` - Writes staged file to SAF URI
+- `intentPoll()` - Returns queued incoming file paths
+- `intentPending()` - Returns count of pending intents
+
+**Staging logic:**
+```java
+// Stage to app-private external dir
+File mediaDir = new File(getExternalFilesDir(null), "media");
+File stage = new File(mediaDir, uniqueName(displayName));
+copyUriToFile(uri, stage);
+rememberUri(stage, uri); // SharedPreferences
+```
+
+**URI mapping:**
+- Key: `uri:` + absolute staged path
+- Value: SAF content URI string
+- Also tries to find by stem if exact path not found
+
+### 39.2 Rust Side (saf_bridge.rs)
+**Bridge API:**
+```rust
+impl Bridge {
+    pub fn new(app: &AndroidApp) -> Self
+    pub fn pick_open_blocking(id: u64, multiple: bool, timeout: Duration) -> Result<PickAnswer>
+    pub fn pick_save_blocking(id: u64, name: &str, timeout: Duration) -> Result<PickAnswer>
+    pub fn pick_folder_blocking(id: u64, timeout: Duration) -> Result<PickAnswer>
+    pub fn commit(path: &str) -> Result<()>
+    pub fn files_dir() -> Result<PathBuf>
+    pub fn intent_pending() -> Result<u32>
+    pub fn intent_poll() -> Result<Option<String>>
+    pub fn print_document(title: &str, pdf: &[u8]) -> Result<String>
+    pub fn request_storage_permission()
+    pub fn poll() -> Option<String>
+}
+```
+
+**SaveMirror:**
+- Tracks saves by ID
+- Watches staged files for modifications
+- On write, calls commit() to mirror to SAF URI
+- Periodic polling (~200ms)
+
+**NonblockingCallbacks RAII:**
+Prevents ANR by setting `android_activity::set_nonblocking_callbacks(true)` during blocking picker calls.
+
+### 39.3 JSON Protocol
+Results passed as JSON strings:
+```json
+{"id": 123, "kind": "open", "status": "ok", "paths": ["/path1", "/path2"]}
+{"id": 124, "kind": "save", "status": "ok", "path": "/path"}
+{"id": 125, "kind": "folder", "status": "ok", "path": "/path"}
+{"status": "cancel"}
+{"status": "error", "message": "..."}
+```
+
+## 40. IME Bridge & Soft Keyboard
+
+### 40.1 Java Side (imeSetup)
+Creates invisible EditText:
+```java
+imeView = new EditText(this) {
+    @Override
+    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
+        InputConnection base = super.onCreateInputConnection(outAttrs);
+        return new ImeInputConnection(base);
+    }
+};
+imeView.setFocusable(true);
+imeView.setFocusableInTouchMode(true);
+imeView.setVisibility(View.INVISIBLE);
+```
+
+### 40.2 IME Event Queue
+Events queued with prefixes:
+- `c<text>` - Commit text
+- `p<text>` - Pre-edit/composing text
+- `f` - Finish composing
+- `d<before>,<after>` - Delete surrounding text
+- `a<actionCode>` - Editor action
+
+### 40.3 Backspace Pair Guard
+Prevents double-deletion:
+```java
+private static final long IME_DELETE_PAIR_MS = 30L;
+private volatile long lastImeDeleteSurroundingAt = 0L;
+private volatile long lastImeDeleteKeyAt = 0L;
+// If different methods within 30ms, drop second
+```
+
+### 40.4 Wake Mechanism
+After queuing IME events, sends `KEYCODE_UNKNOWN` key down to wake native event loop:
+```java
+private void wakeNativeLoop() {
+    dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+    dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+}
+```
+
+### 40.5 Rust Side (ime_bridge.rs)
+```rust
+pub struct ImeBridge {
+    // JNI references
+}
+
+impl ImeBridge {
+    pub fn new(app: &AndroidApp) -> Self
+    pub fn poll(&self, raw: &mut egui::RawInput) {
+        // Poll from Java queue, convert to egui events
+    }
+    pub fn hide_ime(&self) -> Result<()> {
+        // Call Java imeHide()
+    }
+}
+```
+
+## 41. System Fonts Integration
+
+### 41.1 Font Discovery
+Scans:
+- `/system/fonts/`
+- `/product/fonts/`
+- `/storage/emulated/0/Fonts/` (user fonts, requires MANAGE_EXTERNAL_STORAGE)
+- `/sdcard/Fonts/`
+
+### 41.2 Font Linking Strategy
+Creates symlinks in internal storage (required because external storage doesn't allow symlinks reliably):
+```rust
+// HOME and XDG_DATA_HOME point to internal dir
+std::env::set_var("HOME", &internal_home);
+std::env::set_var("XDG_DATA_HOME", &xdg_data);
+// Symlink all fonts to $XDG_DATA_HOME/fonts
+```
+
+### 41.3 Font Installation
+Adds fonts to egui as fallback in all font families:
+```rust
+pub fn install_system_fonts(ctx: &egui::Context) {
+    // Scan and link fonts
+    // Add as lowest priority in every family
+    // Refresh every few seconds
+}
+```
+
+### 41.4 PDF Font Support
+PdfCraft uses fontconfig with device fonts mapped by desktop-compatible names. System fonts linked to locations fontconfig searches.
+
+## 42. Persistence & Data Storage
+
+### 42.1 Directory Structure
+```
+/storage/emulated/0/Android/data/<pkg>/files/
+├── config/      # App configuration (XDG_CONFIG_HOME)
+├── cache/       # App cache (XDG_CACHE_HOME)
+├── media/       # Staged SAF documents
+├── autosave/    # Autosave files (PhotoCraft, etc.)
+└── recovery/    # Crash recovery (PhotoCraft, etc.)
+```
+
+### 42.2 Environment Setup
+In generated launchers:
+```rust
+fn install_persist_env(app: &AndroidApp) {
+    let files = app.external_data_path();
+    std::env::set_var("XDG_CONFIG_HOME", files.join("config"));
+    std::env::set_var("XDG_CACHE_HOME", files.join("cache"));
+    // HOME/XDG_DATA_HOME for fonts use internal dir
+}
+```
+
+### 42.3 Autosave Pattern (PhotoCraft Reference)
+See `adapters/photocraft/src/lib.rs` for full implementation:
+- Uses `photocraft-format::RecoveryStore`
+- 6 Services callbacks wired
+- `flush_autosaves()` called on pause
+- `app.background_jobs = true`
+- Zero-copy NIO staging
+- Crash recovery on startup
+
+## 43. Input Handling
+
+### 43.1 Modifier Key Fix
+Android/winit doesn't emit ModifiersChanged events. Shell tracks modifier keys:
+```rust
+fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput) {
+    // Track Shift/Ctrl/Alt from Key events
+    // Set state.command = state.ctrl
+    // Suppress Text events when Ctrl/Command held
+    // Emit ModifiersChanged if changed
+}
+```
+
+### 43.2 Clipboard Shortcuts
+Shell synthesizes Copy/Cut/Paste events for Ctrl/Cmd+C/X/V since winit doesn't handle them properly on Android.
+
+### 43.3 Back Button Mapping
+BrowserBack key mapped to Escape, then handled by app close logic:
+1. If app consumes Escape via input → handled
+2. If app has close guard and not asked → request_close() shows app prompt
+3. If app agrees to close → finish_activity() called
+
+### 43.4 Touch/Trackpad Gestures
+Patched winit/egui-winit provides:
+- Two-finger scroll with momentum
+- Pinch zoom
+- Proper hover/mouse events
+- Selection suppression
+
+## 44. Fullscreen, Edge-to-Edge, Theming
+
+### 44.1 Immersive Fullscreen
+```java
+const IMMERSIVE = 0x0000_0100 | 0x0000_0002 | 0x0000_0004 | 0x0000_0200 | 0x0000_0400 | 0x0000_1000;
+// STABLE | HIDE_NAVIGATION | FULLSCREEN | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN | IMMERSIVE_STICKY
+```
+Re-applied on focus/config changes.
+
+### 44.2 Edge-to-Edge
+```java
+WindowCompat.setDecorFitsSystemWindows(window, false);
+// Or set flags for older APIs
+window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, ...);
+```
+
+### 44.3 Bar Icon Appearance
+Synced to egui theme (light/dark):
+```java
+public void setBarIconAppearance(boolean lightTheme) {
+    WindowInsetsController controller = getWindow().getInsetsController();
+    if (lightTheme) {
+        controller.setSystemBarsAppearance(APPEARANCE_LIGHT_STATUS_BARS | APPEARANCE_LIGHT_NAVIGATION_BARS, 
+            APPEARANCE_LIGHT_STATUS_BARS | APPEARANCE_LIGHT_NAVIGATION_BARS);
+    } else {
+        controller.setSystemBarsAppearance(0, APPEARANCE_LIGHT_STATUS_BARS | APPEARANCE_LIGHT_NAVIGATION_BARS);
+    }
+}
+```
+
+### 44.4 Caption Bar Insets (Desktop Mode)
+For Samsung DeX/freeform windows, reserves space for window title bar with app-themed padding.
+
+## 45. Update Checker
+
+### 45.1 Implementation
+`templates/android/UpdateCheck.java`:
+```java
+public class UpdateCheck {
+    public static void start(Activity activity) {
+        // Baked version: __BUILDER_VERSION__
+        // Checks GitHub API after 5s delay
+        // Shows notification if newer version available
+    }
+}
+```
+
+### 45.2 API Endpoint
+`https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest`
+Compares tag name with baked BUILDER_VERSION.
+
+### 45.3 Behavior
+- Runs in background thread after 5s delay
+- Silent failure on network errors
+- Notifies once per version
+- Links to releases page
+
+## 46. Icon Generation Details
+
+### 46.1 Process (app_icons.py)
+1. Determine source icon (explicit flag > app icon > largest PNG)
+2. Generate legacy mipmaps for all densities (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)
+3. Generate adaptive icon:
+   - Background: solid brand color
+   - Foreground: icon artwork inside safe zone (66% of 108dp)
+   - Monochrome: same artwork for themed icons (Android 13+)
+4. Generate round icons if needed
+
+### 46.2 Densities
+| Density | Scale | Size |
+|---------|-------|------|
+| mdpi | 1.0x | 48x48 |
+| hdpi | 1.5x | 72x72 |
+| xhdpi | 2.0x | 96x96 |
+| xxhdpi | 3.0x | 144x144 |
+| xxxhdpi | 4.0x | 192x192 |
+
+Adaptive icons: 108x108dp with 66dp safe zone.
+
+## 47. Printing Support
+
+### 47.1 Flow
+1. Rust calls `bridge.print_document(title, pdf_bytes)`
+2. Java creates temp PDF in cache dir
+3. Uses PrintManager with PdfPrintAdapter
+4. System print dialog shown
+5. Returns "OK"
+
+### 47.2 PdfPrintAdapter
+Custom PrintDocumentAdapter:
+- `onLayout()` - Reports page count
+- `onWrite()` - Streams PDF to spooler
+
+Supported apps: WordCraft, GridCraft
+
+## 48. Debugging & Troubleshooting
+
+### 48.1 Logcat
+```bash
+# All logs for app
+adb logcat -s com.artcraft.soundcraft
+
+# With timestamps
+adb logcat -v time -s com.artcraft.soundcraft
+
+# Clear and watch
+adb logcat -c && adb logcat -s com.artcraft.soundcraft
+```
+
+### 48.2 APK Inspection
+```bash
+# Badging
+aapt dump badging output/app.apk
+
+# Manifest
+aapt dump xmltree output/app.apk AndroidManifest.xml
+
+# Permissions
+aapt dump permissions output/app.apk
+
+# Native libs
+unzip -l output/app.apk | grep "\.so"
+```
+
+### 48.3 Common Debug Commands
+```bash
+# Check installed version
+adb shell dumpsys package com.artcraft.app | grep versionName
+
+# Grant all permissions
+adb shell pm grant com.artcraft.app android.permission.RECORD_AUDIO
+adb shell pm grant com.artcraft.app android.permission.READ_EXTERNAL_STORAGE
+
+# MANAGE_EXTERNAL_STORAGE
+adb shell appops set com.artcraft.app MANAGE_EXTERNAL_STORAGE allow
+
+# Check storage
+adb shell ls -la /storage/emulated/0/Android/data/com.artcraft.app/files/
+
+# Force stop
+adb shell am force-stop com.artcraft.app
+```
+
+### 48.4 Build Debugging
+```bash
+# Verbose build
+bash build.sh -app 2>&1 | tee debug.log
+
+# Check logs
+tail -100 logs/app-release-*.log
+
+# Regenerate everything
+rm -rf source/app/apps/app-android build/app .artcraft-build.lock
+bash build.sh -app
+```
+
+## 49. Performance Considerations
+
+### 49.1 Build Performance
+- sccache enabled in CI
+- Isolated target dirs per app reduce cache pollution
+- Cargo incremental compilation where possible
+- Vendored deps cached
+
+### 49.2 Runtime Performance
+- WGPU rendering
+- Two threads for SAF I/O
+- NonblockingCallbacks prevent ANR
+- Background jobs enabled for apps with autosave
+- Zero-copy NIO where possible
+
+### 49.3 Memory
+- Staged files in app-private storage
+- Old sessions dropped on UI thread
+- Plugin instances garbage collected
+- Periodic cleanup of orphaned staged files
+
+## 50. Security & Permissions
+
+### 50.1 Permissions
+**Normal permissions:**
+- INTERNET
+
+**Dangerous permissions:**
+- READ_EXTERNAL_STORAGE (maxSdkVersion 32)
+- WRITE_EXTERNAL_STORAGE (maxSdkVersion 29)
+- RECORD_AUDIO (runtime)
+- MODIFY_AUDIO_SETTINGS
+
+**Special permissions:**
+- MANAGE_EXTERNAL_STORAGE (Android 11+, requires settings screen)
+
+### 50.2 SAF Security
+- All file access goes through SAF or app-private storage
+- URI permissions persisted
+- Staged copies isolated in app-private dir
+- No direct file system access to external storage without permissions
+
+### 50.3 Signing
+- Uses local keystore for development
+- Release builds signed with artcraft-builder.jks
+- Keystore password stored in keys/.keystore-password
+- Do not distribute with development keystore
+
+## 51. Version History & Changelog Notes
+
+### 51.1 Generator Version
+`GENERATOR_VERSION = "55"` in lib/build-common.sh
+Bump when launcher template changes significantly.
+
+### 51.2 Builder Version
+`BUILDER_VERSION = "0.4.0"` (current)
+Shown in UpdateCheck, included in APK metadata.
+
+### 51.3 Key Milestones
+- v0.2.0: Previous version
+- v0.4.0: Current version with expanded agents.md, SoundCraft audio routing fixes
+
+## 52. Contributing Guidelines
+
+### 52.1 Code Style
+- Follow existing Rust/Java/Bash patterns
+- Use 4 spaces for indentation in most files
+- Keep functions focused and documented
+- Add comments for non-obvious logic
+
+### 52.2 Testing Requirements
+- Test builds for affected apps
+- Verify on connected Android device when possible
+- Check permissions in manifest and runtime
+- Ensure APK installs and launches
+
+### 52.3 Patch Guidelines
+- Make patches idempotent where possible
+- Guard with checks for already-applied fixes
+- Document in code comments
+- Add to appropriate patch script
+
+### 52.4 Commit Messages
+Use clear, descriptive commit messages. Follow project style.
+
+## 53. Appendix
+
+### 53.1 Environment Variables
+| Variable | Purpose |
+|----------|---------|
+| `ANDROID_HOME`/`ANDROID_SDK_ROOT` | SDK location |
+| `ANDROID_NDK_HOME`/`NDK_HOME` | NDK location |
+| `JAVA_HOME` | JDK location |
+| `ARTCRAFT_KEYSTORE` | Keystore path |
+| `ARTCRAFT_KEYSTORE_PASSWORD` | Keystore password |
+| `ARTCRAFT_KEY_ALIAS` | Key alias |
+| `ARTCRAFT_KEY_PASSWORD` | Key password |
+| `CARGO_TARGET_DIR` | Cargo build output dir |
+| `RUST_BACKTRACE` | Enable backtraces |
+
+### 53.2 Useful Commands Reference
+```bash
+# Build specific app
+bash build.sh -<app>
+
+# Debug build
+bash build-debug.sh -<app>
+
+# Clean
+bash clean.sh
+
+# List devices
+adb devices
+
+# Install
+adb install -r output/<app>-*.apk
+
+# Logcat
+adb logcat -s com.artcraft.<app>
+
+# Uninstall
+adb uninstall com.artcraft.<app>
+```
+
+### 53.3 File Patterns
+- App names: lowercase (photocraft, soundcraft, etc.)
+- Package names: com.artcraft.<app>
+- Activity names: <AppName>Activity or .<AppName>Activity
+- APK names: <app>-<version>.apk
+
+### 53.4 Quick Reference Links
+- [GitHub Repo](https://github.com/MostafaXS1/artcraft-android)
+- [Releases](https://github.com/MostafaXS1/artcraft-android/releases)
+- [ArtCraft Website](https://getartcraft.com/)
+- [Storytold GitHub](https://github.com/storytold)
+
