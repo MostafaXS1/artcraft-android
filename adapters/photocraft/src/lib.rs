@@ -616,7 +616,11 @@ struct PhotoCraftAndroidApp {
     // when the one-time orphan sweep of the directory is due.
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
-    persist_last: Option<std::time::Instant>,
+    /// The unsaved documents' revisions when they last changed, and when (egui time), for
+    /// `autosave_when_idle`.
+    last_change: (u64, f64),
+    /// Wakes the UI when an idle autosave is due (see `idle_waker`).
+    wake_at: Option<std::sync::mpsc::Sender<std::time::Instant>>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -763,20 +767,77 @@ impl PhotoCraftAndroidApp {
         self.staged_seen = current;
     }
 
-    fn persist_tick(&mut self) {
-        let now = std::time::Instant::now();
-        if self.persist_last.is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(2)) {
+    /// Android closes apps in the background whenever it likes, and no frame runs once the app has
+    /// left the screen, so the app's autosave timer (Preferences › File Handling, every few
+    /// minutes) can't be relied on alone: unsaved work is also autosaved a few seconds after the
+    /// last change, while the app is still on screen. Only with autosave on; the save itself runs
+    /// on the recovery store's worker and skips documents already saved at their revision.
+    fn autosave_when_idle(&mut self, ctx: &egui::Context) {
+        if !self.inner.session.prefs().file_handling.autosave {
             return;
         }
-        self.persist_last = Some(now);
-        self.persist_now();
+        let docs = self.inner.session.documents();
+        let revisions = docs
+            .iter()
+            .filter(|d| d.is_dirty())
+            .fold(docs.len() as u64, |h, d| h.wrapping_mul(31).wrapping_add(d.revision ^ d.doc.id.0));
+        let any_dirty = docs.iter().any(|d| d.is_dirty());
+        let now = ctx.input(|i| i.time);
+        if revisions != self.last_change.0 {
+            self.last_change = (revisions, now);
+            if any_dirty {
+                // A frame when the wait is over: an idle app gets no frames otherwise.
+                let at = std::time::Instant::now() + std::time::Duration::from_secs_f64(IDLE_AUTOSAVE_SECS + 0.05);
+                let wake = self.wake_at.get_or_insert_with(|| idle_waker(ctx.clone()));
+                let _ = wake.send(at);
+            }
+        } else if self.last_change.1 > 0.0 && now - self.last_change.1 >= IDLE_AUTOSAVE_SECS {
+            // Once per change: the next change starts the wait again.
+            self.last_change.1 = 0.0;
+            photocraft_ui_egui::prefs_ui::autosave_now(&mut self.inner);
+        }
     }
 
+    /// Wait for queued autosaves to finish. Only when the app is going away: flushing stops the
+    /// recovery store's workers and takes the outcomes the app's own autosave bookkeeping waits
+    /// for, so flushing while it runs would keep each document from being autosaved again.
     fn persist_now(&mut self) {
         if let Some(flush) = self.inner.services.flush_autosaves.as_mut() {
             let _ = flush();
         }
     }
+}
+
+/// Seconds without changes after which unsaved work is autosaved for recovery.
+const IDLE_AUTOSAVE_SECS: f64 = 4.0;
+
+/// A thread that repaints `ctx` at the last time sent to it (each time replaces the one before),
+/// so the idle autosave runs even when nothing else asks for a frame.
+fn idle_waker(ctx: egui::Context) -> std::sync::mpsc::Sender<std::time::Instant> {
+    use std::sync::mpsc::RecvTimeoutError;
+    let (tx, rx) = std::sync::mpsc::channel::<std::time::Instant>();
+    std::thread::spawn(move || {
+        let mut at: Option<std::time::Instant> = None;
+        loop {
+            let next = match at {
+                None => rx.recv().ok(),
+                Some(t) => match rx.recv_timeout(t.saturating_duration_since(std::time::Instant::now())) {
+                    Ok(t) => Some(t),
+                    Err(RecvTimeoutError::Timeout) => {
+                        ctx.request_repaint();
+                        at = None;
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => None,
+                },
+            };
+            match next {
+                Some(t) => at = Some(t),
+                None => return,
+            }
+        }
+    });
+    tx
 }
 
 impl Drop for PhotoCraftAndroidApp {
@@ -794,7 +855,7 @@ impl eframe::App for PhotoCraftAndroidApp {
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
-        self.persist_tick();
+        self.autosave_when_idle(ctx);
         self.inner.logic(ctx, frame);
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -810,7 +871,9 @@ impl eframe::App for PhotoCraftAndroidApp {
         self.ime.poll(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
-            self.persist_now();
+            // Leaving the screen: autosave unsaved work now (this frame's logic queues it), since
+            // Android may close the app from here without another frame.
+            photocraft_ui_egui::prefs_ui::autosave_now(&mut self.inner);
         }
         self.inner.raw_input_hook(ctx, raw);
     }
@@ -961,7 +1024,8 @@ fn android_main(android_app: AndroidApp) {
                 intent_warmup: 2,
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
-                persist_last: None,
+                last_change: (0, 0.0),
+                wake_at: None,
             }))
         }),
     );
