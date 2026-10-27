@@ -53,12 +53,15 @@ import com.google.androidgamesdk.GameActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -67,6 +70,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 
 /**
  * Builder-generated {@link GameActivity} subclass that supplies Android Storage Access Framework
@@ -870,6 +876,10 @@ public final class __CLASS__ extends GameActivity {
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 List<String> exts = parseExtensions(extensionsStr);
                 if (!exts.isEmpty()) {
+                    if (exts.contains("wasm")) {
+                        if (!exts.contains("pcpl")) exts.add("pcpl");
+                        if (!exts.contains("zip")) exts.add("zip");
+                    }
                     requestExtensions.put(id, exts);
                     List<String> mimes = resolveMimeTypes(exts);
                     if (!mimes.isEmpty()) {
@@ -1011,6 +1021,7 @@ public final class __CLASS__ extends GameActivity {
         }
         if (uris.isEmpty()) { requestExtensions.remove(id); enqueueCancel(id, kind); return; }
         final List<String> allowedExts = requestExtensions.remove(id);
+        final boolean isPluginRequest = allowedExts != null && allowedExts.contains("wasm");
         if (allowedExts != null && !allowedExts.isEmpty()) {
             for (Uri uri : uris) {
                 String name = displayName(uri);
@@ -1026,10 +1037,15 @@ public final class __CLASS__ extends GameActivity {
             try {
                 JSONArray paths = new JSONArray();
                 for (Uri uri : uris) {
-                    File stage = newStageFile(displayName(uri), uri);
+                    String name = displayName(uri);
+                    File stage = newStageFile(name, uri);
                     copyUriToFile(uri, stage);
                     rememberUri(stage, uri);
-                    paths.put(stage.getAbsolutePath());
+                    File fileToReturn = handlePluginPackageIfApplicable(stage, name, isPluginRequest);
+                    if (!fileToReturn.equals(stage)) {
+                        rememberUri(fileToReturn, uri);
+                    }
+                    paths.put(fileToReturn.getAbsolutePath());
                 }
                 JSONObject result = base(id, "open", "ok");
                 result.put("paths", paths);
@@ -1109,6 +1125,110 @@ public final class __CLASS__ extends GameActivity {
         int suggestedDot = suggested.lastIndexOf('.');
         if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
         return name + suggested.substring(suggestedDot);
+    }
+
+    private static boolean isPackageExtension(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(".pcpl") || lower.endsWith(".zip");
+    }
+
+    private static boolean isZipFile(File file) {
+        if (file == null || !file.exists() || file.length() < 4) return false;
+        try (InputStream in = new FileInputStream(file)) {
+            byte[] header = new byte[4];
+            if (in.read(header) == 4) {
+                return header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private static String readFullyToString(InputStream in) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int len;
+        while ((len = in.read(buffer)) != -1) {
+            baos.write(buffer, 0, len);
+        }
+        return baos.toString("UTF-8");
+    }
+
+    private File handlePluginPackageIfApplicable(File stage, String originalName, boolean isPluginRequest) throws Exception {
+        if (!isPluginRequest && !isPackageExtension(originalName)) {
+            return stage;
+        }
+
+        if (!isZipFile(stage)) {
+            return stage;
+        }
+
+        try (ZipFile zip = new ZipFile(stage)) {
+            ZipEntry wasmEntry = null;
+            ZipEntry manifestEntry = null;
+
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+                String ename = entry.getName();
+                if (ename.toLowerCase(java.util.Locale.US).endsWith(".wasm")) {
+                    if (wasmEntry == null || ename.endsWith("plugin.wasm")) {
+                        wasmEntry = entry;
+                    }
+                } else if (ename.equals("plugin.json") || ename.endsWith("/plugin.json")) {
+                    manifestEntry = entry;
+                }
+            }
+
+            if (wasmEntry != null) {
+                String stem = stage.getName();
+                int dot = stem.lastIndexOf('.');
+                if (dot > 0) stem = stem.substring(0, dot);
+                File wasmFile = new File(stage.getParentFile(), stem + ".wasm");
+
+                try (InputStream in = zip.getInputStream(wasmEntry);
+                     OutputStream out = new FileOutputStream(wasmFile)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int len;
+                    while ((len = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, len);
+                    }
+                    out.flush();
+                }
+
+                Log.i(TAG, "Extracted WebAssembly binary from package '" + originalName + "' to: " + wasmFile.getAbsolutePath());
+                return wasmFile;
+            }
+
+            if (isPluginRequest || isPackageExtension(originalName)) {
+                if (manifestEntry != null) {
+                    try (InputStream in = zip.getInputStream(manifestEntry)) {
+                        String manifestJson = readFullyToString(in);
+                        JSONObject manifest = new JSONObject(manifestJson);
+                        String pluginName = manifest.optString("name", originalName);
+
+                        if (manifest.has("ai") || manifest.has("models")) {
+                            throw new Exception("'" + pluginName + "' is an AI neural package requiring desktop DirectML GPU inference. ArtCraft on Android currently supports WebAssembly (.wasm) filter plugins.");
+                        } else if (manifest.has("commands")) {
+                            throw new Exception("'" + pluginName + "' is a declarative macro package without a WebAssembly binary. Macro execution on Android is coming soon.");
+                        } else {
+                            throw new Exception("Package '" + pluginName + "' does not contain a WebAssembly (.wasm) plugin module.");
+                        }
+                    } catch (org.json.JSONException e) {
+                        throw new Exception("Invalid plugin manifest in '" + originalName + "': " + e.getMessage());
+                    }
+                } else {
+                    throw new Exception("Package '" + originalName + "' contains neither a WebAssembly binary (.wasm) nor a plugin.json manifest.");
+                }
+            }
+        } catch (ZipException e) {
+            if (isPackageExtension(originalName)) {
+                throw new Exception("Corrupt package archive '" + originalName + "': " + e.getMessage());
+            }
+        }
+
+        return stage;
     }
 
     /**
@@ -1509,6 +1629,12 @@ public final class __CLASS__ extends GameActivity {
             switch (ext) {
                 case "wasm":
                     mimes.add("application/wasm");
+                    mimes.add("application/octet-stream");
+                    break;
+                case "pcpl":
+                case "zip":
+                    mimes.add("application/zip");
+                    mimes.add("application/x-zip-compressed");
                     mimes.add("application/octet-stream");
                     break;
                 case "psd":
