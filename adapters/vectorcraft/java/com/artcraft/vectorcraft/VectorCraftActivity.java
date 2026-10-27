@@ -15,7 +15,6 @@ import android.os.SystemClock;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
 import android.view.Display;
@@ -152,24 +151,6 @@ public final class VectorCraftActivity extends GameActivity {
         return appStorageDir().getAbsolutePath();
     }
 
-    /**
-     * True when the screen is dense enough that the launch should give the app its own UI scale
-     * instead of the system's. Above 600 dpi the app's own points are drawn so small that its
-     * interface is hard to read, so it is scaled up; at or below that threshold — tablets in
-     * particular — the app is left at Auto, the display scale Android reports.
-     *
-     * The test is {@link DisplayMetrics#densityDpi}, the screen's density as Android reports it
-     * (160 dpi is the baseline where one dp is one pixel), including the user's Display Size
-     * setting, because that is the density the app is actually drawn at.
-     */
-    public boolean isHighDensityDevice() {
-        try {
-            return getResources().getConfiguration().smallestScreenWidthDp < 600;
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not read screen size; leaving UI scale at Auto", error);
-            return false;
-        }
-    }
 
     /**
      * The app's private storage root: the app-specific external directory

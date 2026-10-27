@@ -488,58 +488,14 @@ fn persist_read(dir: &Path, name: &str) -> Option<Vec<u8>> {
     fs::read(dir.join(name)).ok()
 }
 
-/// Ask the Activity whether the screen is below 600 dpi (phones) for the launch to apply the
-/// app's own scale. Denser screens stay at Auto. Returns `None` when unreadable.
-fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
-    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
-    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
-        let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
-        Ok(env
-            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
-            .z()?)
-    });
-    match result {
-        Ok(is_dense) => Some(is_dense),
-        Err(error) => {
-            log::warn!("Could not determine the screen density: {error}");
-            None
-        }
-    }
-}
-
 /// Write `bytes` to `dir/name` through a temporary file renamed over the old one, so a crash leaves
 /// the old file or the new one whole, never a truncated one.
-fn persist_write(dir: &Path, name: &str, bytes: &[u8]) {
-    if let Err(error) = fs::create_dir_all(dir) {
-        log::warn!("settings: {}: {error}", dir.display());
-        return;
-    }
+fn persist_write(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
     let path = dir.join(name);
     let temporary = path.with_extension("tmp");
-    let written = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, &path));
-    if let Err(error) = written {
-        log::warn!("settings: {}: {error}", path.display());
-    }
-}
-
-/// Whether the high-density UI scale should be applied to this launch, and the sidecar that
-/// remembers that it was.
-///
-/// The scale belongs to the *device*, but `ui.json` belongs to the *user*: it is written on the
-/// first launch and never revisited, so a screen that later stops being high-density (a foldable, an
-/// external display, a display-size change) kept the old scale. The choice is remembered in its own
-/// sidecar (`device_class`), so "first launch" means "the scale has not been set for this device
-/// yet" and a user who changes the scale by hand keeps it: the sidecar already says it was applied,
-/// so nothing is re-applied.
-fn device_scale_first_time(dir: &Path) -> bool {
-    let marker = dir.join("device_class");
-    if fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "scaled") {
-        return false;
-    }
-    persist_write(dir, "device_class", b"scaled");
-    true
+    fs::write(&temporary, bytes)?;
+    fs::rename(&temporary, &path)
 }
 
 /// Read a saved `ui.json` leniently: a docking layout or hidden-panel entry this version cannot
@@ -590,17 +546,17 @@ fn persist_load(app: &mut VectorcraftApp, dir: &Path) {
 }
 
 /// Save the UI state and engine preferences, as the desktop app does on exit.
-fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
+fn persist_save(app: &mut VectorcraftApp, dir: &Path) -> std::io::Result<()> {
     let mut ui = app.ui.clone();
     ui.engine_prefs = app.session.prefs.to_json();
-    if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
-        persist_write(dir, "ui.json", &bytes);
-    }
+    let bytes = serde_json::to_vec_pretty(&ui).map_err(std::io::Error::other)?;
+    persist_write(dir, "ui.json", &bytes)?;
     if app.session.documents().iter().any(|doc| doc.is_dirty()) {
         vectorcraft_ui_egui::recovery::tick(app, 0.0);
         vectorcraft_ui_egui::recovery::tick(app, 1e9);
         vectorcraft_ui_egui::background::wait_all(app);
     }
+    Ok(())
 }
 
 /// Reconstruct egui's modifier state on Android.
@@ -867,13 +823,17 @@ impl VectorCraftAndroidApp {
             return;
         }
         self.persist_last = Some(now);
-        persist_save(&mut self.inner, &dir);
+        if let Err(error) = persist_save(&mut self.inner, &dir) {
+            log::warn!("settings: {}: {error}", dir.display());
+        }
     }
 
     /// Save now: the window lost focus (the app is being backgrounded) or it is exiting.
     fn persist_now(&mut self) {
         if let Some(dir) = self.persist.clone() {
-            persist_save(&mut self.inner, &dir);
+            if let Err(error) = persist_save(&mut self.inner, &dir) {
+                log::warn!("settings: {}: {error}", dir.display());
+            }
         }
     }
 }
@@ -962,18 +922,36 @@ fn android_main(android_app: AndroidApp) {
             );
             let persist = persist_dir(&app_bridge.app);
             if let Some(dir) = &persist {
-                // Load the saved settings *first*, so the device's default UI scale below is not
-                // overwritten by `prefs_dialog::restore` (which rebuilds the prefs from the saved
-                // state, or from the defaults when there is none).
                 persist_load(&mut app, dir);
-                // VectorCraft draws its work on a canvas, so a high-density screen gets a *smaller*
-                // interface (75 %), not a larger one; every other screen keeps the app's own
-                // default, Auto. Applied once (`device_scale_first_time`), which covers a first
-                // launch and an upgrade from a build without this bootstrap; a user who sets the
-                // scale by hand keeps it, since the sidecar already says it was applied.
-                if device_is_high_density(&app_bridge.app) == Some(true) && device_scale_first_time(dir) {
-                    let _ = app.session.execute("prefs.set", &serde_json::json!({"key": "uiScaling", "value": 0.75}));
-                    persist_save(&mut app, dir);
+                if !dir.join(".artcraft-desktop-scale-v1").exists() {
+                    let original = dir.join("ui.json");
+                    let backup = dir.join("ui.json.before-artcraft-desktop-scale-v1");
+                    let backed_up = if !original.is_file() || backup.is_file() {
+                        true
+                    } else {
+                        match fs::copy(&original, &backup) {
+                            Ok(_) => true,
+                            Err(error) => {
+                                log::warn!("Backing up UI preferences: {error}");
+                                false
+                            }
+                        }
+                    };
+                    if backed_up {
+                        match app.session.execute(
+                            "prefs.set",
+                            &serde_json::json!({"key": "uiScaling", "value": 1.0}),
+                        ) {
+                            Ok(_) => {
+                                if let Err(error) = persist_save(&mut app, dir).and_then(|()| {
+                                    persist_write(dir, ".artcraft-desktop-scale-v1", b"1")
+                                }) {
+                                    log::warn!("Could not persist the desktop UI scale: {error}");
+                                }
+                            }
+                            Err(error) => log::warn!("Could not set the desktop UI scale: {error}"),
+                        }
+                    }
                 }
             }
             Ok(Box::new(VectorCraftAndroidApp {

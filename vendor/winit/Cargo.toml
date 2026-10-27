@@ -415,6 +415,9 @@ version = "0.6.0"
 version = "0.9.0"
 default-features = false
 
+[target.'cfg(target_os = "android")'.dependencies.jni]
+version = "0.22"
+
 [target.'cfg(target_os = "ios")'.dependencies.objc2-foundation]
 version = "0.2.2"
 features = [

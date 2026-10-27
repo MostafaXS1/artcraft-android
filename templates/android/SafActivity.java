@@ -27,7 +27,6 @@ import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
 import android.view.MotionEvent;
@@ -171,22 +170,6 @@ public final class __CLASS__ extends GameActivity {
 
     public String safFilesDir() { return appStorageDir().getAbsolutePath(); }
 
-    /**
-     * True when the screen is less dense (below 600 dpi) — phones — so the launch applies the app's
-     * own scale; denser screens (tablets and high-density displays) stay at Auto.
-     *
-     * The test is {@link DisplayMetrics#densityDpi}, the screen's density as Android reports it
-     * (160 dpi is the baseline where one dp is one pixel), including the user's Display Size
-     * setting, because that is the density the app is actually drawn at.
-     */
-    public boolean isHighDensityDevice() {
-        try {
-            return getResources().getConfiguration().smallestScreenWidthDp < 600;
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not read screen size; leaving UI scale at Auto", error);
-            return false;
-        }
-    }
 
     /**
      * The app's private storage root: the app-specific external directory
