@@ -953,6 +953,7 @@ impl PhotoCraftAndroidApp {
     }
 
     /// In-canvas floating Companion Palette. Strictly invisible until at least one companion package is installed.
+    #[allow(deprecated)]
     fn render_companion_palette(&mut self, ctx: &egui::Context) {
         if self.companion_plugins.is_empty() {
             return;
@@ -967,7 +968,7 @@ impl PhotoCraftAndroidApp {
         let default_pos = egui::pos2((screen_rect.max.x - 290.0).max(10.0), 70.0);
 
         if self.palette_collapsed {
-            egui::Area::new(egui::Id::unique("pc_companion_pill"))
+            egui::Area::new(egui::Id::new("pc_companion_pill"))
                 .order(egui::Order::Foreground)
                 .default_pos(egui::pos2((screen_rect.max.x - 170.0).max(10.0), 70.0))
                 .movable(true)
@@ -991,7 +992,7 @@ impl PhotoCraftAndroidApp {
                 });
         } else {
             egui::Window::new("⚡ PhotoCraft Companion")
-                .id(egui::Id::unique("pc_companion_window"))
+                .id(egui::Id::new("pc_companion_window"))
                 .order(egui::Order::Foreground)
                 .default_pos(default_pos)
                 .default_width(280.0)
