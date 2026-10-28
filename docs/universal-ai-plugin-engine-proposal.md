@@ -1,5 +1,6 @@
 # Proposal for a Universal AI/ML Plugin & Neural Inference Architecture
 
+**Author:** ArtCraft Android Core Team  
 **Scope:** Suite-Wide (PhotoCraft, VectorCraft, FilmCraft, SoundCraft, LightCraft, and all 14 ArtCraft apps)  
 **Status:** Architecture Blueprint & Implementation Roadmap  
 
@@ -289,7 +290,7 @@ gantt
 
 ## 8. Security, Sandboxing, and Thermal Guidelines
 
-1. **Storage Sandboxing:** Model weights and package scripts unpack strictly into private app storage (`files/plugins/<plugin_id>/` and `files/models/`). They are completely isolated from other applications.
+1. **Storage Sandboxing:** Model weights and package scripts unpack strictly into private app storage (`/data/user/0/<package>/files/plugins/<plugin_id>/`). They are isolated from other apps.
 2. **Thermal Throttling Guard:** Continuous NPU/GPU workloads on mobile can trigger aggressive hardware thermal throttling. The engine incorporates:
    - Dynamic batch size capping (processing tiles sequentially instead of monolithic tensor allocations).
    - Thermal state listeners (`PowerManager.OnThermalStatusChangedListener`) that throttle processing or switch to low-power CPU cores when the device reports `THERMAL_STATUS_SEVERE`.
