@@ -7,19 +7,15 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
-import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.SystemClock;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
-import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -76,21 +72,6 @@ public final class PhotoCraftActivity extends GameActivity {
     private EditText imeView;
     // True between imeShow() and imeHide(); suppresses a deferred show that a quick hide overtook.
     private volatile boolean imeWanted = false;
-    // Some IMEs report one backspace press twice, through two different calls:
-    // `deleteSurroundingText(1,0)` and `sendKeyEvent(KEYCODE_DEL)`. Both arrive back to back, in
-    // the same IME dispatch — microseconds apart — while two deliberate taps are always further
-    // apart (the finger has to lift and press again). So only a *pair of different methods* within
-    // `IME_DELETE_PAIR_MS` is treated as a repeat; the second call is dropped, and the same method
-    // called twice is never dropped (a quick double-tap still erases twice). Both timestamps are
-    // remembered because an IME may send either order.
-    private static final long IME_DELETE_PAIR_MS = 30L;
-    private volatile long lastImeDeleteSurroundingAt = 0L;
-    private volatile long lastImeDeleteKeyAt = 0L;
-    // Key codes an IME synthesised through `sendKeyEvent` and which the host view must therefore
-    // consume instead of letting them bubble up to the native input queue (see the host's
-    // `onKeyDown`/`onKeyUp`). Guarded by itself: `sendKeyEvent` runs on the IME's thread and the
-    // key dispatch on the main thread.
-    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -140,21 +121,19 @@ public final class PhotoCraftActivity extends GameActivity {
     public String pcFilesDir() { return appStorageDir().getAbsolutePath(); }
 
     /**
-     * True when the screen is dense enough that the launch should give the app its own UI scale
-     * instead of the system's. Above 600 dpi the app's own points are drawn so small that its
-     * interface is hard to read, so it is scaled up; at or below that threshold — tablets in
-     * particular — the app is left at Auto, the display scale Android reports.
-     *
-     * The test is {@link DisplayMetrics#densityDpi}, the screen's density as Android reports it
-     * (160 dpi is the baseline where one dp is one pixel), including the user's Display Size
-     * setting, because that is the density the app is actually drawn at.
+     * True when the device is a phone-class (small) screen, so the first launch can raise the app's
+     * UI scale to a comfortable 150% for it. This is Android's own form-factor test:
+     * {@code smallestScreenWidthDp} is the *shortest* screen edge in density-independent pixels (so
+     * it does not flip with rotation), and 600dp is the same {@code sw600dp} boundary the platform
+     * and Play Store use to bucket tablets. Density ("dpi") is deliberately not used — it describes
+     * pixel size, not screen size. Called once by the Rust shell over JNI.
      */
-    public boolean isHighDensityDevice() {
+    public boolean isPhoneDevice() {
         try {
             return getResources().getConfiguration().smallestScreenWidthDp < 600;
         } catch (Throwable error) {
-            Log.w(TAG, "Could not read screen size; leaving UI scale at Auto", error);
-            return false;
+            Log.w(TAG, "Could not read the screen size; assuming a phone", error);
+            return true;
         }
     }
 
@@ -319,36 +298,39 @@ public final class PhotoCraftActivity extends GameActivity {
                         @Override
                         public boolean commitText(CharSequence text, int newCursorPosition) {
                             if (text != null && text.length() > 0) {
-                                queueImeEvent("c" + text);
+                                imeEvents.offer("c" + text);
+                                wakeNativeLoop();
                             }
                             return super.commitText(text, newCursorPosition);
                         }
 
                         @Override
                         public boolean setComposingText(CharSequence text, int newCursorPosition) {
-                            queueImeEvent("p" + (text == null ? "" : text.toString()));
+                            imeEvents.offer("p" + (text == null ? "" : text.toString()));
+                            wakeNativeLoop();
                             return super.setComposingText(text, newCursorPosition);
                         }
 
                         @Override
                         public boolean finishComposingText() {
-                            queueImeEvent("f");
+                            imeEvents.offer("f");
+                            wakeNativeLoop();
                             return super.finishComposingText();
                         }
 
                         @Override
                         public boolean deleteSurroundingText(int beforeLength, int afterLength) {
                             if (beforeLength > 0 || afterLength > 0) {
-                                if (claimDelete("d")) {
-                                    queueImeEvent("d" + beforeLength + "," + afterLength);
-                                }
+                                imeEvents.offer("d" + beforeLength + "," + afterLength);
+                                wakeNativeLoop();
                             }
                             return super.deleteSurroundingText(beforeLength, afterLength);
                         }
 
                         @Override
                         public boolean performEditorAction(int actionCode) {
-                            queueImeEvent("a" + actionCode);
+                            imeEvents.offer("a" + actionCode);
+                            wakeNativeLoop();
                             return super.performEditorAction(actionCode);
                         }
 
@@ -357,25 +339,16 @@ public final class PhotoCraftActivity extends GameActivity {
                             if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                 int code = event.getKeyCode();
                                 if (code == KeyEvent.KEYCODE_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d1,0");
-                                    }
+                                    imeEvents.offer("d1,0");
+                                    PhotoCraftActivity.this.wakeNativeLoop();
                                 } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d0,1");
-                                    }
+                                    imeEvents.offer("d0,1");
+                                    PhotoCraftActivity.this.wakeNativeLoop();
                                 } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    queueImeEvent("a6");
+                                    imeEvents.offer("a6");
+                                    PhotoCraftActivity.this.wakeNativeLoop();
                                 }
                             }
-                            // An IME answers some keys by sending a synthesised key event, and the
-                            // wrapper forwards it to the host view. Without this the host's
-                            // `onKeyDown` would return false and the event would bubble up to the
-                            // Activity, into GameActivity's native queue and out through winit as a
-                            // *second* deletion (a real Backspace) on top of the one queued above —
-                            // the double-delete. `onKeyDown`/`onKeyUp` use the flag to consume the
-                            // pair here, so neither reaches the native path.
-                            imeKeySynthesized.add(event.getKeyCode());
                             return super.sendKeyEvent(event);
                         }
                     };
@@ -383,13 +356,6 @@ public final class PhotoCraftActivity extends GameActivity {
 
                 @Override
                 public boolean onKeyDown(int keyCode, KeyEvent event) {
-                    // A key the IME synthesised (see sendKeyEvent above): its deletion was already
-                    // queued, so consuming it here stops it bubbling to the Activity and reaching
-                    // winit as a second Backspace. Physical key events never carry the flag, so they
-                    // still fall through to the native queue below and keep working.
-                    if (imeKeySynthesized.contains(keyCode)) {
-                        return true;
-                    }
                     // Let hardware key events fall through to the native input queue (winit), exactly
                     // as they did before this view existed; the soft keyboard talks to us through the
                     // InputConnection instead. This keeps physical keyboards working.
@@ -398,9 +364,6 @@ public final class PhotoCraftActivity extends GameActivity {
 
                 @Override
                 public boolean onKeyUp(int keyCode, KeyEvent event) {
-                    if (imeKeySynthesized.remove(keyCode)) {
-                        return true;
-                    }
                     return false;
                 }
 
@@ -424,6 +387,16 @@ public final class PhotoCraftActivity extends GameActivity {
             addContentView(imeView, params);
         } catch (Throwable error) {
             Log.w(TAG, "Could not install the soft-keyboard host view", error);
+        }
+    }
+
+    /** Wake the native event loop so the Rust shell polls queued IME events this frame instead of waiting for the next touch/timer. */
+    void wakeNativeLoop() {
+        try {
+            onKeyDown(KeyEvent.KEYCODE_UNKNOWN, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            onKeyUp(KeyEvent.KEYCODE_UNKNOWN, new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not wake the native loop for an IME event", error);
         }
     }
 
@@ -490,58 +463,6 @@ public final class PhotoCraftActivity extends GameActivity {
                 Log.w(TAG, "Could not hide the soft keyboard", error);
             }
         });
-    }
-
-    /**
-     * Queue one keyboard event for the Rust shell, and wake the native loop so the same frame
-     * reads it.
-     *
-     * The native loop (android-activity, then winit and eframe) sleeps in ALooper_pollOnce until
-     * something arrives, and from here only an input event on its own queue can wake it. A queued
-     * keyboard event is not an input event: it would wait in this queue until the loop next woke
-     * for another reason — the next frame timer, a touch, or egui's cursor blink, up to half a
-     * second later — which is the lag felt between a backspace and the character going away.
-     *
-     * GameActivity.onKeyDown hands a key event to the native queue (onKeyDownNative, whose glue
-     * calls ALooper_wake), so it is what wakes the loop. KEYCODE_UNKNOWN reaches winit as
-     * Key::Unidentified, which no widget acts on: the app sees a wake-up and nothing else. Both
-     * the press and the release go, or the key would look held down.
-     */
-    private void queueImeEvent(String event) {
-        imeEvents.offer(event);
-        try {
-            super.onKeyDown(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
-            super.onKeyUp(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
-        }
-    }
-
-    /**
-     * Whether a delete call should be handed to the shell, or dropped as the second half of one
-     * press an IME reported twice.
-     *
-     * Some IMEs answer one backspace with two different calls — `deleteSurroundingText(1,0)` and
-     * `sendKeyEvent(KEYCODE_DEL)`. They arrive back to back in the same dispatch, so a call of the
-     * *other* method within {@link #IME_DELETE_PAIR_MS} of this one is the repeat and is dropped.
-     * The same method twice is always allowed: two quick taps of one key are two deletions.
-     */
-    private boolean claimDelete(String method) {
-        long now = android.os.SystemClock.uptimeMillis();
-        long lastOther = "d".equals(method) ? lastImeDeleteKeyAt : lastImeDeleteSurroundingAt;
-        if (lastOther != 0L && now - lastOther < IME_DELETE_PAIR_MS) {
-            return false;
-        }
-        if ("d".equals(method)) {
-            lastImeDeleteSurroundingAt = now;
-        } else {
-            lastImeDeleteKeyAt = now;
-        }
-        return true;
     }
 
     /**
@@ -839,27 +760,10 @@ public final class PhotoCraftActivity extends GameActivity {
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
-        try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r")) {
-            if (pfd != null) {
-                try (FileInputStream in = new FileInputStream(pfd.getFileDescriptor());
-                     FileOutputStream out = new FileOutputStream(destination)) {
-                    java.nio.channels.FileChannel inChannel = in.getChannel();
-                    java.nio.channels.FileChannel outChannel = out.getChannel();
-                    long size = inChannel.size();
-                    long transferred = 0;
-                    while (transferred < size) {
-                        long count = outChannel.transferFrom(inChannel, transferred, size - transferred);
-                        if (count <= 0) break;
-                        transferred += count;
-                    }
-                    return;
-                }
-            }
-        } catch (Exception ignored) { }
         InputStream input = getContentResolver().openInputStream(uri);
         if (input == null) throw new Exception("Android document provider did not open the selected file");
         try (InputStream in = input; FileOutputStream out = new FileOutputStream(destination)) {
-            byte[] buffer = new byte[256 * 1024];
+            byte[] buffer = new byte[64 * 1024];
             int count;
             while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
             out.flush();

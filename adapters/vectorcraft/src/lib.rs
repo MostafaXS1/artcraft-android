@@ -287,13 +287,6 @@ impl PickState {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&id)
     }
-
-    fn is_empty(&self) -> bool {
-        self.senders
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty()
-    }
 }
 
 /// A MIME type for an open dialog, from its first file-type filter (every file when it has none).
@@ -422,9 +415,6 @@ fn poll_answers(state: &Arc<PickState>, bridge: &AndroidFileBridge, ctx: &egui::
         let _ = sender.send(paths);
         ctx.request_repaint();
     }
-    if !state.is_empty() {
-        ctx.request_repaint_after(std::time::Duration::from_millis(50));
-    }
 }
 
 /// Write `bytes` to `path`, then copy them to the selected SAF document when `path` is staged.
@@ -488,22 +478,25 @@ fn persist_read(dir: &Path, name: &str) -> Option<Vec<u8>> {
     fs::read(dir.join(name)).ok()
 }
 
-/// Ask the Activity whether the screen is below 600 dpi (phones) for the launch to apply the
-/// app's own scale. Denser screens stay at Auto. Returns `None` when unreadable.
-fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
+/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
+/// app's UI scale to 150 % for phones while tablets are left at their own sizing. Returns `None`
+/// when the answer cannot be read, in which case the UI scale is left alone. Android's own
+/// form-factor test (`smallestScreenWidthDp < 600`, the `sw600dp` boundary) is used: it is stable
+/// across rotation and describes screen size rather than density.
+fn device_is_phone(app: &AndroidApp) -> Option<bool> {
     // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
     let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
     let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
     let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
         let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
         Ok(env
-            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
+            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
             .z()?)
     });
     match result {
-        Ok(is_dense) => Some(is_dense),
+        Ok(is_phone) => Some(is_phone),
         Err(error) => {
-            log::warn!("Could not determine the screen density: {error}");
+            log::warn!("Could not determine the screen class: {error}");
             None
         }
     }
@@ -522,24 +515,6 @@ fn persist_write(dir: &Path, name: &str, bytes: &[u8]) {
     if let Err(error) = written {
         log::warn!("settings: {}: {error}", path.display());
     }
-}
-
-/// Whether the high-density UI scale should be applied to this launch, and the sidecar that
-/// remembers that it was.
-///
-/// The scale belongs to the *device*, but `ui.json` belongs to the *user*: it is written on the
-/// first launch and never revisited, so a screen that later stops being high-density (a foldable, an
-/// external display, a display-size change) kept the old scale. The choice is remembered in its own
-/// sidecar (`device_class`), so "first launch" means "the scale has not been set for this device
-/// yet" and a user who changes the scale by hand keeps it: the sidecar already says it was applied,
-/// so nothing is re-applied.
-fn device_scale_first_time(dir: &Path) -> bool {
-    let marker = dir.join("device_class");
-    if fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "scaled") {
-        return false;
-    }
-    persist_write(dir, "device_class", b"scaled");
-    true
 }
 
 /// Read a saved `ui.json` leniently: a docking layout or hidden-panel entry this version cannot
@@ -585,8 +560,6 @@ fn persist_load(app: &mut VectorcraftApp, dir: &Path) {
         app.ui = ui.sanitized();
     }
     vectorcraft_ui_egui::prefs_dialog::restore(app);
-    let recovery = dir.join("Data Recovery").to_string_lossy().to_string();
-    app.session.recovery.set_default_folder(Some(recovery));
 }
 
 /// Save the UI state and engine preferences, as the desktop app does on exit.
@@ -595,11 +568,6 @@ fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
     ui.engine_prefs = app.session.prefs.to_json();
     if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
         persist_write(dir, "ui.json", &bytes);
-    }
-    if app.session.documents().iter().any(|doc| doc.is_dirty()) {
-        vectorcraft_ui_egui::recovery::tick(app, 0.0);
-        vectorcraft_ui_egui::recovery::tick(app, 1e9);
-        vectorcraft_ui_egui::background::wait_all(app);
     }
 }
 
@@ -633,7 +601,13 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                // Backspace/Delete always pass through with clean modifiers on Android,
+                // so Ctrl/Alt state never blocks deleting characters.
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    *modifiers = *state;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
@@ -664,7 +638,6 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 
 fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> Services {
     let write_bridge = bridge.clone_for_services();
-    let write_shared_bridge = bridge.clone_for_services();
     let pick_bridge = bridge.clone_for_services();
     let pick_state = state.clone();
     Services {
@@ -677,9 +650,6 @@ fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> S
         })),
         write: Some(Box::new(move |path: &str, bytes: &[u8]| {
             write_mobile(&write_bridge, path, bytes)
-        })),
-        write_shared: Some(Arc::new(move |path: &str, bytes: &[u8]| {
-            write_mobile(&write_shared_bridge, path, bytes)
         })),
         // Shown off the UI thread, so `ask` never calls these; they make the dialogs count as
         // available (`picks::can`).
@@ -962,19 +932,14 @@ fn android_main(android_app: AndroidApp) {
             );
             let persist = persist_dir(&app_bridge.app);
             if let Some(dir) = &persist {
-                // Load the saved settings *first*, so the device's default UI scale below is not
-                // overwritten by `prefs_dialog::restore` (which rebuilds the prefs from the saved
-                // state, or from the defaults when there is none).
-                persist_load(&mut app, dir);
-                // VectorCraft draws its work on a canvas, so a high-density screen gets a *smaller*
-                // interface (75 %), not a larger one; every other screen keeps the app's own
-                // default, Auto. Applied once (`device_scale_first_time`), which covers a first
-                // launch and an upgrade from a build without this bootstrap; a user who sets the
-                // scale by hand keeps it, since the sidecar already says it was applied.
-                if device_is_high_density(&app_bridge.app) == Some(true) && device_scale_first_time(dir) {
+                // First launch on a phone-class screen: set the UI scale to 75 % before the app
+                // reads its settings, then save it, so a user who changes it later keeps their
+                // choice (this runs only while `ui.json` does not exist yet). VectorCraft draws
+                // its work on a canvas, so a phone gets a smaller interface, not a larger one.
+                if !dir.join("ui.json").exists() && device_is_phone(&app_bridge.app) == Some(true) {
                     let _ = app.session.execute("prefs.set", &serde_json::json!({"key": "uiScaling", "value": 0.75}));
-                    persist_save(&mut app, dir);
                 }
+                persist_load(&mut app, dir);
             }
             Ok(Box::new(VectorCraftAndroidApp {
                 inner: app,
