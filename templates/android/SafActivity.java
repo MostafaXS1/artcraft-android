@@ -1042,6 +1042,10 @@ public final class __CLASS__ extends GameActivity {
                     copyUriToFile(uri, stage);
                     rememberUri(stage, uri);
                     File fileToReturn = handlePluginPackageIfApplicable(stage, name, isPluginRequest);
+                    if (!isPluginRequest && isPackageExtension(name)) {
+                        enqueueError(id, "open", "Installed package '" + name + "'. It is now available in your Companion Palette.");
+                        return;
+                    }
                     if (!fileToReturn.equals(stage)) {
                         rememberUri(fileToReturn, uri);
                     }
@@ -1154,6 +1158,41 @@ public final class __CLASS__ extends GameActivity {
         return baos.toString("UTF-8");
     }
 
+    private void extractZipToDirectory(ZipFile zip, File targetDir) throws Exception {
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            throw new Exception("Could not create plugin destination directory: " + targetDir.getAbsolutePath());
+        }
+        String targetDirPath = targetDir.getCanonicalPath();
+        Enumeration<? extends ZipEntry> entries = zip.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            File destFile = new File(targetDir, entry.getName());
+            String destFilePath = destFile.getCanonicalPath();
+            if (!destFilePath.startsWith(targetDirPath + File.separator) && !destFilePath.equals(targetDirPath)) {
+                throw new SecurityException("Zip entry attempted directory traversal: " + entry.getName());
+            }
+            if (entry.isDirectory()) {
+                if (!destFile.exists() && !destFile.mkdirs()) {
+                    throw new Exception("Could not create sub-directory: " + destFile.getAbsolutePath());
+                }
+            } else {
+                File parent = destFile.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    throw new Exception("Could not create parent directory: " + parent.getAbsolutePath());
+                }
+                try (InputStream in = zip.getInputStream(entry);
+                     OutputStream out = new FileOutputStream(destFile)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int len;
+                    while ((len = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, len);
+                    }
+                    out.flush();
+                }
+            }
+        }
+    }
+
     private File handlePluginPackageIfApplicable(File stage, String originalName, boolean isPluginRequest) throws Exception {
         if (!isPluginRequest && !isPackageExtension(originalName)) {
             return stage;
@@ -1181,6 +1220,32 @@ public final class __CLASS__ extends GameActivity {
                 }
             }
 
+            JSONObject manifest = null;
+            String pluginName = originalName;
+            String pluginId = null;
+            if (manifestEntry != null) {
+                try (InputStream in = zip.getInputStream(manifestEntry)) {
+                    String manifestJson = readFullyToString(in);
+                    manifest = new JSONObject(manifestJson);
+                    pluginName = manifest.optString("name", originalName);
+                    pluginId = manifest.optString("id", null);
+                } catch (org.json.JSONException e) {
+                    Log.w(TAG, "Failed to parse plugin.json: " + e.getMessage());
+                }
+            }
+
+            if (pluginId == null || pluginId.isEmpty()) {
+                pluginId = pluginName;
+            }
+            String safePluginId = pluginId.replaceAll("[^a-zA-Z0-9._-]", "_");
+            if (safePluginId.isEmpty()) {
+                safePluginId = "plugin_" + System.currentTimeMillis();
+            }
+
+            File pluginsDir = new File(appStorageDir(), "plugins");
+            File targetDir = new File(pluginsDir, safePluginId);
+            extractZipToDirectory(zip, targetDir);
+
             if (wasmEntry != null) {
                 String stem = stage.getName();
                 int dot = stem.lastIndexOf('.');
@@ -1197,26 +1262,23 @@ public final class __CLASS__ extends GameActivity {
                     out.flush();
                 }
 
-                Log.i(TAG, "Extracted WebAssembly binary from package '" + originalName + "' to: " + wasmFile.getAbsolutePath());
+                Log.i(TAG, "Extracted WebAssembly binary from package '" + originalName + "' to: " + wasmFile.getAbsolutePath() + " and installed package to: " + targetDir.getAbsolutePath());
                 return wasmFile;
             }
 
             if (isPluginRequest || isPackageExtension(originalName)) {
-                if (manifestEntry != null) {
-                    try (InputStream in = zip.getInputStream(manifestEntry)) {
-                        String manifestJson = readFullyToString(in);
-                        JSONObject manifest = new JSONObject(manifestJson);
-                        String pluginName = manifest.optString("name", originalName);
-
-                        if (manifest.has("ai") || manifest.has("models")) {
-                            throw new Exception("'" + pluginName + "' is an AI neural package requiring desktop DirectML GPU inference. ArtCraft on Android currently supports WebAssembly (.wasm) filter plugins.");
-                        } else if (manifest.has("commands")) {
-                            throw new Exception("'" + pluginName + "' is a declarative macro package without a WebAssembly binary. Macro execution on Android is coming soon.");
+                if (manifest != null) {
+                    if (manifest.has("ai") || manifest.has("models")) {
+                        throw new Exception("'" + pluginName + "' is an AI neural package requiring desktop DirectML GPU inference. ArtCraft on Android currently supports WebAssembly (.wasm) filter plugins and No-Code Macro packages.");
+                    } else if (manifest.has("commands") || "no_code".equalsIgnoreCase(manifest.optString("plugin_type"))) {
+                        if (isPluginRequest) {
+                            throw new Exception("Installed Companion macro '" + pluginName + "'. It is now available in your in-canvas Companion Palette.");
                         } else {
-                            throw new Exception("Package '" + pluginName + "' does not contain a WebAssembly (.wasm) plugin module.");
+                            Log.i(TAG, "Installed Companion macro '" + pluginName + "' to: " + targetDir.getAbsolutePath());
+                            return stage;
                         }
-                    } catch (org.json.JSONException e) {
-                        throw new Exception("Invalid plugin manifest in '" + originalName + "': " + e.getMessage());
+                    } else {
+                        throw new Exception("Package '" + pluginName + "' does not contain a WebAssembly (.wasm) filter or macro commands.");
                     }
                 } else {
                     throw new Exception("Package '" + originalName + "' contains neither a WebAssembly binary (.wasm) nor a plugin.json manifest.");

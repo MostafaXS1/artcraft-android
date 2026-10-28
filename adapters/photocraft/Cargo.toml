@@ -16,8 +16,8 @@ photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-format = { path = "../../crates/format" }
 eframe = { workspace = true, features = ["wgpu", "persistence", "android-game-activity"] }
 egui = { workspace = true }
-egui-winit = "0.36"
 log = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 jni = "0.22"
 rayon = { workspace = true }
