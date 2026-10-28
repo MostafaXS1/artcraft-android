@@ -1,6 +1,5 @@
-# Universal AI/ML Plugin & Neural Inference Architecture
+# Proposal for a Universal AI/ML Plugin & Neural Inference Architecture
 
-**Author:** ArtCraft Android Core Team  
 **Scope:** Suite-Wide (PhotoCraft, VectorCraft, FilmCraft, SoundCraft, LightCraft, and all 14 ArtCraft apps)  
 **Status:** Architecture Blueprint & Implementation Roadmap  
 
@@ -10,15 +9,42 @@
 
 ArtCraft Android is a unified suite of 14 professional creative applications ported from desktop Rust codebases to 64-bit ARM Android devices. While desktop creative suites rely on platform-specific GPU machine learning APIs (such as Microsoft DirectML for DirectX 12 on Windows), Android devices feature heterogeneous computing architectures composed of **NPUs (Neural Processing Units)**, **mobile GPUs (Vulkan/OpenCL)**, and **multi-core ARM CPUs (NEON SIMD)**.
 
-This document establishes the architecture and implementation roadmap for the **Universal ArtCraft AI/ML Engine**. Instead of building fragmented, app-specific ML solutions or restricting plugins to sandboxed WebAssembly filters, this system provides:
-1. A **Universal Plugin Standard (`.acpl` / `.pcpl`)** declaring declarative macros, neural models, and processing pipelines across any app in the suite.
+This document establishes the architecture and implementation roadmap for the **Universal ArtCraft AI/ML Engine**. Instead of building fragmented, app-specific ML solutions or restricting plugins to CPU-only WebAssembly filters, this system provides:
+1. A **Universal Plugin Standard** declaring declarative macros, neural models, and processing pipelines across any app in the suite.
 2. A **Multi-Tier Hardware Inference Engine** targeting Android NPUs (Qualcomm QNN / Android NNAPI) with seamless fallback to mobile GPUs (Vulkan) and multi-core CPUs (Rayon + ARM NEON).
 3. A **Dual-Mode Execution Model** allowing lightweight and medium models (up to ~500MB) to run entirely offline on-device, while seamlessly offloading heavy generative models (10GB+ diffusion/LLM models) to a local desktop companion over the local network (LAN).
-4. Direct integration into ArtCraft’s shared template layer ([`templates/android/`](file:///home/afnan/Documents/Development/ArtCraft%20Android/templates/android/) and [`lib/build-common.sh`](file:///home/afnan/Documents/Development/ArtCraft%20Android/lib/build-common.sh)), granting all 14 applications instant access to hardware AI acceleration without upstream crate modifications.
+4. Direct integration into ArtCraft’s shared template layer ([`templates/android/`](../templates/android/) and [`lib/build-common.sh`](../lib/build-common.sh)), granting all 14 applications instant access to hardware AI acceleration without upstream crate modifications.
 
 ---
 
-## 2. Cross-App Capability Matrix
+## 2. Plugin Landscape & Clarification
+
+To maintain clean architectural boundaries across the suite, it is important to distinguish between the different plugin mechanisms present in ArtCraft:
+
+### A. PhotoCraft Companion Packages (`.pcpl`)
+* **Context:** The `.pcpl` format is designed specifically by and for **PhotoCraft Companion** (`kobaltgit/photocraft-companion`).
+* **Role:** Extends PhotoCraft's desktop capabilities through declarative macro steps (`plugin.json`), tool strips, and DirectML GPU inference. On Android, PhotoCraft consumes these packages into `files/plugins/` to provide macro execution and companion UI.
+* **Scope:** Dedicated to PhotoCraft. It is **not** forced as the mandatory package format for the other 13 ArtCraft applications.
+
+### B. Sandboxed WebAssembly Plugins (`.wasm`)
+* **Context:** Pure Wasm modules supported directly by PhotoCraft's native plugin loader and upstream engine.
+* **Role:** Pixel manipulation, mathematical filters, and procedural generation running inside a sandboxed Wasm interpreter.
+* **Scope:** Cross-platform and self-contained, but limited by single-threaded Wasm interpreter constraints and lack of direct hardware NPU/GPU access.
+
+### C. App-Specific & Future Creative Formats
+Different applications across the suite inherently rely on different domain-specific plugin formats:
+* **SoundCraft:** Audio DSP chains, virtual instruments, and stem-separation plugins (similar to VST/CLAP/LV2 equivalents).
+* **VectorCraft / FigCraft / DesignCraft:** Vector geometry scripts, Bézier contour generators, and layout rules.
+* **FilmCraft / EffectCraft:** Temporal transition filters, shader pipelines, and frame-rate processors.
+
+### D. The Universal AI/ML Engine as a Shared Backend
+The **Universal AI/ML Engine** proposed here is **not** another rigid file extension or single-app tool. Instead, it is an **underlying hardware execution subsystem** embedded directly in the shared Android runtime ([`templates/android/SafActivity.java`](../templates/android/SafActivity.java) and [`templates/android/saf_bridge.rs`](../templates/android/saf_bridge.rs)).
+
+Any plugin system—whether a `.pcpl` package, a `.wasm` filter, an app-specific bundle, or a built-in tool—can query and dispatch tensor jobs to this engine to run models on the device's NPU, GPU, or CPU.
+
+---
+
+## 3. Cross-App Capability Matrix
 
 The Universal AI/ML Engine is designed to power distinct creative domains across the ArtCraft suite:
 
@@ -32,7 +58,7 @@ The Universal AI/ML Engine is designed to power distinct creative domains across
 
 ---
 
-## 3. High-Level System Architecture
+## 4. High-Level System Architecture
 
 ```
                     ┌────────────────────────────────────────────────────────┐
@@ -41,14 +67,14 @@ The Universal AI/ML Engine is designed to power distinct creative domains across
                     └───────────────────────────┬────────────────────────────┘
                                                 │
                                     SAF Plugin Installation
-                                  (.acpl / .pcpl ZIP Bundles)
+                             (.pcpl / .wasm / app-specific bundles)
                                                 │
                                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
 │                       Shared Android Template Layer (SafActivity.java)                       │
 ├────────────────────────────────────────┬────────────────────────────────────────────────────┤
-│ • Canonical ZIP Extraction (Anti-Slip) │ • Model Storage (~/files/plugins/<id>/models/)     │
-│ • Manifest Validation (plugin.json)   │ • Memory-Mapped Tensor Buffers (Zero-Copy JNI)     │
+│ • Canonical Package Unpacking          │ • Persistent Model Store (~/files/models/)         │
+│ • Manifest Validation & Capability Map │ • Memory-Mapped Tensor Buffers (Zero-Copy JNI)     │
 └────────────────────────────────────────┴──────────────────────┬─────────────────────────────┘
                                                                 │
                                                                 ▼
@@ -80,14 +106,14 @@ The Universal AI/ML Engine is designed to power distinct creative domains across
 
 ---
 
-## 4. Universal Plugin Specification (`.acpl` / `.pcpl`)
+## 5. Universal Plugin Specification (`.acpl` Standard)
 
-A universal plugin package is a standard ZIP archive with the extension `.acpl` (*ArtCraft Package Library*) or `.pcpl` (*PhotoCraft Package Library*).
+While `.pcpl` remains dedicated to PhotoCraft, a suite-wide standard (`.acpl` - *ArtCraft Package Library*) can be used for multi-app plugins:
 
 ### Directory Structure
 ```text
 com.artcraft.smart-isolate.acpl/
-├── plugin.json             # Universal package manifest
+├── plugin.json             # Package manifest
 ├── icon.png                # Plugin icon (128x128 PNG)
 ├── models/
 │   ├── segmenter.onnx      # Quantized neural model (FP16 or INT8)
@@ -160,9 +186,9 @@ com.artcraft.smart-isolate.acpl/
 
 ---
 
-## 5. Technical Implementation Details
+## 6. Technical Implementation Details
 
-### A. Shared Android Dependency Injection ([`lib/build-common.sh`](file:///home/afnan/Documents/Development/ArtCraft%20Android/lib/build-common.sh))
+### A. Shared Android Dependency Injection ([`lib/build-common.sh`](../lib/build-common.sh))
 The build system injects Microsoft ONNX Runtime Mobile into the Android Gradle build:
 ```groovy
 dependencies {
@@ -173,7 +199,7 @@ dependencies {
 * **ABI Packaging:** Constrained to `arm64-v8a` to prevent APK bloat from unused 32-bit x86/ARM binaries.
 * **ProGuard / R8 Rules:** Preserves native JNI wrappers (`ai.onnxruntime.** { *; }`).
 
-### B. Hardware-Accelerated Session Factory ([`SafActivity.java`](file:///home/afnan/Documents/Development/ArtCraft%20Android/templates/android/SafActivity.java))
+### B. Hardware-Accelerated Session Factory ([`SafActivity.java`](../templates/android/SafActivity.java))
 The activity initializes an `OrtEnvironment` and configures hardware acceleration with hierarchical fallback:
 
 ```java
@@ -198,23 +224,23 @@ public OrtSession createOptimizedSession(String modelPath) throws Exception {
 }
 ```
 
-### C. Zero-Copy Tensor Exchange ([`templates/android/saf_bridge.rs`](file:///home/afnan/Documents/Development/ArtCraft%20Android/templates/android/saf_bridge.rs))
-Copying high-resolution 4K image layers through JNI causes GC pauses and memory exhaustion. The pipeline uses **Direct Byte Buffers**:
-1. Rust allocates pixel memory or provides a direct pointer to the canvas layer bitmap.
+### C. Zero-Copy Tensor Exchange ([`templates/android/saf_bridge.rs`](../templates/android/saf_bridge.rs))
+Copying high-resolution 4K image layers or multi-track audio buffers through JNI causes GC pauses and memory exhaustion. The pipeline uses **Direct Byte Buffers**:
+1. Rust allocates pixel/sample memory or provides a direct pointer to the canvas layer bitmap.
 2. JNI wraps the raw pointer using `env.new_direct_byte_buffer(ptr, len)`.
 3. Java wraps the direct buffer into an `OnnxTensor`.
 4. Inference writes output directly into a pre-allocated target buffer, returning control to Rust with zero memory reallocation.
 
 ---
 
-## 6. Phased Implementation Roadmap
+## 7. Phased Implementation Roadmap
 
 ```mermaid
 gantt
     title Universal AI/ML Plugin Architecture Roadmap
     dateFormat  YYYY-MM-DD
     section Phase 1: Foundation
-    Universal Package Spec (.acpl/.pcpl)       :done,    p1a, 2026-10-28, 2d
+    Package Specs & SAF Unpackers              :done,    p1a, 2026-10-28, 2d
     In-Canvas Companion Palette & UI Gate     :done,    p1b, 2026-10-28, 2d
     section Phase 2: Engine Integration
     ONNX Runtime Mobile Gradle Integration     :active,  p2a, 2026-11-01, 3d
@@ -235,20 +261,20 @@ gantt
 
 ### Milestone Details
 
-#### Phase 1: Universal Packaging & Foundation (Status: Complete)
+#### Phase 1: Foundation (Status: Complete)
 - Unified package extraction with zip-slip directory traversal security.
 - In-canvas floating companion palette with zero clean-install footprint.
 - Declarative macro runner with condition gating (`$has_layer`, `$has_active_selection`).
 
 #### Phase 2: Inference Engine & Zero-Copy Bridge
-- Integrate `com.microsoft.onnxruntime:onnxruntime-android` into [`lib/build-common.sh`](file:///home/afnan/Documents/Development/ArtCraft%20Android/lib/build-common.sh).
-- Implement JNI `run_tensor_model(model_path, input_buffer, output_buffer)` in [`templates/android/saf_bridge.rs`](file:///home/afnan/Documents/Development/ArtCraft%20Android/templates/android/saf_bridge.rs).
+- Integrate `com.microsoft.onnxruntime:onnxruntime-android` into [`lib/build-common.sh`](../lib/build-common.sh).
+- Implement JNI `run_tensor_model(model_path, input_buffer, output_buffer)` in [`templates/android/saf_bridge.rs`](../templates/android/saf_bridge.rs).
 - Validate on-device CPU inference baseline using ARM64 NEON.
 
 #### Phase 3: NPU & GPU Hardware Acceleration
-- Wire `addNnapi()` and QNN execution providers in [`SafActivity.java`](file:///home/afnan/Documents/Development/ArtCraft%20Android/templates/android/SafActivity.java).
+- Wire `addNnapi()` and QNN execution providers in [`SafActivity.java`](../templates/android/SafActivity.java).
 - Build automated fallback ladder (NPU ➔ GPU ➔ CPU).
-- Release INT8 and FP16 model conversion toolchain for third-party plugin developers.
+- Release INT8 and FP16 model conversion toolchain for plugin developers.
 
 #### Phase 4: Suite-Wide App Adapters
 - **PhotoCraft / LightCraft:** Background removal, face retouch, super-resolution.
@@ -257,13 +283,13 @@ gantt
 
 #### Phase 5: Local Desktop Companion Relay
 - Automatic discovery of desktop companions on the local Wi-Fi network via mDNS.
-- Secure, token-authenticated WebSocket/JSON-RPC stream for offloading 10GB+ generative models to desktop GPUs (DirectML / CUDA).
+- Secure WebSocket/JSON-RPC stream for offloading 10GB+ generative models to desktop GPUs (DirectML / CUDA).
 
 ---
 
-## 7. Security, Sandboxing, and Thermal Guidelines
+## 8. Security, Sandboxing, and Thermal Guidelines
 
-1. **Storage Sandboxing:** Model weights and package scripts unpack strictly into private app storage (`/data/user/0/<package>/files/plugins/<plugin_id>/`). They are isolated from other apps.
+1. **Storage Sandboxing:** Model weights and package scripts unpack strictly into private app storage (`files/plugins/<plugin_id>/` and `files/models/`). They are completely isolated from other applications.
 2. **Thermal Throttling Guard:** Continuous NPU/GPU workloads on mobile can trigger aggressive hardware thermal throttling. The engine incorporates:
    - Dynamic batch size capping (processing tiles sequentially instead of monolithic tensor allocations).
    - Thermal state listeners (`PowerManager.OnThermalStatusChangedListener`) that throttle processing or switch to low-power CPU cores when the device reports `THERMAL_STATUS_SEVERE`.
