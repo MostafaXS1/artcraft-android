@@ -17,6 +17,7 @@ use photocraft_ui_egui::{
     FileDialogAnswer, FileDialogReply, FileDialogRequest, Inbox, PhotocraftApp, Recoverable,
     Services,
 };
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
@@ -615,6 +616,84 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 }
 
 
+/// Declarative manifest of a PhotoCraft Companion package (`plugin.json`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CompanionPlugin {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub plugin_type: Option<String>,
+    #[serde(default)]
+    pub commands: Vec<CompanionCommandStep>,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(skip)]
+    pub folder_path: Option<PathBuf>,
+}
+
+/// An atomic command step within a companion macro plugin.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CompanionCommandStep {
+    #[serde(alias = "command")]
+    pub action: String,
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
+    #[serde(default)]
+    pub ignore_errors: Option<bool>,
+    #[serde(default)]
+    pub when: Option<String>,
+    #[serde(default)]
+    pub save_as: Option<String>,
+}
+
+/// Scan `<files_dir>/plugins` for installed Companion packages.
+fn scan_companion_plugins(plugins_dir: &Path) -> Vec<CompanionPlugin> {
+    let mut plugins = Vec::new();
+    let Ok(entries) = fs::read_dir(plugins_dir) else {
+        return plugins;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let manifest_path = path.join("plugin.json");
+            if manifest_path.is_file() {
+                if let Ok(content) = fs::read_to_string(&manifest_path) {
+                    if let Ok(mut plugin) = serde_json::from_str::<CompanionPlugin>(&content) {
+                        plugin.folder_path = Some(path.clone());
+                        plugins.push(plugin);
+                        continue;
+                    }
+                }
+            }
+            if let Ok(sub_entries) = fs::read_dir(&path) {
+                for sub in sub_entries.flatten() {
+                    let sub_path = sub.path();
+                    if sub_path.is_dir() {
+                        let sub_manifest = sub_path.join("plugin.json");
+                        if sub_manifest.is_file() {
+                            if let Ok(content) = fs::read_to_string(&sub_manifest) {
+                                if let Ok(mut plugin) = serde_json::from_str::<CompanionPlugin>(&content) {
+                                    plugin.folder_path = Some(path.clone());
+                                    plugins.push(plugin);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    plugins.sort_by(|a, b| a.name.cmp(&b.name));
+    plugins
+}
+
 struct PhotoCraftAndroidApp {
     inner: PhotocraftApp,
     bridge: AndroidFileBridge,
@@ -631,6 +710,9 @@ struct PhotoCraftAndroidApp {
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
     persist_last: Option<std::time::Instant>,
+    companion_plugins: Vec<CompanionPlugin>,
+    palette_collapsed: bool,
+    last_plugin_scan: Option<std::time::Instant>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -791,6 +873,292 @@ impl PhotoCraftAndroidApp {
             let _ = flush();
         }
     }
+
+    fn companion_plugins_tick(&mut self) {
+        let now = std::time::Instant::now();
+        if self.last_plugin_scan.is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(3)) {
+            return;
+        }
+        self.last_plugin_scan = Some(now);
+        if let Ok(files_dir) = self.bridge.files_dir() {
+            let scanned = scan_companion_plugins(&files_dir.join("plugins"));
+            if scanned.len() != self.companion_plugins.len()
+                || scanned.iter().zip(&self.companion_plugins).any(|(a, b)| a.id != b.id)
+            {
+                self.companion_plugins = scanned;
+            }
+        }
+    }
+
+    fn request_companion_import(&self) {
+        let _ = self.bridge.request_open(0xCAFE_0001, false, "pcpl,zip,wasm");
+    }
+
+    fn run_companion_plugin(&mut self, plugin: &CompanionPlugin) {
+        if plugin.commands.is_empty() {
+            self.inner.ui.status = format!("Companion plugin '{}' has no macro commands.", plugin.name);
+            return;
+        }
+
+        let mut executed_count = 0;
+        for (i, step) in plugin.commands.iter().enumerate() {
+            if let Some(ref when) = step.when {
+                let when_trim = when.trim();
+                let has_selection = self.inner.session.active().is_some_and(|s| s.doc.selection.is_some());
+                let has_doc = self.inner.session.active().is_some();
+                let has_layer = self.inner.session.active().is_some_and(|s| !s.doc.layers.is_empty());
+
+                if when_trim == "$has_active_selection" && !has_selection {
+                    continue;
+                }
+                if (when_trim == "!$has_active_selection" || when_trim == "!$has_selection") && has_selection {
+                    continue;
+                }
+                if when_trim == "$has_document" && !has_doc {
+                    continue;
+                }
+                if when_trim == "$has_layer" && !has_layer {
+                    continue;
+                }
+            }
+
+            let params = step.params.clone().unwrap_or_else(|| serde_json::json!({}));
+            match self.inner.session.execute(&step.action, params) {
+                Ok(val) => {
+                    log::info!("Companion step {} ({}): {:?}", i + 1, step.action, val);
+                    executed_count += 1;
+                }
+                Err(err) => {
+                    log::warn!("Companion step {} ({}) failed: {}", i + 1, step.action, err);
+                    if step.ignore_errors != Some(true) {
+                        self.inner.ui.status = format!(
+                            "Macro '{}' error at step {} ({}): {}",
+                            plugin.name,
+                            i + 1,
+                            step.action,
+                            err
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.inner.ui.status = format!(
+            "Executed macro '{}' ({} step{} completed)",
+            plugin.name,
+            executed_count,
+            if executed_count == 1 { "" } else { "s" }
+        );
+    }
+
+    /// In-canvas floating Companion Palette. Strictly invisible until at least one companion package is installed.
+    #[allow(deprecated)]
+    fn render_companion_palette(&mut self, ctx: &egui::Context) {
+        if self.companion_plugins.is_empty() {
+            return;
+        }
+
+        let mut to_run: Option<CompanionPlugin> = None;
+        let mut to_delete: Option<PathBuf> = None;
+        let mut trigger_import = false;
+        let mut trigger_rescan = false;
+
+        let screen_rect = ctx.content_rect();
+        let default_pos = egui::pos2((screen_rect.max.x - 290.0).max(10.0), 70.0);
+
+        if self.palette_collapsed {
+            egui::Area::new(egui::Id::new("pc_companion_pill"))
+                .order(egui::Order::Foreground)
+                .default_pos(egui::pos2((screen_rect.max.x - 170.0).max(10.0), 70.0))
+                .movable(true)
+                .show(ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_rgba_unmultiplied(26, 32, 48, 235))
+                        .stroke(egui::Stroke::new(1.2, egui::Color32::from_rgb(66, 153, 225)))
+                        .corner_radius(egui::CornerRadius::same(18))
+                        .inner_margin(egui::Margin::symmetric(14, 8))
+                        .show(ui, |ui| {
+                            let label = egui::RichText::new(format!(
+                                "⚡ Companion ({})",
+                                self.companion_plugins.len()
+                            ))
+                            .color(egui::Color32::from_rgb(220, 235, 255))
+                            .strong();
+                            if ui.button(label).clicked() {
+                                self.palette_collapsed = false;
+                            }
+                        });
+                });
+        } else {
+            egui::Window::new("⚡ PhotoCraft Companion")
+                .id(egui::Id::new("pc_companion_window"))
+                .order(egui::Order::Foreground)
+                .default_pos(default_pos)
+                .default_width(280.0)
+                .resizable(true)
+                .collapsible(false)
+                .frame(
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_rgba_unmultiplied(24, 28, 38, 245))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 70, 95)))
+                        .corner_radius(egui::CornerRadius::same(10))
+                        .inner_margin(egui::Margin::same(10)),
+                )
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{} active", self.companion_plugins.len()))
+                                .color(egui::Color32::from_rgb(140, 175, 220))
+                                .size(11.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new("－")
+                                        .color(egui::Color32::from_rgb(180, 190, 210))
+                                        .strong(),
+                                )
+                                .on_hover_text("Collapse Companion Palette")
+                                .clicked()
+                            {
+                                self.palette_collapsed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            for plugin in &self.companion_plugins {
+                                egui::Frame::NONE
+                                    .fill(egui::Color32::from_rgba_unmultiplied(36, 42, 58, 210))
+                                    .stroke(egui::Stroke::new(0.8, egui::Color32::from_rgb(60, 72, 98)))
+                                    .corner_radius(egui::CornerRadius::same(6))
+                                    .inner_margin(egui::Margin::same(8))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.vertical(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(&plugin.name)
+                                                        .color(egui::Color32::WHITE)
+                                                        .strong(),
+                                                );
+                                                if let Some(ref ver) = plugin.version {
+                                                    ui.label(
+                                                        egui::RichText::new(format!("v{}", ver))
+                                                            .size(10.0)
+                                                            .color(egui::Color32::from_rgb(140, 155, 175)),
+                                                    );
+                                                }
+                                            });
+
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if let Some(ref folder) = plugin.folder_path {
+                                                        if ui
+                                                            .small_button("🗑")
+                                                            .on_hover_text("Uninstall Companion package")
+                                                            .clicked()
+                                                        {
+                                                            to_delete = Some(folder.clone());
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
+
+                                        if let Some(ref desc) = plugin.description {
+                                            ui.add_space(2.0);
+                                            ui.label(
+                                                egui::RichText::new(desc)
+                                                    .size(11.0)
+                                                    .color(egui::Color32::from_rgb(180, 185, 195)),
+                                            );
+                                        }
+
+                                        ui.add_space(6.0);
+
+                                        if !plugin.commands.is_empty() {
+                                            let btn = egui::Button::new(
+                                                egui::RichText::new(format!(
+                                                    "▶ Run Macro ({} step{})",
+                                                    plugin.commands.len(),
+                                                    if plugin.commands.len() == 1 { "" } else { "s" }
+                                                ))
+                                                .color(egui::Color32::WHITE)
+                                                .strong(),
+                                            )
+                                            .fill(egui::Color32::from_rgb(49, 115, 230));
+
+                                            if ui.add_sized([ui.available_width(), 26.0], btn).clicked() {
+                                                to_run = Some(plugin.clone());
+                                            }
+                                        } else {
+                                            ui.label(
+                                                egui::RichText::new("[Wasm Filter Active]")
+                                                    .size(11.0)
+                                                    .color(egui::Color32::from_rgb(100, 210, 150)),
+                                            );
+                                        }
+                                    });
+
+                                ui.add_space(4.0);
+                            }
+                        });
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button("＋ Import .pcpl")
+                            .on_hover_text("Import a .pcpl / .zip companion package")
+                            .clicked()
+                        {
+                            trigger_import = true;
+                        }
+                        if ui.button("↻ Rescan").clicked() {
+                            trigger_rescan = true;
+                        }
+                    });
+                });
+        }
+
+        if let Some(plugin) = to_run {
+            self.run_companion_plugin(&plugin);
+            ctx.request_repaint();
+        }
+
+        if let Some(folder) = to_delete {
+            if let Err(e) = fs::remove_dir_all(&folder) {
+                log::error!("Failed to remove companion plugin folder {}: {}", folder.display(), e);
+            } else {
+                log::info!("Deleted companion plugin at: {}", folder.display());
+            }
+            if let Ok(files_dir) = self.bridge.files_dir() {
+                self.companion_plugins = scan_companion_plugins(&files_dir.join("plugins"));
+            }
+            ctx.request_repaint();
+        }
+
+        if trigger_import {
+            self.request_companion_import();
+        }
+
+        if trigger_rescan {
+            if let Ok(files_dir) = self.bridge.files_dir() {
+                self.companion_plugins = scan_companion_plugins(&files_dir.join("plugins"));
+            }
+            ctx.request_repaint();
+        }
+    }
 }
 
 impl Drop for PhotoCraftAndroidApp {
@@ -809,6 +1177,7 @@ impl eframe::App for PhotoCraftAndroidApp {
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
         self.persist_tick();
+        self.companion_plugins_tick();
         self.inner.logic(ctx, frame);
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -818,6 +1187,7 @@ impl eframe::App for PhotoCraftAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui, _frame);
+        self.render_companion_palette(ui.ctx());
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -906,7 +1276,6 @@ fn android_main(android_app: AndroidApp) {
         log::info!("Rayon global thread pool initialized with {num_cpus} worker threads (stack: 2MB)");
     }
 
-    egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     system_fonts::install_font_env(&android_app);
     let bridge = match AndroidFileBridge::new(android_app.clone()) {
         Ok(bridge) => bridge,
@@ -984,6 +1353,11 @@ fn android_main(android_app: AndroidApp) {
                     app.set_wgpu(rs);
                 }
             }
+            let companion_plugins = app_bridge
+                .files_dir()
+                .ok()
+                .map(|f| scan_companion_plugins(&f.join("plugins")))
+                .unwrap_or_default();
             Ok(Box::new(PhotoCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
@@ -995,6 +1369,9 @@ fn android_main(android_app: AndroidApp) {
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
                 persist_last: None,
+                companion_plugins,
+                palette_collapsed: false,
+                last_plugin_scan: Some(std::time::Instant::now()),
             }))
         }),
     );
@@ -1002,3 +1379,70 @@ fn android_main(android_app: AndroidApp) {
         log::error!("PhotoCraft Android exited with an error: {error}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_companion_manifest_deserialization() {
+        let json_manifest = r#"{
+            "id": "quick-prep",
+            "name": "Quick Prep Macro",
+            "version": "1.0.0",
+            "description": "Duplicates base layer and applies auto contrast",
+            "plugin_type": "no_code",
+            "commands": [
+                {
+                    "action": "layer.duplicate",
+                    "when": "$has_layer"
+                },
+                {
+                    "action": "select.deselect",
+                    "when": "$has_active_selection"
+                },
+                {
+                    "action": "filter.brightness_contrast",
+                    "params": {
+                        "contrast": 15,
+                        "brightness": 5
+                    },
+                    "ignore_errors": true
+                }
+            ]
+        }"#;
+
+        let plugin: CompanionPlugin = serde_json::from_str(json_manifest).expect("manifest should deserialize");
+        assert_eq!(plugin.id, "quick-prep");
+        assert_eq!(plugin.name, "Quick Prep Macro");
+        assert_eq!(plugin.version.as_deref(), Some("1.0.0"));
+        assert_eq!(plugin.commands.len(), 3);
+        assert_eq!(plugin.commands[0].action, "layer.duplicate");
+        assert_eq!(plugin.commands[0].when.as_deref(), Some("$has_layer"));
+        assert_eq!(plugin.commands[1].action, "select.deselect");
+        assert_eq!(plugin.commands[2].ignore_errors, Some(true));
+        assert!(plugin.commands[2].params.is_some());
+    }
+
+    #[test]
+    fn test_scan_companion_plugins_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("pc_test_scan_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let plugin_a = temp_dir.join("plugin_a");
+        fs::create_dir_all(&plugin_a).unwrap();
+
+        let manifest_content = r#"{
+            "id": "test-plugin-a",
+            "name": "Alpha Plugin",
+            "commands": []
+        }"#;
+        fs::write(plugin_a.join("plugin.json"), manifest_content).unwrap();
+
+        let scanned = scan_companion_plugins(&temp_dir);
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].name, "Alpha Plugin");
+        assert_eq!(scanned[0].id, "test-plugin-a");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
+

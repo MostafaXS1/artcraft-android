@@ -44,6 +44,7 @@ ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Andro
 
 **Core Principles:**
 - **Strict Upstream Boundary**: **NEVER** edit, modify, or propose fixes requiring changes inside `source/` (`ArtCraft Android/source/`). The developer is *only* developing ArtCraft Android (`adapters/`, `templates/`, `lib/`, `vendor/`, `build.sh`). Upstream source contains desktop repositories cloned during build and is wiped by `clean.sh`.
+- **No Developer Machine Paths**: **NEVER** include or commit local developer file paths (e.g., `/home/...`, `/Users/...`, `file:///home/...`). Always use repository-relative paths (e.g., `templates/android/`, `lib/build-common.sh`).
 - **Zero-touch app migration**: Upstream source remains desktop-agnostic
 - **Template-based generation**: Shared Java/Rust templates provide common Android functionality
 - **App-specific adapters**: Complex apps can have custom ports
@@ -1238,6 +1239,9 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
   - `source/` contains upstream desktop application repositories cloned during build and is wiped by `clean.sh`.
   - The developer is **only** developing ArtCraft Android (`adapters/`, `templates/`, `lib/`, `vendor/`, `build.sh`).
   - All fixes, workarounds, adapters, and improvements MUST be implemented strictly within the ArtCraft Android repository scope (`adapters/`, `templates/`, `lib/`, `vendor/`).
+- **No Developer Machine Paths (MANDATORY)**:
+  - **NEVER** include local machine filesystem paths (such as `/home/<user>/...`, `C:\Users\<user>\...`, or `file:///home/...`) in any committed file, documentation, PR description, or code comment.
+  - Always use clean repository-relative paths (e.g., `templates/android/SafActivity.java`, `lib/build-common.sh`). This protects privacy and ensures documentation remains portable and reproducible across developer and CI environments.
 - **Read before modifying**: Always understand existing code patterns
 - **Preserve upstream**: Don't modify upstream source in `source/`, use patches/adapters
 - **Test on device**: Use connected tablet via ADB for validation
