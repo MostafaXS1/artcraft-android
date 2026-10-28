@@ -1,34 +1,31 @@
 #!/usr/bin/env bash
-# backup.sh — Zip all files not in .gitignore to a timestamped archive
-# at the project root. Excludes the gitignored source/ directory.
+# backup.sh — create a dated tarball with only the named folders and root files
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-ARCHIVE="artcraft-backup-${TIMESTAMP}.zip"
+DATE="$(date +%Y-%m-%d)"
+ARCHIVE="backups/${DATE}.tar.gz"
 
-# Gather tracked files + untracked-but-not-ignored files, excluding the gitignored source/ dir.
-mapfile -t FILES < <(
-    git ls-files --cached | grep -v '^source/' || true
-    git ls-files --others --exclude-standard | grep -v '^source/' || true
-)
+mkdir -p backups
 
-# Remove duplicates while preserving order.
-mapfile -t FILES < <(printf '%s\n' "${FILES[@]}" | awk '!seen[$0]++')
+# Folder names to include (matching backups/New Folder/):
+FOLDERS=(adapters .github docs lib templates tests vendor)
 
-if [[ ${#FILES[@]} -eq 0 || -z "${FILES[0]}" ]]; then
-    echo "No files to back up." >&2
-    exit 1
-fi
+# Build the tar argument list: root files only (no subfolders), plus named folders.
+ARGS=()
+for f in *; do
+  if [ -f "$f" ]; then
+    ARGS+=("$f")
+  fi
+done
+for d in "${FOLDERS[@]}"; do
+  if [ -d "$d" ]; then
+    ARGS+=("$d")
+  fi
+done
 
-echo "Backing up ${#FILES[@]} files to ${ARCHIVE}..."
+tar -czf "$ARCHIVE" "${ARGS[@]}"
 
-LIST_FILE="$(mktemp)"
-trap 'rm -f "$LIST_FILE"' EXIT
-printf '%s\n' "${FILES[@]}" > "$LIST_FILE"
-
-zip -r "$ARCHIVE" -@ < "$LIST_FILE"
-
-echo "Done: ${ROOT}/${ARCHIVE}"
+echo "Created $ARCHIVE"
