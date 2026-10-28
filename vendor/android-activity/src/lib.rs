@@ -404,6 +404,27 @@ mod main_callbacks;
 
 pub(crate) const ANDROID_ACTIVITY_TAG: &CStr = c"android-activity";
 
+/// When `false`, the Android backend converts single-finger touches into canvas pan gestures
+/// instead of pointer events, so only a stylus draws. The host app sets this at runtime
+/// (PhotoCraft: Preferences › Tools › "Finger draws on canvas"). Defaults to `true` (normal
+/// touch behaviour).
+pub static FINGER_DRAWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The host app consumes these gesture requests once per frame. The backend only queues them:
+/// it has no access to the app's command registry. Each counter is drained with `swap(0)`.
+/// The S Pen button's request to switch between the canvas-first drawing shell and the full UI.
+pub static DRAWING_MODE_REQUESTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub static UNDO_REQUESTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub static REDO_REQUESTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Enabled by a host that understands two- and three-finger taps. Off by default so other
+/// launchers built from this backend keep their normal multi-touch behaviour.
+pub static MULTI_FINGER_TAP_ACTIONS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// A rectangle with integer edge coordinates. Used to represent window insets, for example.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Rect {

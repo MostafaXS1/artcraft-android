@@ -621,6 +621,9 @@ struct PhotoCraftAndroidApp {
     picker: Arc<PickerState>,
     ime: ime_bridge::ime::ImeBridge,
     modifiers: egui::Modifiers,
+    /// A finger that began on the canvas while finger drawing is disabled: its moves pan the
+    /// view, and its pointer presses are suppressed. Finger touches that begin on UI stay normal.
+    finger_pan: Option<(egui::TouchId, egui::Pos2)>,
     // Files the system asked us to open are staged by the Activity; this is the shared queue the
     // app's own inbox drains. `intent_warmup` skips the first couple of frames so the app has
     // finished its own start-up, and goes negative (stop polling) if the host has no intent bridge.
@@ -698,6 +701,98 @@ fn drain_incoming(bridge: &AndroidFileBridge, inbox: &Inbox, warmup: &mut i64) {
 }
 
 impl PhotoCraftAndroidApp {
+    /// Fingers that begin on the canvas pan it without painting; touches that begin on chrome or
+    /// a floating drawing control remain normal pointer input, including drags on sliders.
+    fn route_finger_navigation(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // The empty Home screen is UI, not a canvas: its New/Open/Recent actions must remain
+        // tappable even while the drawing-mode finger preference is off.
+        if self.inner.session.prefs().tools.finger_draws || self.inner.session.active().is_none() {
+            self.finger_pan = None;
+            return;
+        }
+        let canvas = self.inner.last_canvas_rect;
+        let mut pan = self.finger_pan;
+        let mut release_pos = None;
+        let mut routed = Vec::with_capacity(raw.events.len() + 4);
+
+        for event in raw.events.drain(..) {
+            match event {
+                egui::Event::Touch {
+                    device_id,
+                    id,
+                    phase,
+                    pos,
+                    force: None,
+                    ..
+                } => {
+                    let is_active_pan = pan.is_some_and(|(active, _)| active == id);
+                    if is_active_pan {
+                        match phase {
+                            egui::TouchPhase::Move => {
+                                if let Some((_, previous)) = pan {
+                                    let delta = pos - previous;
+                                    if delta != egui::Vec2::ZERO {
+                                        routed.push(egui::Event::MouseWheel {
+                                            unit: egui::MouseWheelUnit::Point,
+                                            delta,
+                                            phase: egui::TouchPhase::Move,
+                                            modifiers: self.modifiers,
+                                        });
+                                    }
+                                }
+                                pan = Some((id, pos));
+                            }
+                            egui::TouchPhase::End | egui::TouchPhase::Cancel => {
+                                release_pos = Some(pos);
+                                pan = None;
+                            }
+                            egui::TouchPhase::Start => {
+                                pan = Some((id, pos));
+                            }
+                        }
+                        // No touch reaches Stylus or the canvas tool path for this finger.
+                        continue;
+                    }
+
+                    if phase == egui::TouchPhase::Start && canvas.contains(pos) {
+                        let over_floating_ui = ctx
+                            .layer_id_at(pos)
+                            .is_some_and(|layer| layer.order != egui::Order::Background);
+                        if !over_floating_ui {
+                            pan = Some((id, pos));
+                            // The following synthetic pointer press belongs to this finger and is
+                            // dropped below; the canvas starts in navigation-only mode.
+                            continue;
+                        }
+                    }
+                    routed.push(egui::Event::Touch {
+                        device_id,
+                        id,
+                        phase,
+                        pos,
+                        force: None,
+                    });
+                }
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: _,
+                } if pan.is_some_and(|(_, at)| at.distance(pos) <= 12.0)
+                    || (!pressed && release_pos.is_some_and(|at| at.distance(pos) <= 12.0)) =>
+                {
+                    // This is the egui-winit pointer mirror of the finger touch already handled
+                    // above. Keep finger taps/dragging on UI controls, but never start a tool
+                    // stroke on the canvas.
+                }
+                other => routed.push(other),
+            }
+        }
+
+        self.finger_pan = pan;
+        raw.events = routed;
+    }
+
     /// The staged copy of a document, if `path` names one: a *direct* child of the app's own
     /// `media/` directory (see PhotoCraftActivity.newStageFile). Anything else on the device is
     /// never touched.
@@ -821,6 +916,66 @@ impl eframe::App for PhotoCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // "Finger draws on canvas" (Preferences › Tools): when off, the Android backend turns
+        // single-finger touches into canvas pan gestures instead of pointer events, so only the
+        // S Pen paints. Read each frame so a settings change takes effect without a restart.
+        let finger_draws = self.inner.session.prefs().tools.finger_draws;
+        android_activity::FINGER_DRAWS.store(
+            finger_draws,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.route_finger_navigation(ctx, raw);
+        // Two/three-finger taps and the S Pen button queue host actions in android-activity.
+        // Run them here, before the app lays out this frame, through its own command registry.
+        android_activity::MULTI_FINGER_TAP_ACTIONS
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let drawing_toggles = android_activity::DRAWING_MODE_REQUESTS.swap(
+            0,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        if drawing_toggles > 0 {
+            log::info!("Android action: toggle drawing mode ({drawing_toggles})");
+        }
+        for _ in 0..drawing_toggles.min(8) {
+            if let Err(error) = photocraft_ui_egui::menus::invoke(
+                &mut self.inner,
+                ctx,
+                "view.drawingMode",
+                serde_json::json!({}),
+            ) {
+                log::error!("Could not toggle drawing mode: {error}");
+            }
+        }
+        let undos =
+            android_activity::UNDO_REQUESTS.swap(0, std::sync::atomic::Ordering::Relaxed);
+        if undos > 0 {
+            log::info!("Android action: undo ({undos})");
+        }
+        for _ in 0..undos.min(8) {
+            if let Err(error) = photocraft_ui_egui::menus::invoke(
+                &mut self.inner,
+                ctx,
+                "edit.undo",
+                serde_json::json!({}),
+            ) {
+                log::error!("Could not undo: {error}");
+            }
+        }
+        let redos =
+            android_activity::REDO_REQUESTS.swap(0, std::sync::atomic::Ordering::Relaxed);
+        if redos > 0 {
+            log::info!("Android action: redo ({redos})");
+        }
+        for _ in 0..redos.min(8) {
+            if let Err(error) = photocraft_ui_egui::menus::invoke(
+                &mut self.inner,
+                ctx,
+                "edit.redo",
+                serde_json::json!({}),
+            ) {
+                log::error!("Could not redo: {error}");
+            }
+        }
         self.ime.poll(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
@@ -855,6 +1010,46 @@ fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
     }
 }
 
+/// Ask the Activity whether this is a tablet (`smallestScreenWidthDp >= 600`), the device class
+/// that starts in drawing mode on first launch.
+#[cfg(target_os = "android")]
+fn device_is_tablet(app: &AndroidApp) -> Option<bool> {
+    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
+    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        Ok(env
+            .call_method(&*activity, jni_str!("isTabletDevice"), jni_sig!("()Z"), &[])?
+            .z()?)
+    });
+    match result {
+        Ok(is_tablet) => Some(is_tablet),
+        Err(error) => {
+            log::warn!("Could not determine the screen size class: {error}");
+            None
+        }
+    }
+}
+
+/// Whether the tablet drawing-mode defaults have already been applied on this device. Kept apart
+/// from `device_class` (the high-density scale marker) so a later user choice is never overwritten.
+#[cfg(target_os = "android")]
+fn tablet_ui_first_time(dir: &Path) -> bool {
+    let marker = dir.join("tablet_ui");
+    if fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "initialized") {
+        return false;
+    }
+    let temporary = marker.with_extension("tmp");
+    if let Err(error) = fs::create_dir_all(dir)
+        .and_then(|()| fs::write(&temporary, b"initialized"))
+        .and_then(|()| fs::rename(&temporary, &marker))
+    {
+        log::warn!("settings: {}: {error}", marker.display());
+    }
+    true
+}
+
 /// Whether the high-density UI scale should be applied to this launch, and the sidecar that
 /// remembers that it was.
 ///
@@ -876,6 +1071,18 @@ fn device_scale_first_time(dir: &Path) -> bool {
         log::warn!("settings: {}: {error}", path.display());
     }
     true
+}
+
+/// `PhotoCraftActivity.pcSpenButton()`: toggle the canvas-first drawing mode on the next frame.
+/// The Activity consumes the S Pen's barrel button before GameActivity forwards it, so this
+/// crosses the Java/native boundary directly instead of relying on a synthetic key.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_artcraft_photocraft_PhotoCraftActivity_pcSpenButton(
+    _env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+) {
+    android_activity::DRAWING_MODE_REQUESTS.fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(target_os = "android")]
@@ -973,6 +1180,19 @@ fn android_main(android_app: AndroidApp) {
             if device_is_high_density(&app_bridge.app) == Some(true) && device_scale_first_time(class_dir) {
                 let _ = app.session.execute("prefs.set", serde_json::json!({"values": {"interface.uiScale": "150"}}));
             }
+            // A tablet starts canvas-first, with the compact drawing palette on the right for a
+            // left-handed artist. This is a one-time default: the marker means a later choice
+            // (drawing or full UI, either hand) is kept across launches.
+            if device_is_tablet(&app_bridge.app) == Some(true) && tablet_ui_first_time(class_dir) {
+                let _ = app.session.execute(
+                    "prefs.set",
+                    serde_json::json!({"values": {
+                        "interface.drawingMode": true,
+                        "interface.leftHanded": true,
+                        "tools.fingerDraws": false
+                    }}),
+                );
+            }
             // Hand the canvas the live render state when the device is a real GPU, and record the
             // adapter for Help › System Info either way — without this the canvas stays on the CPU
             // compositor and System Info reports no adapter ("unknown").
@@ -990,6 +1210,7 @@ fn android_main(android_app: AndroidApp) {
                 picker: app_picker.clone(),
                 ime: ime_bridge::ime::ImeBridge::new(&app_bridge.app),
                 modifiers: egui::Modifiers::default(),
+                finger_pan: None,
                 intent_inbox: app_intent_inbox.clone(),
                 intent_warmup: 2,
                 staged_seen: Vec::new(),

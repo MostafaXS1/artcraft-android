@@ -147,10 +147,18 @@ def manifest_xml(android_meta):
         lines.append(f'        <activity {" ".join(attrs)}>')
 
         for meta in _as_list(activity.get("meta_data")):
-            lines.append(
-                f'            <meta-data android:name="{_esc(meta["name"])}"'
-                f' android:value="{_esc(meta["value"])}" />'
-            )
+            # `resource` is for metadata that points at an XML resource (Samsung's S Pen
+            # RemoteAction table, for one); everything else uses a literal `value`.
+            if meta.get("resource") is not None:
+                lines.append(
+                    f'            <meta-data android:name="{_esc(meta["name"])}"'
+                    f' android:resource="{_esc(meta["resource"])}" />'
+                )
+            else:
+                lines.append(
+                    f'            <meta-data android:name="{_esc(meta["name"])}"'
+                    f' android:value="{_esc(meta["value"])}" />'
+                )
         for intent_filter in _as_list(activity.get("intent_filter")):
             lines.append("            <intent-filter>")
             for action in intent_filter.get("actions", []):

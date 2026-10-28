@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="spen_actions_label">PhotoCraft</string>
+    <string name="spen_toggle_panels">Show or hide panels</string>
+</resources>

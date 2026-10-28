@@ -70,6 +70,13 @@ const PINCH_SPREAD_RATIO: f64 = 1.5;
 /// How much faster a two-finger pan scrolls than the fingers move.
 const PAN_SPEED: f64 = 1.5;
 
+/// A two- or three-finger tap must stay within this distance (physical pixels) of where each
+/// finger landed; moving further makes it a pan/pinch instead of an undo/redo tap.
+const TAP_MOVE_PX: f64 = 40.0;
+
+/// How long a two- or three-finger tap may stay down, in nanoseconds of Android's event clock.
+const TAP_MAX_NS: i64 = 400_000_000;
+
 fn pointer_position(pointer: &android_activity::input::Pointer<'_>) -> PhysicalPosition<f64> {
     PhysicalPosition {
         x: pointer.x() as f64,
@@ -257,6 +264,14 @@ pub struct EventLoop<T: 'static> {
     /// How far apart a hardware touchpad's pinch fingers were when its last event came:
     /// the pinch is reported as two pointers that move apart or together.
     pad_spread: Option<f64>,
+    /// Fingers in the current possible two/three-finger tap and where each landed.
+    tap_fingers: Vec<(i32, PhysicalPosition<f64>)>,
+    /// When the possible tap's first finger landed, on Android's event clock (nanoseconds).
+    tap_started_ns: Option<i64>,
+    /// The most fingers the possible tap had down at once.
+    tap_max_fingers: usize,
+    /// The possible tap moved too far, lasted too long, or became a pan/pinch.
+    tap_cancelled: bool,
 }
 
 /// What a multi-finger gesture has been recognised as.
@@ -322,6 +337,9 @@ impl<T: 'static> EventLoop<T> {
         // axes enabled here (X and Y by default), so the mouse wheel reads 0.
         android_app.enable_motion_axis(Axis::Vscroll);
         android_app.enable_motion_axis(Axis::Hscroll);
+        // Pressure: without this the S Pen's force always reads 0 and the brush paints at a
+        // fixed width/opacity.
+        android_app.enable_motion_axis(Axis::Pressure);
         let redraw_flag = SharedFlag::new();
 
         Ok(Self {
@@ -354,6 +372,10 @@ impl<T: 'static> EventLoop<T> {
             gesture_pointer: None,
             pad_position: None,
             pad_spread: None,
+            tap_fingers: Vec::new(),
+            tap_started_ns: None,
+            tap_max_fingers: 0,
+            tap_cancelled: false,
         })
     }
 
@@ -526,6 +548,106 @@ impl<T: 'static> EventLoop<T> {
         callback(event::Event::AboutToWait, self.window_target());
 
         self.pending_redraw = pending_redraw;
+    }
+
+    /// Track the current contacts as a possible two/three-finger tap.
+    ///
+    /// On the last finger's `Up`, returns the most fingers that were down and whether the gesture
+    /// was still a tap: at most [`TAP_MAX_NS`] long and every finger within [`TAP_MOVE_PX`] of
+    /// where it landed. Once it moves further, becomes a pan/pinch, or gains a fourth finger, the
+    /// candidate is cancelled; a one-finger tap is never reported as a match.
+    fn track_finger_tap(
+        &mut self,
+        motion_event: &android_activity::input::MotionEvent<'_>,
+    ) -> Option<(usize, bool)> {
+        let now = motion_event.event_time();
+        match motion_event.action() {
+            MotionAction::Down => {
+                self.tap_fingers.clear();
+                self.tap_started_ns = Some(now);
+                self.tap_max_fingers = 0;
+                self.tap_cancelled = false;
+                self.record_tap_fingers(motion_event);
+                None
+            }
+            MotionAction::PointerDown => {
+                if self.tap_started_ns.is_some() {
+                    self.record_tap_fingers(motion_event);
+                }
+                None
+            }
+            MotionAction::Move => {
+                if let Some(start) = self.tap_started_ns {
+                    if now.saturating_sub(start) > TAP_MAX_NS {
+                        self.tap_cancelled = true;
+                    }
+                    self.note_tap_movement(motion_event);
+                }
+                None
+            }
+            MotionAction::Up | MotionAction::PointerUp => {
+                let start = self.tap_started_ns?;
+                self.note_tap_movement(motion_event);
+                if now.saturating_sub(start) > TAP_MAX_NS {
+                    self.tap_cancelled = true;
+                }
+                if motion_event.action() != MotionAction::Up {
+                    return None;
+                }
+                let fingers = self.tap_max_fingers;
+                let completed = !self.tap_cancelled && (2..=3).contains(&fingers);
+                self.tap_fingers.clear();
+                self.tap_started_ns = None;
+                self.tap_max_fingers = 0;
+                self.tap_cancelled = false;
+                Some((fingers, completed))
+            }
+            MotionAction::Cancel => {
+                self.tap_fingers.clear();
+                self.tap_started_ns = None;
+                self.tap_max_fingers = 0;
+                self.tap_cancelled = false;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn record_tap_fingers(&mut self, motion_event: &android_activity::input::MotionEvent<'_>) {
+        for pointer in motion_event.pointers() {
+            let id = pointer.pointer_id();
+            if !self.tap_fingers.iter().any(|(known, _)| *known == id) {
+                self.tap_fingers.push((
+                    id,
+                    PhysicalPosition {
+                        x: pointer.x() as f64,
+                        y: pointer.y() as f64,
+                    },
+                ));
+            }
+        }
+        self.tap_max_fingers = self.tap_max_fingers.max(motion_event.pointer_count());
+        if self.tap_max_fingers > 3 {
+            self.tap_cancelled = true;
+        }
+    }
+
+    fn note_tap_movement(&mut self, motion_event: &android_activity::input::MotionEvent<'_>) {
+        let limit = TAP_MOVE_PX * TAP_MOVE_PX;
+        for pointer in motion_event.pointers() {
+            let Some((_, origin)) = self
+                .tap_fingers
+                .iter()
+                .find(|(known, _)| *known == pointer.pointer_id())
+            else {
+                continue;
+            };
+            let dx = pointer.x() as f64 - origin.x;
+            let dy = pointer.y() as f64 - origin.y;
+            if dx * dx + dy * dy > limit {
+                self.tap_cancelled = true;
+            }
+        }
     }
 
     /// Recognise a multi-finger gesture and report it the way a trackpad does.
@@ -1086,7 +1208,46 @@ impl<T: 'static> EventLoop<T> {
                     | MotionAction::PointerUp
                     | MotionAction::Move
                     | MotionAction::Cancel => {
-                        match self.recognise_touch_gesture(motion_event) {
+                        let finger_pan_mode = !android_activity::FINGER_DRAWS
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                            && tool_type == ToolType::Finger;
+                        let tap = if tool_type == ToolType::Finger
+                            && android_activity::MULTI_FINGER_TAP_ACTIONS
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            self.track_finger_tap(motion_event)
+                        } else {
+                            None
+                        };
+                        let gesture = self.recognise_touch_gesture(motion_event);
+                        if !matches!(gesture, GestureStep::None) {
+                            // A pan or pinch is not a tap, whatever the total movement.
+                            self.tap_cancelled = true;
+                        }
+                        if finger_pan_mode
+                            && self.touch_points.len() >= 2
+                            && matches!(
+                                motion_event.action(),
+                                MotionAction::Down | MotionAction::PointerDown | MotionAction::Move
+                            )
+                        {
+                            // Once two fingers take over, their Touch events stop, so keep egui's
+                            // hover at the midpoint; the host uses it to route pan/pinch to canvas.
+                            let position = self.touch_midpoint();
+                            if let Some(position) = position {
+                                callback(
+                                    event::Event::WindowEvent {
+                                        window_id,
+                                        event: event::WindowEvent::CursorMoved {
+                                            device_id,
+                                            position,
+                                        },
+                                    },
+                                    self.window_target(),
+                                );
+                            }
+                        }
+                        match gesture {
                             GestureStep::Pan(delta) => {
                                 trace!("Two-finger scroll {device_id:?} {delta:?}");
                                 callback(
@@ -1120,6 +1281,29 @@ impl<T: 'static> EventLoop<T> {
                                 return input_status;
                             }
                             GestureStep::None => {}
+                        }
+                        // Two fingers tap to undo, three to redo (the Procreate gesture PhotoCraft
+                        // users expect on a tablet). The request is queued for the host app,
+                        // which runs its own `edit.undo` / `edit.redo` commands next frame. A
+                        // one-finger tap is not a match and falls through to the normal touch
+                        // path.
+                        if let Some((fingers, completed)) = tap {
+                            if completed {
+                                match fingers {
+                                    2 => {
+                                        android_activity::UNDO_REQUESTS
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                    3 => {
+                                        android_activity::REDO_REQUESTS
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if fingers >= 2 {
+                                return input_status;
+                            }
                         }
                         // Two or more fingers on the glass: the gesture belongs to the backend
                         // (a scroll or a zoom), so the fingers are not reported as touches —
@@ -1190,7 +1374,8 @@ impl<T: 'static> EventLoop<T> {
                                         phase,
                                         location,
                                         id: pointer.pointer_id() as u64,
-                                        force: Some(Force::Normalized(pointer.pressure() as f64)),
+                                        force: (pointer.tool_type() != ToolType::Finger)
+                                            .then(|| Force::Normalized(pointer.pressure() as f64)),
                                     }),
                                 };
                                 callback(event, self.window_target());
