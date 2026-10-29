@@ -72,6 +72,12 @@ public final class PhotoCraftActivity extends GameActivity {
     private EditText imeView;
     // True between imeShow() and imeHide(); suppresses a deferred show that a quick hide overtook.
     private volatile boolean imeWanted = false;
+    // Some IMEs fire both deleteSurroundingText(1,0) and sendKeyEvent(KEYCODE_DEL) for one
+    // backspace. The second within this window is dropped to avoid deleting two characters.
+    private static final long IME_DELETE_PAIR_MS = 30L;
+    private volatile long lastImeDeleteSurroundingAt = 0L;
+    private volatile long lastImeDeleteKeyAt = 0L;
+    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -321,8 +327,10 @@ public final class PhotoCraftActivity extends GameActivity {
                         @Override
                         public boolean deleteSurroundingText(int beforeLength, int afterLength) {
                             if (beforeLength > 0 || afterLength > 0) {
-                                imeEvents.offer("d" + beforeLength + "," + afterLength);
-                                wakeNativeLoop();
+                                if (claimDelete("d")) {
+                                    imeEvents.offer("d" + beforeLength + "," + afterLength);
+                                    wakeNativeLoop();
+                                }
                             }
                             return super.deleteSurroundingText(beforeLength, afterLength);
                         }
@@ -339,16 +347,21 @@ public final class PhotoCraftActivity extends GameActivity {
                             if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                 int code = event.getKeyCode();
                                 if (code == KeyEvent.KEYCODE_DEL) {
-                                    imeEvents.offer("d1,0");
-                                    PhotoCraftActivity.this.wakeNativeLoop();
+                                    if (claimDelete("s")) {
+                                        imeEvents.offer("d1,0");
+                                        PhotoCraftActivity.this.wakeNativeLoop();
+                                    }
                                 } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    imeEvents.offer("d0,1");
-                                    PhotoCraftActivity.this.wakeNativeLoop();
+                                    if (claimDelete("s")) {
+                                        imeEvents.offer("d0,1");
+                                        PhotoCraftActivity.this.wakeNativeLoop();
+                                    }
                                 } else if (code == KeyEvent.KEYCODE_ENTER) {
                                     imeEvents.offer("a6");
                                     PhotoCraftActivity.this.wakeNativeLoop();
                                 }
                             }
+                            imeKeySynthesized.add(event.getKeyCode());
                             return super.sendKeyEvent(event);
                         }
                     };
@@ -356,6 +369,9 @@ public final class PhotoCraftActivity extends GameActivity {
 
                 @Override
                 public boolean onKeyDown(int keyCode, KeyEvent event) {
+                    if (imeKeySynthesized.contains(keyCode)) {
+                        return true;
+                    }
                     // Let hardware key events fall through to the native input queue (winit), exactly
                     // as they did before this view existed; the soft keyboard talks to us through the
                     // InputConnection instead. This keeps physical keyboards working.
@@ -364,6 +380,9 @@ public final class PhotoCraftActivity extends GameActivity {
 
                 @Override
                 public boolean onKeyUp(int keyCode, KeyEvent event) {
+                    if (imeKeySynthesized.remove(keyCode)) {
+                        return true;
+                    }
                     return false;
                 }
 
@@ -398,6 +417,20 @@ public final class PhotoCraftActivity extends GameActivity {
         } catch (Throwable error) {
             Log.w(TAG, "Could not wake the native loop for an IME event", error);
         }
+    }
+
+    private boolean claimDelete(String method) {
+        long now = android.os.SystemClock.uptimeMillis();
+        long lastOther = "d".equals(method) ? lastImeDeleteKeyAt : lastImeDeleteSurroundingAt;
+        if (lastOther != 0L && now - lastOther < IME_DELETE_PAIR_MS) {
+            return false;
+        }
+        if ("d".equals(method)) {
+            lastImeDeleteSurroundingAt = now;
+        } else {
+            lastImeDeleteKeyAt = now;
+        }
+        return true;
     }
 
     /** Show the soft keyboard by focusing the IME host view. Called by the Rust shell via JNI. */

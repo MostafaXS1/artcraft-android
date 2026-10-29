@@ -635,48 +635,75 @@ MODIFIER_BLOCK = '''
     });
 '''
 
-# User-requested exclusions: no modifier toggles in these apps.
-EXCLUDED = {"cadcraft", "pdfcraft"}
+# User-requested: modifier toggles ONLY in these 6 apps.
+# All other apps (cadcraft, pdfcraft, effectcraft, figcraft, filmcraft, lightcraft, soundcraft, subcraft) are EXCLUDED.
+INCLUDED = {"photocraft", "vectorcraft", "designcraft", "wordcraft", "gridcraft", "deckcraft"}
 
 # (relative file, anchor text to inject before) for each app's menu-bar render.
 # Anchor is a unique string that appears right where the buttons should go.
 INJECTION_POINTS = {
-    "cadcraft": None,
-    "deckcraft": ("crates/ui-egui/src/qat.rs", "\n    let r = crate::widgets::icon_toggle"),
-    "designcraft": ("crates/ui-egui/src/menus/bar.rs", "\n}\n\n/// One menu's rows"),
-    "effectcraft": ("crates/ui-egui/src/menus/bar.rs", "\n}\n\n/// The entries of top-level menu"),
-    "figcraft": ("crates/ui-egui/src/menus.rs", "\n            });\n        });"),
-    "filmcraft": ("crates/ui-egui/src/menus.rs", "\n}\n\n/// Like a native menu bar"),
-    "gridcraft": ("crates/ui-egui/src/ribbon.rs", "\n        });\n}\n\n/// How much"),
-    "lightcraft": ("crates/ui-egui/src/menus/menubar.rs", "\n    ui.cursor().left() - start"),
-    "pdfcraft": None,
     "photocraft": ("crates/ui-egui/src/menus/bar.rs", "\n    edge"),
-    "soundcraft": ("crates/ui-egui/src/menus.rs", "\n    );\n}\n\n/// Track › Instrument"),
-    "subcraft": ("crates/ui/src/app.rs", "\n            ui.cursor().left()"),  # menu bar render end
     "vectorcraft": ("crates/ui-egui/src/menus/bar.rs", "\n    end"),
+    "designcraft": ("crates/ui-egui/src/menus/bar.rs", "\n}\n\n/// One menu's rows"),
     "wordcraft": ("crates/ui-egui/src/chrome.rs", "\n        });\n}\n\n/// Search"),
+    "gridcraft": ("crates/ui-egui/src/ribbon.rs", "\n        });\n}\n\n/// How much"),
+    "deckcraft": ("crates/ui-egui/src/ribbon/qat.rs", "\n    let r = crate::widgets::icon_toggle"),
 }
 
-if app in EXCLUDED:
+if app not in INCLUDED:
+    print(f"  Removing Android modifier toggles for {app} (not in included list)")
+    # Try to remove modifier buttons from any known menu bar files
+    for rel in [
+        "crates/ui-egui/src/menus/bar.rs",
+        "crates/ui-egui/src/menus.rs",
+        "crates/ui-egui/src/menus/menubar.rs",
+        "crates/ui-egui/src/chrome.rs",
+        "crates/ui-egui/src/ribbon.rs",
+        "crates/ui-egui/src/ribbon/qat.rs",
+        "crates/ui/src/app.rs",
+    ]:
+        path = src / rel
+        if path.exists():
+            try:
+                text = path.read_text()
+                if "android_modifiers" in text:
+                    # Remove the modifier block - find and remove the relevant lines
+                    import re
+                    # Remove the entire modifier block (from the comment to the closing brace)
+                    # Pattern matches from "// Android modifier key toggles" through the closing "});" and the following "ui.ctx().data_mut" block
+                    text = re.sub(
+                        r"// Android modifier key toggles \(Ctrl/Alt/Shift\) at the end of the top menu bar\.\n    let mut modifiers = ui\.ctx\(\)\.data\(.*?d\.insert_temp\(egui::Id::new\(\"android_modifiers\"\), modifiers\);\s*\}\s*;?\s*\n",
+                        "",
+                        text,
+                        flags=re.DOTALL
+                    )
+                    # Clean up multiple blank lines
+                    text = re.sub(r"\n{3,}", "\n\n", text)
+                    path.write_text(text)
+                    print(f"  Removed Android modifier toggles from {rel}")
+            except OSError as e:
+                print(f"  Error removing from {rel}: {e}")
     sys.exit(0)
 
 entry = INJECTION_POINTS.get(app)
 if entry is None:
-    pass  # explicitly opted out
-elif entry:
-    rel, anchor = entry
-    path = src / rel
-    try:
-        text = path.read_text()
-    except OSError:
-        text = ""
-    if "android_modifiers" not in text and anchor:
-        if anchor in text:
-            text = text.replace(anchor, MODIFIER_BLOCK.lstrip("\n") + anchor, 1)
-            path.write_text(text)
-            print(f"  Injected Android modifier toggles into {rel}")
-        else:
-            print(f"  Warning: anchor not found in {rel}, skipping modifier toggle injection")
+    print(f"  Warning: no injection point configured for {app}")
+    sys.exit(0)
+
+print(f"  Attempting modifier toggle injection for {app}")
+rel, anchor = entry
+path = src / rel
+try:
+    text = path.read_text()
+except OSError:
+    text = ""
+if "android_modifiers" not in text and anchor:
+    if anchor in text:
+        text = text.replace(anchor, MODIFIER_BLOCK.lstrip("\n") + anchor, 1)
+        path.write_text(text)
+        print(f"  Injected Android modifier toggles into {rel}")
+    else:
+        print(f"  Warning: anchor not found in {rel}, skipping modifier toggle injection")
 PY
 
 # Two-finger scrolling (the app-side gesture guard and the momentum hand-off) is applied by its
@@ -3144,7 +3171,13 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                // Backspace/Delete always pass through with clean modifiers on Android,
+                // so Ctrl/Alt state never blocks deleting characters.
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    *modifiers = *state;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
