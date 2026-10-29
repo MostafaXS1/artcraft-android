@@ -1,0 +1,45 @@
+[submodule "source/cadcraft"]
+	path = source/cadcraft
+	url = https://github.com/storytold/cadcraft.git
+[submodule "source/craft-fonts"]
+	path = source/craft-fonts
+	url = https://github.com/storytold/craft-fonts.git
+[submodule "source/deckcraft"]
+	path = source/deckcraft
+	url = https://github.com/storytold/deckcraft.git
+[submodule "source/designcraft"]
+	path = source/designcraft
+	url = https://github.com/storytold/designcraft.git
+[submodule "source/effectcraft"]
+	path = source/effectcraft
+	url = https://github.com/storytold/effectcraft.git
+[submodule "source/figcraft"]
+	path = source/figcraft
+	url = https://github.com/storytold/figcraft.git
+[submodule "source/filmcraft"]
+	path = source/filmcraft
+	url = https://github.com/storytold/filmcraft.git
+[submodule "source/gridcraft"]
+	path = source/gridcraft
+	url = https://github.com/storytold/gridcraft.git
+[submodule "source/lightcraft"]
+	path = source/lightcraft
+	url = https://github.com/storytold/lightcraft.git
+[submodule "source/pdfcraft"]
+	path = source/pdfcraft
+	url = https://github.com/storytold/pdfcraft.git
+[submodule "source/photocraft"]
+	path = source/photocraft
+	url = https://github.com/storytold/photocraft.git
+[submodule "source/soundcraft"]
+	path = source/soundcraft
+	url = https://github.com/storytold/soundcraft.git
+[submodule "source/subcraft"]
+	path = source/subcraft
+	url = https://github.com/Aalzard/subcraft.git
+[submodule "source/vectorcraft"]
+	path = source/vectorcraft
+	url = https://github.com/storytold/vectorcraft.git
+[submodule "source/wordcraft"]
+	path = source/wordcraft
+	url = https://github.com/storytold/wordcraft.git
