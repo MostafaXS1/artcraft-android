@@ -875,7 +875,7 @@ impl eframe::App for VectorCraftAndroidApp {
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }
-        self.inner.raw_input_hook(raw);
+        self.inner.raw_input_hook(_ctx, raw);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

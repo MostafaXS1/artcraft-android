@@ -571,7 +571,13 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                // Backspace/Delete always pass through with clean modifiers on Android,
+                // so Ctrl/Alt state never blocks deleting characters.
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    *modifiers = *state;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {

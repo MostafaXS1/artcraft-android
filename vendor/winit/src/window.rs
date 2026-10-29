@@ -1303,6 +1303,22 @@ impl Window {
             .maybe_queue_on_main(move |w| w.set_ime_allowed(allowed))
     }
 
+    /// Requests the input method to reset its state to the given request ID.
+    ///
+    /// The completion of the request is signaled by [`WindowEvent::ImeResetCompleted`] with the
+    /// same `request_id`. Input already accepted before this reset is delivered before the
+    /// completion event; new input admitted after the reset follows it.
+    ///
+    /// ## Platform-specific
+    ///
+    /// - **iOS / Android / Web / Orbital:** Unsupported.
+    /// - **Windows / X11 / macOS / Wayland:** Supported.
+    #[inline]
+    pub fn reset_ime_with_request(&self, request_id: u64) {
+        let _span = tracing::debug_span!("winit::Window::reset_ime_with_request").entered();
+        self.window.maybe_queue_on_main(move |w| w.reset_ime_with_request(request_id))
+    }
+
     /// Sets the IME purpose for the window using [`ImePurpose`].
     ///
     /// ## Platform-specific

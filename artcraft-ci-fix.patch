@@ -1,0 +1,39 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -60,6 +60,4 @@ jobs:
+       - name: Checkout repository
+         uses: actions/checkout@v4
+-        with:
+-          submodules: true
+ 
+       - name: Set up Python
+         uses: actions/setup-python@v5
+
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -5,6 +5,7 @@ keys/
+ .cargo-home/
+ 
+ # Source checkouts (cloned during build)
++/source/
+ 
+ # Backups
+ backups/
+diff --git a/lib/build-common.sh b/lib/build-common.sh
+--- a/lib/build-common.sh
++++ b/lib/build-common.sh
+@@ -447,5 +447,12 @@ source_tree_is_complete() {
+     done | head -5)"
+     [[ -z "$missing" ]]
+ }
++# Git can leave an empty directory for a formerly tracked submodule (gitlink) after
++# .gitmodules and the gitlink are removed. This builder owns source checkouts, so remove
++# only an empty placeholder; never delete non-empty source trees or local changes.
++if [[ -d "$SRC" && ! -e "$SRC/.git" ]] &&
++   [[ -z "$(find "$SRC" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
++    rmdir "$SRC"
++fi
+ if [[ -e "$SRC" ]]; then
+     [[ -d "$SRC/.git" ]] || fail "$SRC exists but is not a Git checkout. Move it aside manually before retrying."

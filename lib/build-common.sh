@@ -594,6 +594,91 @@ if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
 
+# Auto-inject Android modifier key toggles (Shift/Alt/Ctrl) into each app's menu bar so
+# they survive source checkouts being re-cloned. Guarded: no-op if the file already
+# contains `android_modifiers`.
+python3 - "$SRC" "$APP" <<'PY'
+from pathlib import Path
+import sys
+
+src, app = Path(sys.argv[1]), sys.argv[2]
+
+MODIFIER_BLOCK = '''
+    // Android modifier key toggles (Ctrl/Alt/Shift) at the end of the top menu bar.
+    let mut modifiers = ui.ctx().data(|d| d.get_temp::<egui::Modifiers>(egui::Id::new("android_modifiers"))).unwrap_or_default();
+    let shift_label = if modifiers.shift { "⇧ Shift" } else { "Shift" };
+    let mut btn = egui::Button::new(egui::RichText::new(shift_label).size(12.0));
+    btn = btn.selected(modifiers.shift);
+    if ui.add(btn).clicked() {
+        modifiers.shift = !modifiers.shift;
+        ui.ctx().input_mut(|i| i.modifiers = modifiers);
+    }
+    ui.add_space(4.0);
+    let alt_label = if modifiers.alt { "⌥ Alt" } else { "Alt" };
+    let mut btn = egui::Button::new(egui::RichText::new(alt_label).size(12.0));
+    btn = btn.selected(modifiers.alt);
+    if ui.add(btn).clicked() {
+        modifiers.alt = !modifiers.alt;
+        ui.ctx().input_mut(|i| i.modifiers = modifiers);
+    }
+    ui.add_space(4.0);
+    let ctrl_label = if modifiers.ctrl { "⌃ Ctrl" } else { "Ctrl" };
+    let mut btn = egui::Button::new(egui::RichText::new(ctrl_label).size(12.0));
+    btn = btn.selected(modifiers.ctrl);
+    if ui.add(btn).clicked() {
+        modifiers.ctrl = !modifiers.ctrl;
+        modifiers.command = modifiers.ctrl;
+        ui.ctx().input_mut(|i| i.modifiers = modifiers);
+    }
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(egui::Id::new("android_modifiers"), modifiers);
+    });
+'''
+
+# User-requested exclusions: no modifier toggles in these apps.
+EXCLUDED = {"cadcraft", "pdfcraft"}
+
+# (relative file, anchor text to inject before) for each app's menu-bar render.
+# Anchor is a unique string that appears right where the buttons should go.
+INJECTION_POINTS = {
+    "cadcraft": None,
+    "deckcraft": ("crates/ui-egui/src/qat.rs", "\n    let r = crate::widgets::icon_toggle"),
+    "designcraft": ("crates/ui-egui/src/menus/bar.rs", "\n}\n\n/// One menu's rows"),
+    "effectcraft": ("crates/ui-egui/src/menus/bar.rs", "\n}\n\n/// The entries of top-level menu"),
+    "figcraft": ("crates/ui-egui/src/menus.rs", "\n            });\n        });"),
+    "filmcraft": ("crates/ui-egui/src/menus.rs", "\n}\n\n/// Like a native menu bar"),
+    "gridcraft": ("crates/ui-egui/src/ribbon.rs", "\n        });\n}\n\n/// How much"),
+    "lightcraft": ("crates/ui-egui/src/menus/menubar.rs", "\n    ui.cursor().left() - start"),
+    "pdfcraft": None,
+    "photocraft": ("crates/ui-egui/src/menus/bar.rs", "\n    edge"),
+    "soundcraft": ("crates/ui-egui/src/menus.rs", "\n    );\n}\n\n/// Track › Instrument"),
+    "subcraft": ("crates/ui/src/app.rs", "\n            ui.cursor().left()"),  # menu bar render end
+    "vectorcraft": ("crates/ui-egui/src/menus/bar.rs", "\n    end"),
+    "wordcraft": ("crates/ui-egui/src/chrome.rs", "\n        });\n}\n\n/// Search"),
+}
+
+if app in EXCLUDED:
+    sys.exit(0)
+
+entry = INJECTION_POINTS.get(app)
+if entry is None:
+    pass  # explicitly opted out
+elif entry:
+    rel, anchor = entry
+    path = src / rel
+    try:
+        text = path.read_text()
+    except OSError:
+        text = ""
+    if "android_modifiers" not in text and anchor:
+        if anchor in text:
+            text = text.replace(anchor, MODIFIER_BLOCK.lstrip("\n") + anchor, 1)
+            path.write_text(text)
+            print(f"  Injected Android modifier toggles into {rel}")
+        else:
+            print(f"  Warning: anchor not found in {rel}, skipping modifier toggle injection")
+PY
+
 # Two-finger scrolling (the app-side gesture guard and the momentum hand-off) is applied by its
 # own script, so it can be turned off for testing by commenting out the line below. It patches the
 # app's own source at build time; the scroll synthesis itself is the vendored winit/egui-winit
@@ -2854,7 +2939,7 @@ icon = "@mipmap/ic_launcher"
         inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if has_raw_hook:
-            inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
+            inner_hook = "self.inner.raw_input_hook(ctx, raw);"
         else:
             inner_hook = "let _ = (ctx, raw);"
 
@@ -3888,6 +3973,8 @@ mkdir -p "$SRC/vendor"
 if [[ -d "$SRC/vendor/winit" ]]; then
     rm -rf "$SRC/vendor/winit/src/platform_impl/android"
     cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
+    cp -a "$ROOT/vendor/winit/src/event.rs" "$SRC/vendor/winit/src/event.rs"
+    cp -a "$ROOT/vendor/winit/src/window.rs" "$SRC/vendor/winit/src/window.rs"
 else
     rm -rf "$SRC/vendor/winit"
     cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
