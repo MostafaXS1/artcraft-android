@@ -575,20 +575,36 @@ if app == "photocraft":
     ):
         fixed.append("crates/engine/src/presets/mod.rs")
 elif app == "cadcraft":
-    # Upstream Dependabot merged PR #1957 which bumped egui to 0.37, harfrust to 0.14,
-    # quick-xml to 0.42, and rstar to 0.13, breaking the codebase against those new APIs.
-    # Revert them to the 0.36 ecosystem until cadcraft repairs them upstream.
-    for rel, old, new in [
-        ("Cargo.toml", 'egui = "0.37"', 'egui = "0.36"'),
-        ("Cargo.toml", 'egui_kittest = "0.37"', 'egui_kittest = "0.36"'),
-        ("Cargo.toml", 'eframe = { version = "0.37", default-features = false }', 'eframe = { version = "0.36", default-features = false }'),
-        ("Cargo.toml", 'egui-wgpu = "0.37"', 'egui-wgpu = "0.36"'),
-        ("Cargo.toml", 'harfrust = "0.14"', 'harfrust = "0.13.3"'),
-        ("Cargo.toml", 'quick-xml = "0.42"', 'quick-xml = "0.41"'),
-        ("crates/engine/Cargo.toml", 'rstar = { version = "0.13", default-features = false }', 'rstar = { version = "0.12", default-features = false }'),
-    ]:
-        if fix(rel, old, new):
-            fixed.append(f"{rel} ({old} -> {new})")
+    # Fix harfrust 0.13.3 API usage in complex.rs (shaping API changed)
+    if fix(
+        "crates/fonts/src/complex.rs",
+        '    let source = harfrust::font::Blob::Shared(face.bytes.clone());\n    let Some(font) = harfrust::Font::new(source, face.index) else { return Vec::new() };\n    let shaper = harfrust::ShaperFont::new(&font);\n    let mut buf = harfrust::Buffer::new();',
+        '    let Some(font) = harfrust::FontRef::from_index(&face.bytes, face.index).ok() else { return Vec::new() };\n    let shaper_data = harfrust::ShaperData::new(&font);\n    let shaper = shaper_data.shaper(&font).build();\n    let mut buf = harfrust::UnicodeBuffer::new();',
+    ):
+        fixed.append("crates/fonts/src/complex.rs (harfrust API update)")
+
+    if fix(
+        "crates/fonts/src/complex.rs",
+        '    if harfrust::shape(&shaper, &mut buf, harfrust::ShapeOptions::new()).is_err() {\n        return Vec::new();\n    }',
+        '    let buf = shaper.shape(buf, harfrust::ShapeOptions::new());',
+    ):
+        fixed.append("crates/fonts/src/complex.rs (harfrust shape call)")
+
+    # Fix quick-xml 0.42 API (BytesStart/BytesEnd into_inner returns Cow<[u8]>, not Vec<u8>)
+    if fix(
+        "crates/io/src/svg_read.rs",
+        'name.into_inner().as_bytes()',
+        'name.into_inner()',
+    ):
+        fixed.append("crates/io/src/svg_read.rs (quick-xml API)")
+
+    # Fix rstar 0.13 API (locate_in_envelope_intersecting takes &T::Envelope)
+    if fix(
+        "crates/engine/src/spatial.rs",
+        'self.tree.locate_in_envelope_intersecting(env)',
+        'self.tree.locate_in_envelope_intersecting(&env)',
+    ):
+        fixed.append("crates/engine/src/spatial.rs (rstar API)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
@@ -717,6 +733,29 @@ bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 # source at build time; only SubCraft is touched.
 bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 
+# WordCraft v4 patches (request_ime_hide etc.)
+if [[ "$APP" == "wordcraft" ]]; then
+    python3 "$ROOT/lib/patch_wordcraft_v4.py" "$SRC"
+fi
+
+# Patch Services struct with system_theme for all apps that have services.rs
+python3 "$ROOT/lib/patch_services.py" "$SRC" "$APP"
+
+# For PDFCraft, ensure OCR models are available and copied to the Android app assets
+if [[ "$APP" == "pdfcraft" ]]; then
+    # Ensure assets/models directory exists
+    mkdir -p "$SRC/assets/models"
+    # If assets/models is empty, fetch models via cargo xtask
+    if [[ -z "$(ls -A "$SRC/assets/models" 2>/dev/null)" ]]; then
+        echo "Fetching OCR models for PDFCraft..."
+        (cd "$SRC" && cargo xtask models)
+    fi
+    # Copy models to Android app assets
+    mkdir -p "$SRC/apps/pdfcraft-android/assets/models"
+    cp -a "$SRC/assets/models/." "$SRC/apps/pdfcraft-android/assets/models/"
+    echo "Copied OCR models to Android app assets"
+fi
+
 say 4 "Preparing the GameActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
@@ -738,7 +777,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "59"
+GENERATOR_VERSION = "61"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -1686,6 +1725,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             let (tx, rx) = std::sync::mpsc::channel();
             let _ = tx.send(vec![wordcraft_ui_egui::printing::Printer {
                 name: "Android print system".to_owned(),
+                label: String::new(),
                 default: true,
             }]);
             rx
@@ -1984,6 +2024,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     Services {
         pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
         pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
     }
 }
 ''',
@@ -2150,9 +2191,9 @@ INTENT_OPEN = {
             Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
         }
 ''',
-    "cadcraft": '''        self.inner.open_path(path);
+    "cadcraft": '''        self.inner.open_path(std::path::Path::new(path));
 ''',
-    "pdfcraft": '''        self.inner.open_path(path);
+    "pdfcraft": '''        self.inner.open_path(std::path::Path::new(path));
 ''',
     "lightcraft": '''        if let Err(error) = lightcraft_ui_egui::import::open(&mut self.inner, vec![path.to_owned()]) {
             log::error!("Could not open the incoming file {path}: {error}");
@@ -2851,7 +2892,7 @@ crate-type = ["cdylib"]
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
 eframe = {{ workspace = true, features = ["wgpu", "persistence", "android-game-activity"] }}
 egui = {{ workspace = true }}
-egui-winit = "0.36"
+egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
 {serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}
@@ -2924,6 +2965,10 @@ icon = "@mipmap/ic_launcher"
     # the Activity's IME events into egui. Its presence is also what keeps the vendored
     # android-activity (which forwards show/hide to the Activity's imeShow/imeHide) in step.
     imports.append("mod ime_bridge;")
+    # Pull in the shared Android system-theme bridge so the launcher can detect dark/light mode
+    # and update the egui theme accordingly.
+    imports.append("mod system_theme;")
+    imports.append("use system_theme::read_android_system_theme;")
     if re.search(r"\bSession\b", construct):
         imports.append(f"use {engine_ident}::Session;")
     services_syms = [s for s in ("NoServices", "Services") if re.search(r"\b" + s + r"\b", (SAF_RECIPES.get(app) or {}).get("construct_expr") or construct)]
@@ -3536,7 +3581,7 @@ impl InputProbe {{
 /// cleared when the shell is dropped, which happens before the native thread returns.
 static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-struct AndroidShell {{
+ struct AndroidShell {{
     inner: {app_type},
     app: AndroidApp,
     ime: ime_bridge::ime::ImeBridge,
@@ -3546,22 +3591,26 @@ struct AndroidShell {{
     bars_theme: Option<bool>,
     back_pending: bool,
     closing: bool,
-    close_asked: bool,{saf_fields}{intent_field}{persist_fields}{staged_fields}
+    close_asked: bool,
+    system_theme: Option<egui::Theme>,{saf_fields}{intent_field}{persist_fields}{staged_fields}
 }}
 
 impl AndroidShell {{
-    fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
+    fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}, system_theme: Option<egui::Theme>) -> Self {{
         {persist_new_body}let ime = ime_bridge::ime::ImeBridge::new(&app);
-        Self {{ inner, app, ime, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+        Self {{ inner, app, ime, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, system_theme{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
     /// compared every frame and only a flip reaches Java (`apply_bar_appearance`), where the
     /// edge-to-edge bars get dark icons over a light canvas and light icons over a dark one.
-    fn sync_bar_appearance(&mut self, ctx: &egui::Context) {{
+    fn sync_bar_appearance(&mut self, ctx: &egui::Context, system_theme: Option<egui::Theme>) {{
         // `Context::style()` is gone in egui 0.36; `theme()` is what selects the active
         // light/dark style, so it is exactly the choice the bars must mirror.
-        let light_theme = ctx.theme() == egui::Theme::Light;
+        let light_theme = match system_theme {{
+            Some(theme) => theme == egui::Theme::Light,
+            None => ctx.theme() == egui::Theme::Light,
+        }};
         if self.bars_theme == Some(light_theme) {{
             return;
         }}
@@ -3660,7 +3709,7 @@ impl Drop for AndroidShell {{
 impl eframe::App for AndroidShell {{
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {{
 {intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
-{ime_hide_logic}        self.sync_bar_appearance(ctx);
+{ime_hide_logic}        self.sync_bar_appearance(ctx, self.system_theme);
 {quit_check}    }}
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {{
@@ -3745,8 +3794,10 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     saf_bridge.request_storage_permission();
     let saf_state = saf_new_state();
     let saf_inbox = SafInbox::default();
-{saf_setup}    {inner_decl} = {construct_expr};
-{post_construct}    let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);
+{saf_setup}    let system_theme = read_android_system_theme(&android_app);
+    {inner_decl} = {construct_expr};
+{post_construct}    let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox, system_theme);
+
     let mut options = eframe::NativeOptions {{
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -3813,6 +3864,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     apply_immersive_fullscreen(&android_app);
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
 {persist_env_call}    system_fonts::install_font_env(&android_app);
+    let system_theme = read_android_system_theme(&android_app);
     let shell_app = android_app.clone();
     let mut options = eframe::NativeOptions {{
         renderer: eframe::Renderer::Wgpu,
@@ -3850,7 +3902,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         "{title}",
         options,
         Box::new(move |_cc| {{
-            Ok(Box::new(AndroidShell::new({construct_expr}, shell_app.clone())))
+            Ok(Box::new(AndroidShell::new({construct_expr}, shell_app.clone(), system_theme)))
         }}),
     );
     if let Err(error) = result {{
@@ -3862,8 +3914,18 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
+    # The shared Android system-theme bridge.
+    shutil.copy2(root / "templates" / "android" / "system_theme.rs", staging_dir / "src" / "system_theme.rs")
     # The shared Android soft-keyboard bridge, referenced by `mod ime_bridge;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "ime_bridge.rs", staging_dir / "src" / "ime_bridge.rs")
+
+    # If this is PdfCraft, ship the OCR models in the app assets.
+    if app == "pdfcraft":
+        models_src = root / "source" / "pdfcraft" / "assets" / "models"
+        if models_src.exists():
+            models_dst = staging_dir / "src" / "models"
+            models_dst.mkdir(exist_ok=True)
+            shutil.copytree(models_src, models_dst, dirs_exist_ok=True)
 
     # Audio output on Android: the apps get their audio backend from the platform layer (cpal), and
     # their desktop modules are plain cpal code compiled straight from the app's own source into the
@@ -3928,30 +3990,342 @@ fi
 bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 
 # egui-winit's stock Android build gates its `arboard` clipboard backend behind
-# `cfg(not(target_os = "android"))`, so on Android its `Clipboard` is only an in-app
-# `String` — copy/paste never reaches the system clipboard. Vendor the builder's
-# patched egui-winit (a self-contained JNI `ClipboardManager` backend) and patch it
-# into the workspace so every app's eframe event loop uses it. The patch is
-# platform-gated, so desktop builds are unaffected.
-echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
+# The egui fork at storytold/egui (rev 6d518fc, branch migration/egui-037-20261024) provides a complete egui family
+# (ecolor, emath, epaint, epaint_default_fonts, egui, egui_glow, egui_extras,
+# egui_kittest, egui_system_font_provider, eframe, egui_demo_lib, egui_inspection,
+# egui-winit, egui-wgpu) that must be used together. Copy the full fork to vendor/egui/
+# so the workspace can patch them via [patch.crates-io].
+echo "Vendoring the egui fork (ecolor, emath, epaint, egui, eframe, ...) for $TITLE..."
 mkdir -p "$SRC/vendor"
-rm -rf "$SRC/vendor/egui-winit"
-cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
+rm -rf "$SRC/vendor/egui"
+# Copy the entire fork (crates are under crates/ subdirectory)
+cp -a "$ROOT/vendor/egui" "$SRC/vendor/egui"
+
+# Fix the vendored egui crate manifests before they are used:
+# 1. `version.workspace = true` would inherit 0.12.0 from this workspace instead
+#    of 0.37.0 from the egui fork, producing a second egui 0.12.0 in the graph.
+#    Pin every vendored egui family crate to version 0.37.0 explicitly.
+# 2. `[lints] workspace = true` pulls in `unsafe_code = "forbid"`, which conflicts
+#    with egui's own `#[expect(unsafe_code)]`. Drop workspace lint inheritance.
+python3 - "$SRC" <<'PY'
+from pathlib import Path
+import sys, re
+src_root = Path(sys.argv[1])
+vendor_dir = src_root / "vendor" / "egui" / "crates"
+egui_family = {
+    "ecolor", "emath", "epaint", "epaint_default_fonts", "egui", "egui_glow",
+    "egui_extras", "egui_kittest", "egui_system_font_provider", "eframe",
+    "egui_demo_lib", "egui_inspection", "egui-wgpu", "egui-winit",
+}
+for cargo in sorted(vendor_dir.rglob("Cargo.toml")):
+    txt = cargo.read_text()
+    # Pin version to 0.37.0 (override workspace inheritance). Match only
+    # `version.workspace = true`, not `rust-version.workspace = true`.
+    txt = re.sub(r'^version\.workspace = true$', 'version = "0.37.0"', txt, flags=re.M)
+    # Drop workspace lint inheritance
+    if "[lints]\nworkspace = true" in txt:
+        txt = txt.replace("[lints]\nworkspace = true\n", "[lints]\n")
+    # egui-winit's Android clipboard code needs jni and ndk_context; add them
+    # for Android targets so the Android clipboard feature compiles.
+    if cargo.parent.name == "egui-winit":
+        android_deps = '''
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { workspace = true }
+ndk-context = { version = "0.1.1", default-features = false }
+'''
+        # Only insert once (check for actual Android target section)
+        if '[target.' not in txt or 'cfg(target_os = "android")' not in txt:
+            txt = txt.rstrip() + '\n' + android_deps
+    # egui-winit's lib.rs calls clipboard methods (get_image, get_primary_text,
+    # set_primary_text) that the fork's clipboard.rs doesn't define. Add stub
+    # implementations inside impl Clipboard so the crate compiles.
+    if cargo.parent.name == "egui-winit":
+        cb = vendor_dir / "egui-winit" / "src" / "clipboard.rs"
+        cb_txt = cb.read_text()
+        stubs = '''
+    /// Stub: image paste not yet implemented on this backend.
+    pub fn get_image(&mut self) -> Option<egui::ColorImage> {
+        None
+    }
+
+    /// Stub: primary selection not yet implemented on this backend.
+    pub fn get_primary_text(&self) -> Option<String> {
+        None
+    }
+
+    /// Stub: primary selection not yet implemented on this backend.
+    pub fn set_primary_text(&mut self, _text: String) {}
+'''
+        marker = "        log::error!(\n            \"Copying images is not supported. Enable the 'clipboard' feature of `egui-winit` to enable it.\"\n        );\n        _ = image;\n    }\n"
+        if marker in cb_txt and stubs.strip() not in cb_txt:
+            cb_txt = cb_txt.replace(marker, marker + stubs, 1)
+            cb.write_text(cb_txt)
+            print(f"  Patched clipboard.rs stubs for {cargo.parent.name}")
+    # egui-winit's android_activity module isn't declared as `pub mod` in lib.rs.
+    # Add it so the Android launcher can call egui_winit::android_activity::set_activity.
+    if cargo.parent.name == "egui-winit":
+        lib = vendor_dir / "egui-winit" / "src" / "lib.rs"
+        lib_txt = lib.read_text()
+        if "pub mod android_activity;" not in lib_txt:
+            lib_txt = lib_txt.replace(
+                "mod macos_scroll_momentum;\n\npub mod clipboard;",
+                "mod macos_scroll_momentum;\n\npub mod android_activity;\n\npub mod clipboard;",
+            )
+            lib.write_text(lib_txt)
+            print(f"  Added pub mod android_activity to lib.rs for {cargo.parent.name}")
+    cargo.write_text(txt)
+    print(f"  Patched {cargo.relative_to(src_root / 'vendor' / 'egui' / 'crates')}")
+PY
+
+# After vendoring the egui fork crates, patch the Cargo.toml to:
+# 1. Add missing workspace deps for the vendored egui fork
+# 2. Use local path patches for the egui family (instead of the git fork)
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import sys, re
+
 p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'egui-winit = { path = "vendor/egui-winit" }'
-import re
-s = re.sub(r'^\s*egui-winit\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+text = p.read_text()
+
+# Parse TOML into sections so we can edit reliably.
+def split_sections(text):
+    """Return list of (section_header, body_text) in order, preserving the leading
+    part before the first section header."""
+    lines = text.split('\n')
+    sections = []
+    current_header = None
+    current_body = []
+    pre_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            if current_header is None:
+                pre_lines = list(current_body)
+                current_body = []
+            else:
+                sections.append((current_header, '\n'.join(current_body)))
+            current_header = stripped
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_header is not None:
+        sections.append((current_header, '\n'.join(current_body)))
+    return '\n'.join(pre_lines), sections
+
+
+def join_sections(pre, sections):
+    out = []
+    if pre:
+        out.append(pre.rstrip())
+    for header, body in sections:
+        out.append(header)
+        out.append(body.rstrip())
+    return '\n'.join(out) + '\n'
+
+
+pre, sections = split_sections(text)
+
+# 1️⃣ Ensure [workspace.dependencies] has path deps for all vendored egui fork crates.
+ws_deps_body = ''
+for header, body in sections:
+    if header == '[workspace.dependencies]':
+        ws_deps_body = body
+        break
+
+deps_to_ensure = [
+    # Egui fork crates - these are patched to vendor/egui/crates/ (see patch_map below)
+    ('emath', 'emath = { path = "vendor/egui/crates/emath" }'),
+    ('epaint', 'epaint = { path = "vendor/egui/crates/epaint" }'),
+    ('epaint_default_fonts', 'epaint_default_fonts = { path = "vendor/egui/crates/epaint_default_fonts" }'),
+    ('egui', 'egui = { path = "vendor/egui/crates/egui" }'),
+    ('egui_glow', 'egui_glow = { path = "vendor/egui/crates/egui_glow" }'),
+    ('egui_extras', 'egui_extras = { path = "vendor/egui/crates/egui_extras" }'),
+    ('egui_kittest', 'egui_kittest = { path = "vendor/egui/crates/egui_kittest" }'),
+    ('egui_system_font_provider', 'egui_system_font_provider = { path = "vendor/egui/crates/egui_system_font_provider" }'),
+    ('eframe', 'eframe = { path = "vendor/egui/crates/eframe" }'),
+    ('egui_demo_lib', 'egui_demo_lib = { path = "vendor/egui/crates/egui_demo_lib" }'),
+    ('egui_inspection', 'egui_inspection = { path = "vendor/egui/crates/egui_inspection" }'),
+    ('ecolor', 'ecolor = { path = "vendor/egui/crates/ecolor" }'),
+    ('egui-wgpu', 'egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }'),
+    ('egui-winit', 'egui-winit = { path = "vendor/egui/crates/egui-winit" }'),
+    # Remaining deps synced with vendor/egui workspace versions
+    ('accesskit', 'accesskit = "0.25.0"'),
+    ('accesskit_consumer', 'accesskit_consumer = "0.39.0"'),
+    ('accesskit_winit', 'accesskit_winit = "0.34.0"'),
+    ('ahash', 'ahash = { version = "0.8.12", default-features = false, features = ["no-rng", "std"] }'),
+    ('android_logger', 'android_logger = "0.15.1"'),
+    ('arboard', 'arboard = { path = "vendor/arboard" }'),
+    ('backtrace', 'backtrace = "0.3.76"'),
+    ('bitflags', 'bitflags = "2.13"'),
+    ('block2', 'block2 = "0.6.2"'),
+    ('bytemuck', 'bytemuck = "1.25"'),
+    ('cint', 'cint = "0.3.1"'),
+    ('color-hex', 'color-hex = "0.2.0"'),
+    ('criterion', 'criterion = { version = "0.8.2", default-features = false }'),
+    ('directories', 'directories = "6.0"'),
+    ('document-features', 'document-features = "0.2.12"'),
+    ('dify', 'dify = { version = "0.8.0", default-features = false }'),
+    ('ehttp', 'ehttp = { version = "0.7.1", default-features = false }'),
+    ('enum-map', 'enum-map = "3.1"'),
+    ('env_logger', 'env_logger = { version = "0.11.11", default-features = false }'),
+    ('font-types', 'font-types = { version = "0.12.4", default-features = false, features = ["std"] }'),
+    ('fontique', 'fontique = { version = "0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }'),
+    ('glow', 'glow = "0.17.0"'),
+    ('glutin', 'glutin = { version = "0.32.3", default-features = false }'),
+    ('glutin-winit', 'glutin-winit = { version = "0.5.0", default-features = false }'),
+    ('harfrust', 'harfrust = "0.12.0"'),
+    ('image', 'image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }'),
+    ('itertools', 'itertools = "0.15.0"'),
+    ('jiff', 'jiff = { version = "0.2.35", default-features = false }'),
+    ('jni', 'jni = "0.22"'),
+    ('js-sys', 'js-sys = "0.3.103"'),
+    ('kittest', 'kittest = { version = "0.5.0" }'),
+    ('log', 'log = { version = "0.4.34", features = ["std"] }'),
+    ('mimalloc', 'mimalloc = "0.1.52"'),
+    ('mime_guess2', 'mime_guess2 = { version = "2.3", default-features = false }'),
+    ('mint', 'mint = "0.5.9"'),
+    ('nohash-hasher', 'nohash-hasher = "0.2.0"'),
+    ('objc2', 'objc2 = "0.6.4"'),
+    ('objc2-app-kit', 'objc2-app-kit = { version = "0.3.2", default-features = false }'),
+    ('objc2-foundation', 'objc2-foundation = { version = "0.3.2", default-features = false }'),
+    ('objc2-ui-kit', 'objc2-ui-kit = { version = "0.3.2", default-features = false }'),
+    ('open', 'open = "5.4"'),
+    ('parking_lot', 'parking_lot = "0.12.5"'),
+    ('percent-encoding', 'percent-encoding = "2.3"'),
+    ('poll-promise', 'poll-promise = { version = "0.3.0", default-features = false }'),
+    ('pollster', 'pollster = "1.0"'),
+    ('profiling', 'profiling = { version = "1.0", default-features = false }'),
+    ('puffin', 'puffin = "0.20.0"'),
+    ('puffin_http', 'puffin_http = "0.17.0"'),
+    ('rand', 'rand = "0.10.2"'),
+    ('raw-window-handle', 'raw-window-handle = "0.6.2"'),
+    ('read-fonts', 'read-fonts = "0.43.3"'),
+    ('rayon', 'rayon = "1.12"'),
+    ('resvg', 'resvg = { version = "0.45.1", default-features = false }'),
+    ('rfd', 'rfd = "0.17.2"'),
+    ('rmp-serde', 'rmp-serde = "1.3"'),
+    ('ron', 'ron = "0.12.2"'),
+    ('self_cell', 'self_cell = "1.3"'),
+    ('send_wrapper', 'send_wrapper = "0.6"'),
+    ('serde', 'serde = { version = "1.0", features = ["derive"] }'),
+    ('serde_bytes', 'serde_bytes = "0.11.19"'),
+    ('serde_json', 'serde_json = { version = "1", features = ["float_roundtrip"] }'),
+    ('similar-asserts', 'similar-asserts = "2.0"'),
+    ('skrifa', 'skrifa = { version = "0.44.0", default-features = false, features = ["std", "autohint_shaping"] }'),
+    ('smallvec', 'smallvec = "1.16"'),
+    ('smithay-clipboard', 'smithay-clipboard = "0.7.2"'),
+    ('static_assertions', 'static_assertions = "1.1"'),
+    ('syntect', 'syntect = { version = "5.3", default-features = false }'),
+    ('sys-locale', 'sys-locale = "0.3.2"'),
+    ('tempfile', 'tempfile = "3.27"'),
+    ('thiserror', 'thiserror = "2.0"'),
+    ('tokio', 'tokio = "1.53"'),
+    ('toml', 'toml = { version = "1.1", default-features = false }'),
+    ('type-map', 'type-map = "0.5.1"'),
+    ('unicode-bidi', 'unicode-bidi = { version = "0.3.18", default-features = false, features = ["hardcoded-data", "std"] }'),
+    ('unicode-general-category', 'unicode-general-category = "1.1"'),
+    ('unicode-properties', 'unicode-properties = { version = "0.1.4", default-features = false, features = ["emoji"] }'),
+    ('unicode-script', 'unicode-script = "0.5.8"'),
+    ('unicode-segmentation', 'unicode-segmentation = "1.13"'),
+    ('unicode_names2', 'unicode_names2 = { version = "3.1", default-features = false }'),
+    ('vello_cpu', 'vello_cpu = { version = "0.2.0", default-features = false, features = ["std", "u8_pipeline", "f32_pipeline"] }'),
+    ('wgpu', 'wgpu = { version = "30.0", default-features = false, features = ["std"] }'),
+    ('wasm-bindgen', 'wasm-bindgen = "0.2.126"'),
+    ('wasm-bindgen-futures', 'wasm-bindgen-futures = "0.4.76"'),
+    ('wayland-cursor', 'wayland-cursor = { version = "0.31.14", default-features = false }'),
+    ('web-sys', 'web-sys = "0.3.103"'),
+    ('web-time', 'web-time = "1.1"'),
+    ('webbrowser', 'webbrowser = "1.2.4"'),
+    ('windows-sys', 'windows-sys = "0.61.2"'),
+    ('winit', 'winit = { version = "0.30.13", default-features = false }'),
+]
+
+# Build a dict of existing deps in [workspace.dependencies].
+existing = {}
+for line in ws_deps_body.split('\n'):
+    m = re.match(r'^\s*([A-Za-z0-9_.-]+)\s*=', line)
+    if m:
+        existing[m.group(1)] = line
+
+dep_dict = dict((d[0], d[1]) for d in deps_to_ensure)
+
+# Rebuild [workspace.dependencies]: replace deps listed in deps_to_ensure with
+# their new values (path deps for egui family, updated versions for others),
+# keep original deps not in the list, and add any missing ones.
+new_ws_lines = []
+for line in ws_deps_body.split('\n'):
+    m = re.match(r'^(\s*)([A-Za-z0-9_.-]+)(\s*=)', line)
+    if m:
+        dep_name = m.group(2)
+        if dep_name in dep_dict:
+            new_ws_lines.append(dep_dict[dep_name])
+        else:
+            new_ws_lines.append(line.rstrip())
+    else:
+        new_ws_lines.append(line.rstrip())
+
+# Add any missing deps that weren't in the original body.
+for dep_name, dep_line in deps_to_ensure:
+    if dep_name not in existing:
+        new_ws_lines.append(dep_line)
+
+# Fix harfrust / quick-xml versions.
+new_ws_lines = [re.sub(r'harfrust = "0\.14"', 'harfrust = "0.13.3"', l) for l in new_ws_lines]
+new_ws_lines = [re.sub(r'quick-xml = "0\.42"', 'quick-xml = "0.41"', l) for l in new_ws_lines]
+
+new_ws_body = '\n'.join(new_ws_lines)
+
+# Replace the [workspace.dependencies] section.
+new_sections = []
+for header, body in sections:
+    if header == '[workspace.dependencies]':
+        new_sections.append((header, new_ws_body))
+    else:
+        new_sections.append((header, body))
+
+text = join_sections(pre, new_sections)
+
+# 2️⃣ Patch [patch.crates-io] to use local vendor paths for the egui fork crates.
+# Replace the entire [patch.crates-io] section body.
+patch_lines = [
+    'ecolor = { path = "vendor/egui/crates/ecolor" }',
+    'emath = { path = "vendor/egui/crates/emath" }',
+    'epaint = { path = "vendor/egui/crates/epaint" }',
+    'epaint_default_fonts = { path = "vendor/egui/crates/epaint_default_fonts" }',
+    'egui = { path = "vendor/egui/crates/egui" }',
+    'egui_glow = { path = "vendor/egui/crates/egui_glow" }',
+    'egui_extras = { path = "vendor/egui/crates/egui_extras" }',
+    'egui_kittest = { path = "vendor/egui/crates/egui_kittest" }',
+    'egui_system_font_provider = { path = "vendor/egui/crates/egui_system_font_provider" }',
+    'eframe = { path = "vendor/egui/crates/eframe" }',
+    'egui_demo_lib = { path = "vendor/egui/crates/egui_demo_lib" }',
+    'egui_inspection = { path = "vendor/egui/crates/egui_inspection" }',
+    'egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }',
+    'egui-winit = { path = "vendor/egui/crates/egui-winit" }',
+]
+
+# Find and replace the [patch.crates-io] section.
+final_sections = []
+found_patch = False
+for header, body in new_sections:
+    if header == '[patch.crates-io]':
+        # Keep krilla/hayro lines from the original patch section.
+        keep = [l for l in body.split('\n')
+                if l.strip().startswith('krilla') or l.strip().startswith('hayro')]
+        final_sections.append(('[patch.crates-io]',
+                               '\n'.join(patch_lines + ([''] + keep if keep else []))))
+        found_patch = True
+    else:
+        final_sections.append((header, body))
+if not found_patch:
+    final_sections.append(('[patch.crates-io]', '\n'.join(patch_lines)))
+
+text = join_sections(pre, final_sections)
+p.write_text(text)
 PY
+
+# The storytold/egui fork at vendor/egui/crates/egui-winit/ now includes Android clipboard support.
+# No separate egui-winit vendoring needed - it's part of the egui fork.
 
 # Some apps call `rfd` directly from a crate that ends up in the launcher's dependency graph
 # (PDFCraft does, in ~18 files), and rfd 0.17 ships no Android backend, so it fails to compile for
@@ -3965,7 +4339,7 @@ if grep -rqE '\brfd::' "$SRC"/crates/*/src 2>/dev/null; then
     cp -a "$ROOT/vendor/rfd" "$SRC/vendor/rfd"
     python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'rfd = { path = "vendor/rfd" }'
@@ -3975,8 +4349,7 @@ if entry not in s:
     header = "[patch.crates-io]"
     s = (s.replace(header, header + "\n" + entry, 1) if header in s
          else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+p.write_text(s)
 PY
 fi
 
@@ -3985,7 +4358,7 @@ fi
 # cannot compile for `aarch64-linux-android`. Vendor the builder's Android-compatible stub (a
 # no-op clipboard) and patch it in. If crates use `arboard = { workspace = true }`, we must
 # replace the workspace dependency; otherwise we add it via `[patch.crates-io]`.
-if grep -rqE '\barboard\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null; then
+if grep -rqE '\barboard\b' "$SRC"/crates/*/src "$SRC"/apps/*/src "$SRC"/vendor/egui 2>/dev/null; then
     echo "Vendoring an Android-compatible arboard for $TITLE (clipboard access becomes a no-op)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/arboard"
@@ -4004,31 +4377,32 @@ fi
 echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
 mkdir -p "$SRC/vendor"
 if [[ -d "$SRC/vendor/winit" ]]; then
-    rm -rf "$SRC/vendor/winit/src/platform_impl/android"
-    cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
-    cp -a "$ROOT/vendor/winit/src/event.rs" "$SRC/vendor/winit/src/event.rs"
-    cp -a "$ROOT/vendor/winit/src/window.rs" "$SRC/vendor/winit/src/window.rs"
+    # The winit vendor structure: vendor/winit/ (workspace) -> vendor/winit/winit/ (crate)
+    # Android backend is at $ROOT/vendor/winit/src/platform_impl/android/
+    # But needs to go to $SRC/vendor/winit/winit/src/platform_impl/android/
+    rm -rf "$SRC/vendor/winit/winit/src/platform_impl/android"
+    mkdir -p "$SRC/vendor/winit/winit/src/platform_impl"
+    cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/winit/src/platform_impl/android"
+    cp -a "$ROOT/vendor/winit/src/event.rs" "$SRC/vendor/winit/winit/src/event.rs"
+    cp -a "$ROOT/vendor/winit/src/window.rs" "$SRC/vendor/winit/winit/src/window.rs"
 else
     rm -rf "$SRC/vendor/winit"
     cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
 fi
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'winit = { path = "vendor/winit" }'
-# Remove any existing winit patch entry to avoid duplicate keys
-import re
-# Remove lines starting with winit = (possibly with whitespace) within patch.crates-io section
-# Simple approach: remove all occurrences of lines that look like winit patch
-s = re.sub(r'^\s*winit\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
+# Add winit to [patch.crates-io] to use the vendored, mouse/scroll-aware copy.
+# Keep winit in [workspace.dependencies] too: vendored egui crates reference it
+# via `workspace = true` and need it there for lookup.
 if entry not in s:
     header = "[patch.crates-io]"
     s = (s.replace(header, header + "\n" + entry, 1) if header in s
          else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+p.write_text(s)
 PY
 
 # egui-wgpu's lost-surface recovery kept the old surface alive while it created the new one: the
@@ -4039,21 +4413,30 @@ PY
 # patched egui-wgpu, which releases the old surface first, and patch it into the workspace.
 echo "Vendoring the surface-fixing egui-wgpu for $TITLE..."
 rm -rf "$SRC/vendor/egui-wgpu"
-cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
+# New structure: crates are under crates/ subdirectory
+cp -a "$ROOT/vendor/egui/crates/egui-wgpu" "$SRC/vendor/egui-wgpu"
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'egui-wgpu = { path = "vendor/egui-wgpu" }'
-import re
-s = re.sub(r'^\s*egui-wgpu\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+# Only remove egui-wgpu entry from [patch.crates-io] section
+parts = s.split('[patch.crates-io]')
+if len(parts) == 2:
+    patch_part = parts[1]
+    patch_part = re.sub(r'^\s*egui-wgpu\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_part, flags=re.M)
+    if entry not in patch_part:
+        patch_part = entry + '\n' + patch_part
+    s = parts[0] + '[patch.crates-io]\n' + patch_part
+else:
+    if entry not in s:
+        header = "[patch.crates-io]"
+        if header in s:
+            s = s.replace(header, header + "\n" + entry, 1)
+        else:
+            s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+p.write_text(s)
 PY
 
 # Every launcher uses the builder's vendored android-activity: the game-activity backend now
@@ -4069,7 +4452,7 @@ rm -rf "$SRC/vendor/android-activity"
 cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'android-activity = { path = "vendor/android-activity" }'
@@ -4079,8 +4462,7 @@ if entry not in s:
     header = "[patch.crates-io]"
     s = (s.replace(header, header + "\n" + entry, 1) if header in s
          else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+p.write_text(s)
 PY
 
 # A `target/` directory left behind by running cargo inside a vendored crate must never be

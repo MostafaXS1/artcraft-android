@@ -7,12 +7,11 @@ src_root = Path(sys.argv[2])  # $SRC
 
 s = root_toml.read_text()
 
-# Check if any crate uses arboard with workspace = true (excluding vendor)
+# Check if any crate (including vendored ones) uses arboard with workspace = true.
+# Vendored egui-winit inherits arboard via `workspace = true`, so we must keep it
+# in [workspace.dependencies] for those crates to resolve it.
 uses_workspace = False
 for cargo in src_root.rglob('Cargo.toml'):
-    # Skip vendored copies
-    if 'vendor/' in str(cargo):
-        continue
     try:
         txt = cargo.read_text()
         if re.search(r'arboard\s*=\s*\{[^}]*workspace\s*=\s*true', txt):
@@ -24,7 +23,8 @@ for cargo in src_root.rglob('Cargo.toml'):
 entry_path = 'arboard = { path = "vendor/arboard" }'
 
 if uses_workspace:
-    # Replace arboard in [workspace.dependencies] to point to vendored path
+    # Replace arboard in [workspace.dependencies] to point to vendored path,
+    # preserving any features from the original declaration.
     def repl_ws(m):
         inner = m.group(0)
         features = re.search(r'features\s*=\s*\[([^\]]+)\]', inner)
@@ -35,6 +35,12 @@ if uses_workspace:
     if s2 == s:
         s2 = re.sub(r'^\s*arboard\s*=.*$', 'arboard = { path = "vendor/arboard" }', s, flags=re.M)
     s = s2
+    # Also add to [patch.crates-io] for crates that reference arboard directly
+    # (not via workspace inheritance).
+    header = "[patch.crates-io]"
+    if entry_path not in s:
+        s = (s.replace(header, header + "\n" + entry_path, 1) if header in s
+             else s.rstrip() + "\n\n" + header + "\n" + entry_path + "\n")
 else:
     s = re.sub(r'^\s*arboard\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
     s = re.sub(r'^\s*arboard\s*=.*\n?', '', s, flags=re.M)
