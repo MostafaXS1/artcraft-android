@@ -1,5 +1,57 @@
 # Changelog
 
+## v38 — 2026-11-02
+
+### Fixed
+- The soft keyboard could not type into any app. The root cause: all builder apps used
+  `GameActivity` (`android-game-activity`), which does not integrate with Android's system
+  input method framework. Manual IME polling (`set_ime_editor_info`,
+  `set_text_input_state`, `text_input_state().text` diff → egui events) was a fragile
+  workaround that never worked reliably — input was laggy or broken.
+
+- All builder apps switched to `NativeActivity` (`android-native-activity`), matching the
+  reference implementation at `Nandaje/wordcraft-android`. NativeActivity integrates natively
+  with Android's input method framework: egui's `TextEdit` widgets request keyboard input
+  automatically, the soft keyboard appears instantly when a field is tapped, and typed
+  characters arrive as `egui::Event::Text` through winit's standard event loop — no polling,
+  no 16 ms repaint timer, no Java `EditText`, no custom `InputConnection`, no IME bridge.
+
+- Removed all manual IME polling code from generated launchers:
+  - Deleted `ime_diff`, `ime_events`, `poll_ime` functions
+  - Deleted `ime_text`, `ime_stale`, `editing` shell state fields
+  - Removed `set_ime_editor_info`, `set_text_input_state`, `show_soft_input`,
+    `hide_soft_input` calls
+  - Removed the 16 ms repaint timer while editing
+
+- Removed `templates/android/ime_bridge.rs` entirely. `lib/ime.sh` keeps only WordCraft's
+  source-level Backspace-at-the-start-of-a-paragraph fix.
+
+- Vendored winit patched to drop `MotionEvent::classification()` calls that only exist with
+  `game-activity` (touchpad gesture detection is now a no-op on NativeActivity).
+
+- Vendored eframe patched to allow `accesskit` feature with `android-native-activity`
+  (removed the `compile_error!` that blocked it).
+
+- eframe feature changed from `android-game-activity` to `android-native-activity` in all
+  generated launchers and all adapters (PhotoCraft, SubCraft, VectorCraft).
+
+- Kotlin Activity class changed from `GameActivity` to `NativeActivity` in
+  `templates/android/SafActivity.java` and all adapter Java files.
+
+- `GENERATOR_VERSION` bumped to `65`, which regenerates every launcher.
+
+- All 14 apps rebuilt in release mode and verified: CADCraft, DeckCraft, DesignCraft,
+  EffectCraft, FigCraft, FilmCraft, GridCraft, LightCraft, PDFCraft, PhotoCraft,
+  SoundCraft, SubCraft, VectorCraft, WordCraft. Every APK ships with NativeActivity and
+  relies on Android's native soft-keyboard input — egui `TextEdit` widgets just work.
+
+### Changed
+- GENERATOR_VERSION: `63` → `65`
+- eframe: `android-game-activity` → `android-native-activity`
+- android-activity: `game-activity` → `native-activity`
+- Activity class: `GameActivity` → `NativeActivity`
+  editor-info set on focus, and 16 ms repaint while editing.
+
 ## v37 — 2026-10-20
 
 ### Fixed

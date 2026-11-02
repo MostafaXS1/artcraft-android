@@ -46,7 +46,7 @@ The ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) A
 - For most apps, it generates a thin GameActivity-based Rust launcher that wires up services (file dialogs, persistence, printing, etc.) into the app's APIs.
 - For some apps (PhotoCraft, VectorCraft, SubCraft), it uses custom adapters with app-specific SAF/intent handling.
 - It vendors and patches dependencies (winit, egui-winit, rfd, arboard, egui-wgpu, android-activity) to add Android-specific functionality (mouse/trackpad, two-finger gestures/momentum, system clipboard via JNI, SAF integration, ANR-safe callbacks, surface recovery fixes).
-- It shares runtime modules (SAF bridge, IME bridge, system fonts, update checker) across generated launchers and adapters.
+- It shares runtime modules (SAF bridge, system fonts, update checker) across generated launchers and adapters; soft-keyboard input uses android-activity's native IME.
 - It manages SDK/NDK/JDK/Gradle, signing, and produces versioned APKs in `output/`.
 
 ---
@@ -70,7 +70,6 @@ artcraft-android-builder/
 │   ├── android/            # Shared Java/Rust modules
 │   │   ├── SafActivity.java
 │   │   ├── saf_bridge.rs
-│   │   ├── ime_bridge.rs
 │   │   ├── system_fonts.rs
 │   │   └── UpdateCheck.java
 │   └── gradle/             # Gradle wrapper template
@@ -201,7 +200,7 @@ Guarded fixes applied only if broken text present and not already fixed:
 ### App-side patches (shell scripts)
 - **`lib/scrolling.sh`**: Patches app source for two-finger scrolling/momentum. Works with vendored winit/egui-winit that recognize gestures. Patches to prevent selection on first finger, add momentum (Android sends no momentum). Applied to all apps.
 - **`lib/subcraft.sh`**: Adds `files::deliver_android(purpose, paths)` to SubCraft so incoming files (intents/drops) go into same queue as picked files. Only for SubCraft.
-- **`lib/ime.sh`**: Patches for soft keyboard return after back-dismiss. Applied only to WordCraft (per comment). Installs IME handling in Activity/shared bridge.
+- **`lib/ime.sh`**: WordCraft's source-level Backspace fix for IMEs that deliver `DeleteSurrounding` at the start of a paragraph. Applied only to WordCraft.
 
 All patches are guarded/idempotent.
 
@@ -215,10 +214,10 @@ All patches are guarded/idempotent.
 
 ### Generator behavior (summary)
 - Creates Android crate dir `apps/$APP-android/`
-- Uses `GENERATOR_VERSION="55"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
+- Uses `GENERATOR_VERSION="63"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
 - Inspects upstream workspace: reads `Cargo.toml` to find crates, detects UI crate type (eframe/App, Services/Hooks patterns), determines app type/constructors
-- Copies shared modules: `templates/android/system_fonts.rs`, `templates/android/ime_bridge.rs`, and conditionally `templates/android/saf_bridge.rs` (if SAF needed)
-- Generates `src/lib.rs` with `android_main` wiring eframe/GameActivity, immersive fullscreen, modifier key handling, clipboard shortcuts (Ctrl/Cmd+C/X/V), IME bridge, system fonts, bar appearance, back button mapping to Escape, close-guard integration, input probe, persistence/UI scale/staged pruning logic as applicable
+- Copies shared modules: `templates/android/system_fonts.rs`, and conditionally `templates/android/saf_bridge.rs` (if SAF needed)
+- Generates `src/lib.rs` with `android_main` wiring eframe/GameActivity, immersive fullscreen, modifier key handling, clipboard shortcuts (Ctrl/Cmd+C/X/V), native IME polling, system fonts, bar appearance, back button mapping to Escape, close-guard integration, input probe, persistence/UI scale/staged pruning logic as applicable
 - Adds dependencies to `Cargo.toml` of launcher (eframe with features, egui-winit, android-activity, log, android_logger, serde_json if needed, jni)
 - Copies resources/icons via `lib/app_icons.py`
 - Patches intent filters via `lib/file_associations.py`
@@ -241,7 +240,7 @@ For each build, patches applied to `source/$APP/Cargo.toml` via Python regex rep
 - **arboard** (if used): replace with `vendor/arboard` (Android stub)
 - **winit**: replace with `vendor/winit` (patched Android backend for mouse/trackpad/wheel/hover; for apps that already vendor winit, only `src/platform_impl/android` overwritten)
 - **egui-wgpu**: replace with `vendor/egui-wgpu` (surface recovery fix)
-- **android-activity**: replace with `vendor/android-activity` (ANR-safe callbacks, IME view preference, exported `set_nonblocking_callbacks`)
+- **android-activity**: replace with `vendor/android-activity` (ANR-safe callbacks, native GameActivity IME show/hide, exported `set_nonblocking_callbacks`)
 
 Also copies from `ROOT/vendor/*` to `SRC/vendor/*`, removes `vendor/*/target` dirs.
 
@@ -269,7 +268,7 @@ Extends `GameActivity` (via generated/adapted Activities), package `__PACKAGE__`
 - Staging: files copied to app-private storage under `files/media/` with collision handling (suffixes like ` (2)`) and name sanitization. Reuses existing staged file if name matches and not taken. Tracks suggested names.
 - `safCommit(path)`: writes staged file bytes to remembered SAF URI via `ContentResolver.openOutputStream`, tries to match by stem if exact path not found, adjusts extension if needed
 - Intent handling: collects incoming URIs from `getIntent()`/`getClipData()`, copies them off UI thread to `files/media/` staging, queues paths for `intentPoll()`. Supports drag-drop.
-- IME: installs invisible focusable `EditText` (`imeView`), custom `InputConnection` queues events (`commit`, `setComposingText`, `deleteSurroundingText`, `finishComposingText`, `performEditorAction`, key events), `imeShow()`/`imeHide()` manage visibility, `imePoll()` returns queued JSON/events. Backspace pair guard 30ms. Wakes loop via `onKeyDown` with `KEYCODE_UNKNOWN` -> native glue wakes ALooper.
+- IME: no Java host. While egui wants the keyboard, the Rust shell sets the editor info, resets `AndroidApp::set_text_input_state`, polls `AndroidApp::text_input_state().text` each frame, diffs the buffer into egui `Backspace`/`Text`/`Enter` events, and requests a 16 ms repaint so typing appears without waiting for another wakeup. `show_soft_input(false)`/`hide_soft_input(false)` open and close the native GameActivity IME.
 - Printing: `printDocument(title, pdfBytes)` creates temp PDF, uses `PrintManager` with custom `PdfPrintAdapter`, returns "OK" or error
 - Fullscreen/insets: applies immersive sticky mode, edge-to-edge, bar icon appearance based on theme
 - Back key: `onKeyDown` for `KEYCODE_BACK` returns false (lets winit see it as handled) so winit reports `Key::BrowserBack` (mapped to Escape by shell)
@@ -285,9 +284,6 @@ Module `saf`. Shared by generated launchers and SubCraft adapter copies it inlin
 - `Bridge` holds `AndroidApp` and `Arc<JavaVM>`, methods: `request_open/save/folder`, `pick_blocking`, `pick_blocking_worker`, `commit`, `poll`, `files_dir`, `intent_poll`, `intent_pending`, `print_document`, `request_storage_permission`
 - `SaveMirror`: tracks staged save paths by id, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (every ~200ms family scan mentioned) to detect writes
 - JSON protocol over JNI for picker results
-
-### `templates/android/ime_bridge.rs`
-Module `ime`. `IME_MARKER = "ARTCRAFT_ANDROID_IME_BRIDGE_V1"`. Queues IME events from Java, drains into egui IME events per frame.
 
 ### `templates/android/system_fonts.rs`
 Installs system fonts from `/system/fonts`, `/product/fonts` as lowest priority in egui font families (checked each frame). Links fonts to user locations in **internal** storage: `$HOME/.fonts`, `$HOME/.local/share/fonts`, `$XDG_DATA_HOME/fonts` with minimal `fonts.conf`. Internal storage needed because external refuses symlink. Discovers user fonts from `/storage/emulated/0/Fonts`, `/sdcard/Fonts` or subdirs (needs MANAGE_EXTERNAL_STORAGE). Maintains links every few seconds, handles migration from old single-link setup. Also provides `install_font_env(app)` to set `HOME`/`XDG_DATA_HOME` to internal dir and env vars.
@@ -339,14 +335,13 @@ Complex recipes define how each app integrates SAF:
 
 ## Soft Keyboard and IME
 
-- Invisible focusable `EditText` in Activity with custom `InputConnection`
-- Queues events: commit text, composing text, finish composing text, delete surrounding text, editor action, key events
-- `imeShow()`/`imeHide()` control visibility
-- `imePoll()` returns queued events to Rust
-- Rust `ime_bridge` converts to egui IME events for focused text fields
-- Events wake loop via `onKeyDown` KEYCODE_UNKNOWN (ALooper_wake) so backspace doesn't wait for repaint
-- Duplicate backspace pair guard 30ms
-- Keyboard overlays surface (doesn't resize)
+- android-activity/GameActivity owns the native IME; there is no Java `EditText` host or `InputConnection`
+- The shell treats a focused egui field or egui's IME output (`ctx.output(|o| o.ime.is_some())`) as editing, so canvas text tools work too
+- On focus gain it sets the editor info, clears `text_input_state`, and calls `show_soft_input(false)`; on focus loss it calls `hide_soft_input(false)`
+- Each frame while editing it diffs `text_input_state().text`: removed characters become `Event::Key` Backspace, added text becomes `Event::Text`, a newline becomes `Event::Key` Enter
+- A 16 ms repaint keeps typing responsive because GameActivity text events do not wake winit
+- A pointer press or non-Escape key while editing re-shows the keyboard after Android's Back key dismissed it
+- Keyboard overlays the surface (doesn't resize)
 
 ---
 
@@ -502,7 +497,7 @@ Adapter README explains when to use adapters vs generated launcher.
 ## Vendored Crates
 
 In `vendor/` with patches:
-- **android-activity**: ANR-safe callbacks, IME view preference for show/hide, exported `set_nonblocking_callbacks`
+- **android-activity**: ANR-safe callbacks, native GameActivity IME show/hide, exported `set_nonblocking_callbacks`
 - **rfd**: Android backend routing through `rfd::artcraft_saf`
 - **arboard**: Android stub backend
 - **winit**: Android backend patched for mouse/trackpad/wheel/hover
@@ -530,7 +525,7 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 - Build logs in `logs/<app>-<mode>-<stamp>.log`
 - Rust logs go to logcat (via android_logger)
 - Shell uses `say N "message"`, failures go through `fail()` which reports line number
-- Markers in .so: e.g. `ARTCRAFT_*_ANDROID_SHELL_V*`, `ARTCRAFT_ANDROID_SAF_BRIDGE_V3`, `ARTCRAFT_ANDROID_IME_BRIDGE_V1`
+- Markers in .so: e.g. `ARTCRAFT_*_ANDROID_SHELL_V*`, `ARTCRAFT_ANDROID_SAF_BRIDGE_V3`, `ARTCRAFT_ANDROID_NATIVE_IME_V1`
 
 ---
 
@@ -562,11 +557,10 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 | `lib/file_associations.py` | Intent filter registry |
 | `lib/app_icons.py` | Icon generation |
 | `lib/scrolling.sh` | Scroll/momentum patches |
-| `lib/ime.sh` | Keyboard return patches (WordCraft) |
+| `lib/ime.sh` | WordCraft Backspace-at-paragraph-start patch |
 | `lib/subcraft.sh` | SubCraft file handoff patch |
 | `templates/android/SafActivity.java` | Shared Activity base |
 | `templates/android/saf_bridge.rs` | Rust SAF JNI bridge |
-| `templates/android/ime_bridge.rs` | IME bridge |
 | `templates/android/system_fonts.rs` | System fonts |
 | `templates/android/UpdateCheck.java` | Update checker |
 | `adapters/*` | Custom adapters |

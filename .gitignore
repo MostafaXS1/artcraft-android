@@ -6,6 +6,7 @@ keys/
 .cargo-home/
 
 # Source checkouts (cloned during build)
+source/
 
 # Backups
 backups/

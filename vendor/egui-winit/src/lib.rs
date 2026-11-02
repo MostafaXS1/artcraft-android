@@ -551,8 +551,7 @@ impl State {
             // Things we completely ignore:
             WindowEvent::ActivationTokenDone { .. }
             | WindowEvent::AxisMotion { .. }
-            | WindowEvent::DoubleTapGesture { .. }
-            | WindowEvent::ImeResetCompleted { .. } => EventResponse {
+            | WindowEvent::DoubleTapGesture { .. } => EventResponse {
                 repaint: false,
                 consumed: false,
             },
@@ -1238,11 +1237,11 @@ impl State {
         }
 
         if let Some(ime) = ime {
-            // The builder's Android shell owns a real, editable IME view (see
-            // templates/android/SafActivity.java). Toggling `set_ime_allowed` off then on to
-            // interrupt a composition maps there to an actual hide followed by a show of the soft
-            // keyboard — a visible flash. Android integrations interrupt composition by replacing
-            // the pre-edit text instead, so skip the toggle on Android.
+            // Android uses GameActivity's native IME (the shell polls the text state); it has no
+            // editable Java view, and toggling `set_ime_allowed` off then on to interrupt a
+            // composition would map to an actual hide followed by a show of the soft keyboard — a
+            // visible flash. Android integrations interrupt composition by replacing the pre-edit
+            // text instead, so skip the toggle on Android.
             if !cfg!(target_os = "android")
                 && !is_toggling_ime
                 && ime.should_interrupt_composition
@@ -2443,6 +2442,5 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
         WindowEvent::ThemeChanged { .. } => "WindowEvent::ThemeChanged",
         WindowEvent::Occluded { .. } => "WindowEvent::Occluded",
         WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
-        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
     }
 }

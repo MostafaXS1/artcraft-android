@@ -72,10 +72,6 @@ android-game-activity = ["android-activity/game-activity"]
 android-native-activity = ["android-activity/native-activity"]
 default = [
     "rwh_06",
-    "x11",
-    "wayland",
-    "wayland-dlopen",
-    "wayland-csd-adwaita",
 ]
 mint = ["dpi/mint"]
 rwh_04 = [
@@ -96,32 +92,15 @@ serde = [
     "smol_str/serde",
     "dpi/serde",
 ]
-wayland = [
-    "wayland-client",
-    "wayland-backend",
-    "wayland-protocols",
-    "wayland-protocols-plasma",
-    "sctk",
-    "ahash",
-    "memmap2",
-]
-wayland-csd-adwaita = [
-    "sctk-adwaita",
-    "sctk-adwaita/ab_glyph",
-]
-wayland-csd-adwaita-crossfont = [
-    "sctk-adwaita",
-    "sctk-adwaita/crossfont",
-]
-wayland-csd-adwaita-notitle = ["sctk-adwaita"]
-wayland-dlopen = ["wayland-backend/dlopen"]
-x11 = [
-    "x11-dl",
-    "bytemuck",
-    "percent-encoding",
-    "xkbcommon-dl/x11",
-    "x11rb",
-]
+
+# `wayland` is kept as an empty feature so desktop integrations (egui_glow) that
+# declare `winit/wayland` still resolve; it pulls no desktop deps on Android.
+wayland = []
+wayland-dlopen = []
+wayland-csd-adwaita = []
+wayland-csd-adwaita-crossfont = []
+wayland-csd-adwaita-notitle = []
+x11 = []
 
 [lib]
 name = "winit"
@@ -259,58 +238,6 @@ features = [
     "process",
 ]
 default-features = false
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.sctk]
-version = "0.19.2"
-features = ["calloop"]
-optional = true
-default-features = false
-package = "smithay-client-toolkit"
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.sctk-adwaita]
-version = "0.10.1"
-optional = true
-default-features = false
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.wayland-backend]
-version = "0.3.10"
-features = ["client_system"]
-optional = true
-default-features = false
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.wayland-client]
-version = "0.31.10"
-optional = true
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.wayland-protocols]
-version = "0.32.8"
-features = ["staging"]
-optional = true
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.wayland-protocols-plasma]
-version = "0.3.8"
-features = ["client"]
-optional = true
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.x11-dl]
-version = "2.19.1"
-optional = true
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.x11rb]
-version = "0.13.0"
-features = [
-    "allow-unsafe-code",
-    "dl-libxcb",
-    "randr",
-    "resource_manager",
-    "xinput",
-    "xkb",
-]
-optional = true
-default-features = false
-
-[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies.xkbcommon-dl]
-version = "0.4.2"
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies.block2]
 version = "0.5.1"

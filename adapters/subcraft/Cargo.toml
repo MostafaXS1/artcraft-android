@@ -11,9 +11,9 @@ crate-type = ["cdylib"]
 subcraft-app = { path = "../../crates/app" }
 subcraft-ui = { path = "../../crates/ui" }
 subcraft-core = { path = "../../crates/core" }
-eframe = { workspace = true, features = ["wgpu", "persistence", "android-game-activity"] }
+eframe = { workspace = true, features = ["wgpu", "persistence", "android-native-activity"] }
 egui = { workspace = true }
-egui-winit = "0.36"
+egui-winit = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 jni = "0.22"
@@ -22,7 +22,7 @@ jni = "0.22"
 rfd = { version = "0.17", default-features = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
-android-activity = { version = "0.6", default-features = false, features = ["game-activity"] }
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
 # Rust `log` records to logcat; without this launcher/bridge errors were silent on device.
 android_logger = "0.15"
 

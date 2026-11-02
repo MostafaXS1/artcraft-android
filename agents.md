@@ -75,13 +75,12 @@ artcraft-android-builder/
 │   ├── app_icons.py        # Generates adaptive/legacy launcher icons
 │   ├── file_associations.py # Central intent filter registry
 │   ├── scrolling.sh        # Two-finger scroll/momentum patches
-│   ├── ime.sh              # Soft keyboard return patches (WordCraft)
+│   ├── ime.sh              # WordCraft Backspace-at-paragraph-start patch
 │   └── subcraft.sh         # SubCraft file handoff patch
 ├── templates/
 │   ├── android/            # Shared Java/Rust modules
 │   │   ├── SafActivity.java
 │   │   ├── saf_bridge.rs
-│   │   ├── ime_bridge.rs
 │   │   ├── system_fonts.rs
 │   │   └── UpdateCheck.java
 │   └── gradle/             # Gradle wrapper template
@@ -221,8 +220,8 @@ Guarded fixes applied only if broken text present and not already fixed:
 - Enables incoming files (intents/drops) to go into same queue as picked files
 
 **`lib/ime.sh`** - Applied only to WordCraft
-- Patches for soft keyboard return after back-dismiss
-- Installs IME handling in Activity/shared bridge
+- Fixes Backspace at the start of a paragraph for IMEs that deliver `DeleteSurrounding` instead of text-state changes
+- The Activity and Rust shell use android-activity's native IME; no Java host is patched
 
 All patches are guarded/idempotent.
 
@@ -273,7 +272,8 @@ Generator process:
 ### 10.2 Shared Modules Copied
 Always copied to generated launchers:
 - `templates/android/system_fonts.rs` → `src/system_fonts.rs`
-- `templates/android/ime_bridge.rs` → `src/ime_bridge.rs`
+
+Soft-keyboard input does not use a shared module: the generated shell calls android-activity's native IME directly (see §16).
 
 Conditionally copied if SAF needed:
 - `templates/android/saf_bridge.rs` → included in generated code
@@ -288,7 +288,7 @@ The generator creates `android_main` function that wires:
 - **eframe setup**: Create `NativeOptions` with `Wgpu` renderer, `GameActivity`
 - **App construction**: Call app constructor with appropriate arguments
 - **Event handling**: Input modifiers, clipboard shortcuts (Ctrl/Cmd+C/X/V), back button mapping
-- **Lifecycle**: Close guard for unsaved changes, IME hide on scroll (WordCraft)
+- **Lifecycle**: Close guard for unsaved changes, native IME show/hide (WordCraft)
 - **Persistence/UI scale**: Load prefs, apply device scale on first phone launch, save periodically
 
 ### 10.4 SAF Apps Configuration
@@ -330,12 +330,12 @@ For each build, `lib/build-common.sh` applies patches to `source/$APP/Cargo.toml
 ### 11.1 Vendored Crate Replacements
 | Crate | Vendor Path | Purpose |
 |-------|-------------|---------|
-| `egui-winit` | `vendor/egui-winit` | Android clipboard via JNI, IME integration |
+| `egui-winit` | `vendor/egui-winit` | Android clipboard via JNI, native IME integration |
 | `rfd` (if used) | `vendor/rfd` | Android stub/backend routing through `rfd::artcraft_saf` |
 | `arboard` (if used) | `vendor/arboard` | Android stub backend |
 | `winit` | `vendor/winit` | Android backend patched for mouse/trackpad/wheel/hover, momentum scrolling |
 | `egui-wgpu` | `vendor/egui-wgpu` | Surface recovery fix (release old surface before creating new) |
-| `android-activity` | `vendor/android-activity` | ANR-safe callbacks, IME view preference for show/hide, exported `set_nonblocking_callbacks` |
+| `android-activity` | `vendor/android-activity` | ANR-safe callbacks, native GameActivity IME show/hide, exported `set_nonblocking_callbacks` |
 
 ### 11.2 Vendoring Process
 1. Copy from `ROOT/vendor/*` to `SRC/vendor/*`
@@ -466,17 +466,8 @@ From app semver (ndk-build2 compatible).
 - Supports drag-drop via `View.OnDragListener`
 
 **IME (Soft Keyboard):**
-- Creates invisible focusable `EditText` (`imeView`)
-- Custom `InputConnectionWrapper` queues events:
-  - `"c"` + text - commit
-  - `"p"` + text - composing/pre-edit
-  - `"f"` - finish composing
-  - `"d"<before>,<after>` - delete surrounding
-  - `"a"<actionCode>` - editor action
-- `imeShow()` / `imeHide()` control keyboard
-- `imePoll()` returns queued events
-- Backspace pair guard (30ms) prevents double-delete from IME
-- Wakes native loop via `onKeyDown(KEYCODE_UNKNOWN)` for immediate processing
+- No Java host: the Activity has no `EditText`, `InputConnection`, or `imeShow`/`imeHide`/`imePoll`
+- android-activity/GameActivity owns the native IME; the Rust shell sets the editor info, resets and polls `text_input_state`, and calls `show_soft_input`/`hide_soft_input`
 
 **Printing:**
 - `printDocument(String title, byte[] pdfBytes)` creates temp PDF, uses `PrintManager` with `PdfPrintAdapter`
@@ -547,27 +538,21 @@ Tracks staged save paths by ID, watches for writes, calls `commit()` to mirror t
 
 **JSON Protocol:** Results passed as JSON strings over JNI queue.
 
-### 13.3 `templates/android/ime_bridge.rs`
-**Purpose:** IME event bridge
+### 13.3 Soft keyboard (native IME)
+
+**Purpose:** turn Android's native IME text state into egui events. There is no `ime_bridge.rs` module.
 
 ```rust
-pub const IME_MARKER: &str = "ARTCRAFT_ANDROID_IME_BRIDGE_V1";
-
-pub struct ImeBridge { ... }
-
-impl ImeBridge {
-    pub fn new(app: &AndroidApp) -> Self
-    pub fn poll(&self, raw: &mut egui::RawInput) // Converts Java events to egui IME events
-    pub fn hide_ime(&self) -> Result<()>
+// In the generated AndroidShell / adapter:
+let editing = ctx.egui_wants_keyboard_input() || ctx.output(|o| o.ime.is_some());
+if editing {
+    let now = android_app.text_input_state().text;
+    // diff prev vs now -> Backspace keys, Event::Text, Enter key
+    ctx.request_repaint_after(Duration::from_millis(16));
 }
 ```
 
-Converts queued events from Java:
-- `"c<text>"` → `egui::Event::Text(text)`
-- `"p<text>"` → Composition event
-- `"f"` → Finish composition
-- `"d<before>,<after>"` → Delete events
-- `"a<action>"` → Editor action
+See §16 for the full flow.
 
 ### 13.4 `templates/android/system_fonts.rs`
 **Purpose:** System font integration
@@ -723,41 +708,37 @@ For apps with extensions:
 ## 16. Soft Keyboard and IME Integration
 
 ### 16.1 Architecture
-- Invisible focusable `EditText` in Activity
-- Custom `InputConnectionWrapper` intercepts IME events
-- Events queued and polled by Rust
-- Converted to egui IME events
+- No Java host: android-activity/GameActivity owns the native soft keyboard
+- The Rust shell sets the editor info and text state when editing starts
+- Each frame it polls `AndroidApp::text_input_state().text` and diffs the buffer
+- Changes become egui `Backspace`/`Text`/`Enter` events pushed into `raw.events`
 
 ### 16.2 Event Flow
-1. User types on soft keyboard
-2. IME calls InputConnection methods
-3. `SafActivity` queues events with prefixes ("c", "p", "f", "d", "a")
-4. `queueImeEvent()` also wakes native loop via `onKeyDown(KEYCODE_UNKNOWN)`
-5. Rust calls `ime_poll()` each frame via `ime_bridge`
-6. Converted to egui events and passed to `raw_input_hook`
+1. egui reports that a field wants the keyboard (`egui_wants_keyboard_input()`), or the canvas asks through egui's IME output (`ctx.output(|o| o.ime.is_some())`)
+2. On the editing edge the shell calls `set_ime_editor_info`, resets `set_text_input_state`, and calls `show_soft_input(false)`
+3. Every frame the shell reads `text_input_state().text`
+4. `ime_diff` counts removed characters (Backspace) and collects added text/Enter
+5. The events are pushed into the frame's `RawInput`, and a 16 ms repaint keeps frames coming
 
 ### 16.3 Backspace Handling
-- Two methods can report same backspace: `deleteSurroundingText(1,0)` and `sendKeyEvent(KEYCODE_DEL)`
-- Arrive within microseconds (same dispatch)
-- `claimDelete()` checks if other method fired within 30ms
-- If pair detected, second call dropped
-- Double-tap still works (different timestamps)
+- Removed characters are emitted as `egui::Event::Key { key: Backspace }`
+- WordCraft's `lib/ime.sh` additionally fixes IMEs that still deliver `DeleteSurrounding` at a paragraph start
+- No duplicate-pair guard is needed: the native text state is authoritative
 
 ### 16.4 Wake Mechanism
-- Native loop sleeps in `ALooper_pollOnce` until events
-- Queued keyboard events don't wake loop automatically
-- `KEYCODE_UNKNOWN` key events go through GameActivity's native queue
-- Winit reports as `Key::Unidentified`, no widget acts on it
-- Forces egui to process IME queue
+- GameActivity text events do not wake winit's event loop
+- While editing the shell calls `ctx.request_repaint_after(Duration::from_millis(16))`, so a key appears in the next frame
+- A pointer press or a non-Escape key re-shows the keyboard if Android's Back key dismissed it
 
 ### 16.5 Configuration
-```java
-window.setSoftInputMode(
-    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING |
-    WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+```rust
+app.set_ime_editor_info(
+    InputType::TYPE_CLASS_TEXT | InputType::TYPE_TEXT_FLAG_MULTI_LINE,
+    TextInputAction::None,
+    ImeOptions::IME_FLAG_NO_FULLSCREEN,
 );
-imeView.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-imeView.setImeOptions(EditorInfo.IME_FLAG_NO_FULLSCREEN);
+app.set_text_input_state(TextInputState { text: String::new(), selection: TextSpan { start: 0, end: 0 }, compose_region: None });
+app.show_soft_input(false);
 ```
 Keyboard overlays surface, doesn't resize it.
 
@@ -1068,7 +1049,7 @@ Located in `adapters/`:
 # If adapters/$APP/prepare.sh exists and executable
 bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
 ```
-prepare.sh copies adapter into `source/$APP/apps/$APP-android/`, removes prepare.sh/README.md, copies shared modules (system_fonts.rs, ime_bridge.rs).
+prepare.sh copies adapter into `source/$APP/apps/$APP-android/`, removes prepare.sh/README.md, copies shared modules (system_fonts.rs).
 
 ## 30. Vendored Crates
 
@@ -1138,7 +1119,7 @@ Located in `vendor/` with Android-specific patches:
 For verification:
 - `ARTCRAFT_*_ANDROID_SHELL_V*` - Shell version markers
 - `ARTCRAFT_ANDROID_SAF_BRIDGE_V3` - SAF bridge marker
-- `ARTCRAFT_ANDROID_IME_BRIDGE_V1` - IME bridge marker
+- `ARTCRAFT_ANDROID_NATIVE_IME_V1` - Native IME marker
 
 ### 32.4 Debugging Tips
 ```bash
@@ -1169,7 +1150,7 @@ adb install -r output/soundcraft-0.12.1.apk
 | Generator version mismatch | Template changed | Delete launcher dir or bump GENERATOR_VERSION |
 | Build fails with Python syntax error | Bad escaping in templates | Check f-string escaping in lib/build-common.sh |
 | ANR on file picker | NonblockingCallbacks not used | Check android-activity vendor patch |
-| Keyboard doesn't work | IME bridge missing | Check ime_bridge.rs copied, imeShow/imeHide methods exist |
+| Keyboard doesn't work | Native IME not polled | Check generated `poll_ime` sets editor info and polls `text_input_state`, and that the launcher was regenerated (GENERATOR_VERSION) |
 | Fonts missing | Symlink issues | Must use internal storage for HOME/XDG_DATA_HOME |
 
 ### 33.2 Important Notes
@@ -1213,11 +1194,10 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 | `lib/file_associations.py` | Intent filter registry (EXT_MIME, ASSOCIATIONS) |
 | `lib/app_icons.py` | Adaptive icon generation (mipmaps + monochrome) |
 | `lib/scrolling.sh` | Two-finger scroll/momentum patches for all apps |
-| `lib/ime.sh` | Soft keyboard return patches (WordCraft) |
+| `lib/ime.sh` | WordCraft Backspace-at-paragraph-start patch |
 | `lib/subcraft.sh` | SubCraft file handoff patch adding `files::deliver_android` |
 | `templates/android/SafActivity.java` | Shared Activity base (SAF, IME, permissions, fullscreen, etc.) |
 | `templates/android/saf_bridge.rs` | Rust SAF JNI bridge with SaveMirror, NonblockingCallbacks |
-| `templates/android/ime_bridge.rs` | IME event bridge to egui |
 | `templates/android/system_fonts.rs` | System font integration with linking |
 | `templates/android/UpdateCheck.java` | GitHub update checker |
 | `adapters/*/prepare.sh` | Adapter preparation scripts |
@@ -1542,22 +1522,8 @@ private void wakeNativeLoop() {
 }
 ```
 
-### 40.5 Rust Side (ime_bridge.rs)
-```rust
-pub struct ImeBridge {
-    // JNI references
-}
-
-impl ImeBridge {
-    pub fn new(app: &AndroidApp) -> Self
-    pub fn poll(&self, raw: &mut egui::RawInput) {
-        // Poll from Java queue, convert to egui events
-    }
-    pub fn hide_ime(&self) -> Result<()> {
-        // Call Java imeHide()
-    }
-}
-```
+### 40.5 Rust Side (native IME polling)
+Native IME polling happens directly in the generated Android launcher's `poll_ime` method (or the app adapter's equivalent). The shell calls `android_activity::input::text_input_state().text` each frame while editing, diffs the result against the previous text, and emits egui `Backspace`/`Text`/`Enter` events. Editor info is set via `set_ime_editor_info` when a text field gains focus, and `show_soft_input(false)`/`hide_soft_input(false)` toggle the keyboard. There is no `ime_bridge.rs` module.
 
 ## 41. System Fonts Integration
 

@@ -148,8 +148,8 @@ if app == "wordcraft":
     # caret. A two-finger pan or a draw gesture therefore raised the keyboard over the very
     # document the user was scrolling. The canvas has to give the keyboard up the moment a
     # gesture starts, and stop asking for it while the gesture lasts; the shell then tells the
-    # Activity to put the keyboard away (see templates/android/ime_bridge.rs and the launcher
-    # template in lib/build-common.sh).
+    # Activity to put the keyboard away (see the generated launcher template in
+    # lib/build-common.sh and lib/ime.sh).
     #
     # `surrendered_focus` is the canvas's own memory of that decision for the frame: it is
     # cleared at the top of `show()` and set when a gesture is under way, so the IME output —

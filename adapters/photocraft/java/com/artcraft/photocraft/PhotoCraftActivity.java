@@ -7,31 +7,25 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
-import android.text.InputType;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
-import android.view.Gravity;
-import android.view.KeyEvent;
+import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputConnectionWrapper;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
-import android.widget.FrameLayout;
 
-import com.google.androidgamesdk.GameActivity;
+import android.app.NativeActivity;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -51,8 +45,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/** GameActivity subclass that supplies Android SAF open/save results to the Rust UI shell. */
-public final class PhotoCraftActivity extends GameActivity {
+/** NativeActivity subclass that supplies Android SAF open/save results to the Rust UI shell. */
+public final class PhotoCraftActivity extends NativeActivity {
     private static final String TAG = "PhotoCraftSAF";
     private static final int REQ_OPEN = 0x5043;
     private static final int REQ_SAVE = 0x5044;
@@ -62,22 +56,6 @@ public final class PhotoCraftActivity extends GameActivity {
     private final Map<Integer, Long> requestIds = new HashMap<>();
     private final Map<Long, String> suggestedNames = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-
-    // Soft-keyboard host. GameActivity, like the NativeActivity it replaces, has no editable
-    // view for the system IME, so the keyboard opens unreliably and delivers no text. This
-    // tiny, invisible but focusable EditText has a real InputConnection, so the keyboard
-    // shows/dismisses on request and every commit/composition arrives here where imePoll()
-    // hands it to the Rust shell as egui IME events.
-    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();
-    private EditText imeView;
-    // True between imeShow() and imeHide(); suppresses a deferred show that a quick hide overtook.
-    private volatile boolean imeWanted = false;
-    // Some IMEs fire both deleteSurroundingText(1,0) and sendKeyEvent(KEYCODE_DEL) for one
-    // backspace. The second within this window is dropped to avoid deleting two characters.
-    private static final long IME_DELETE_PAIR_MS = 30L;
-    private volatile long lastImeDeleteSurroundingAt = 0L;
-    private volatile long lastImeDeleteKeyAt = 0L;
-    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -127,19 +105,21 @@ public final class PhotoCraftActivity extends GameActivity {
     public String pcFilesDir() { return appStorageDir().getAbsolutePath(); }
 
     /**
-     * True when the device is a phone-class (small) screen, so the first launch can raise the app's
-     * UI scale to a comfortable 150% for it. This is Android's own form-factor test:
-     * {@code smallestScreenWidthDp} is the *shortest* screen edge in density-independent pixels (so
-     * it does not flip with rotation), and 600dp is the same {@code sw600dp} boundary the platform
-     * and Play Store use to bucket tablets. Density ("dpi") is deliberately not used — it describes
-     * pixel size, not screen size. Called once by the Rust shell over JNI.
+     * True when the screen is dense enough that the launch should give the app its own UI scale
+     * instead of the system's. Above 600 dpi the app's own points are drawn so small that its
+     * interface is hard to read, so it is scaled up; at or below that threshold — tablets in
+     * particular — the app is left at Auto, the display scale Android reports.
+     *
+     * The test is {@link DisplayMetrics#densityDpi}, the screen's density as Android reports it
+     * (160 dpi is the baseline where one dp is one pixel), including the user's Display Size
+     * setting, because that is the density the app is actually drawn at.
      */
-    public boolean isPhoneDevice() {
+    public boolean isHighDensityDevice() {
         try {
             return getResources().getConfiguration().smallestScreenWidthDp < 600;
         } catch (Throwable error) {
-            Log.w(TAG, "Could not read the screen size; assuming a phone", error);
-            return true;
+            Log.w(TAG, "Could not read screen size; leaving UI scale at Auto", error);
+            return false;
         }
     }
 
@@ -228,7 +208,6 @@ public final class PhotoCraftActivity extends GameActivity {
         // storage (the font folders the shell links included). Answered later, outside the app, so
         // the links the shell makes at startup are refreshed when the access arrives.
         requestStoragePermission();
-        imeSetup();
         handleIncomingFiles(getIntent());
         // Ask GitHub whether a newer builder release exists (a few seconds in, off the main
         // thread). The shared checker is installed next to this Activity by the builder.
@@ -246,7 +225,7 @@ public final class PhotoCraftActivity extends GameActivity {
     }
 
     /**
-     * On a real finish, end the process instead of running GameActivity's teardown: the game
+     * On a real finish, end the process instead of running NativeActivity's teardown: the game
      * glue's destroy handshake waits for the Rust thread to acknowledge the destroy, which
      * winit's Android backend doesn't do once eframe's loop has stopped -- the main thread
      * would hang there, and every later launch in this process with it, since winit's event
@@ -276,235 +255,6 @@ public final class PhotoCraftActivity extends GameActivity {
         if (hasFocus) {
             applyImmersiveFullscreen();
         }
-    }
-
-    /**
-     * Install the invisible, focusable {@link EditText} that makes Android's soft keyboard usable.
-     * Called from {@link #onCreate}; failures are logged and leave the app on the old (unreliable)
-     * decor-view path, so a device that rejects the extra view still runs.
-     */
-    private void imeSetup() {
-        try {
-            // The IME height must not resize or pan the fullscreen native surface; the keyboard
-            // simply overlays it. STATE_UNCHANGED keeps the initial hidden state under our control.
-            Window window = getWindow();
-            if (window != null) {
-                window.setSoftInputMode(
-                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                                | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
-            }
-            imeView = new EditText(this) {
-                @Override
-                public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-                    InputConnection base = super.onCreateInputConnection(outAttrs);
-                    if (base == null) {
-                        return null;
-                    }
-                    return new InputConnectionWrapper(base, true) {
-                        @Override
-                        public boolean commitText(CharSequence text, int newCursorPosition) {
-                            if (text != null && text.length() > 0) {
-                                imeEvents.offer("c" + text);
-                                wakeNativeLoop();
-                            }
-                            return super.commitText(text, newCursorPosition);
-                        }
-
-                        @Override
-                        public boolean setComposingText(CharSequence text, int newCursorPosition) {
-                            imeEvents.offer("p" + (text == null ? "" : text.toString()));
-                            wakeNativeLoop();
-                            return super.setComposingText(text, newCursorPosition);
-                        }
-
-                        @Override
-                        public boolean finishComposingText() {
-                            imeEvents.offer("f");
-                            wakeNativeLoop();
-                            return super.finishComposingText();
-                        }
-
-                        @Override
-                        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-                            if (beforeLength > 0 || afterLength > 0) {
-                                if (claimDelete("d")) {
-                                    imeEvents.offer("d" + beforeLength + "," + afterLength);
-                                    wakeNativeLoop();
-                                }
-                            }
-                            return super.deleteSurroundingText(beforeLength, afterLength);
-                        }
-
-                        @Override
-                        public boolean performEditorAction(int actionCode) {
-                            imeEvents.offer("a" + actionCode);
-                            wakeNativeLoop();
-                            return super.performEditorAction(actionCode);
-                        }
-
-                        @Override
-                        public boolean sendKeyEvent(KeyEvent event) {
-                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                                int code = event.getKeyCode();
-                                if (code == KeyEvent.KEYCODE_DEL) {
-                                    if (claimDelete("s")) {
-                                        imeEvents.offer("d1,0");
-                                        PhotoCraftActivity.this.wakeNativeLoop();
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    if (claimDelete("s")) {
-                                        imeEvents.offer("d0,1");
-                                        PhotoCraftActivity.this.wakeNativeLoop();
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    imeEvents.offer("a6");
-                                    PhotoCraftActivity.this.wakeNativeLoop();
-                                }
-                            }
-                            imeKeySynthesized.add(event.getKeyCode());
-                            return super.sendKeyEvent(event);
-                        }
-                    };
-                }
-
-                @Override
-                public boolean onKeyDown(int keyCode, KeyEvent event) {
-                    if (imeKeySynthesized.contains(keyCode)) {
-                        return true;
-                    }
-                    // Let hardware key events fall through to the native input queue (winit), exactly
-                    // as they did before this view existed; the soft keyboard talks to us through the
-                    // InputConnection instead. This keeps physical keyboards working.
-                    return false;
-                }
-
-                @Override
-                public boolean onKeyUp(int keyCode, KeyEvent event) {
-                    if (imeKeySynthesized.remove(keyCode)) {
-                        return true;
-                    }
-                    return false;
-                }
-
-                @Override
-                public boolean onTouchEvent(android.view.MotionEvent event) {
-                    // Purely a keyboard target: never intercept touch, which belongs to the native
-                    // surface underneath.
-                    return false;
-                }
-            };
-            imeView.setBackground(null);
-            imeView.setCursorVisible(false);
-            imeView.setTextColor(0);
-            imeView.setAlpha(0.01f);
-            imeView.setSoundEffectsEnabled(false);
-            imeView.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-            imeView.setImeOptions(EditorInfo.IME_FLAG_NO_FULLSCREEN);
-            imeView.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1);
-            params.gravity = Gravity.TOP | Gravity.START;
-            addContentView(imeView, params);
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not install the soft-keyboard host view", error);
-        }
-    }
-
-    /** Wake the native event loop so the Rust shell polls queued IME events this frame instead of waiting for the next touch/timer. */
-    void wakeNativeLoop() {
-        try {
-            onKeyDown(KeyEvent.KEYCODE_UNKNOWN, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
-            onKeyUp(KeyEvent.KEYCODE_UNKNOWN, new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not wake the native loop for an IME event", error);
-        }
-    }
-
-    private boolean claimDelete(String method) {
-        long now = android.os.SystemClock.uptimeMillis();
-        long lastOther = "d".equals(method) ? lastImeDeleteKeyAt : lastImeDeleteSurroundingAt;
-        if (lastOther != 0L && now - lastOther < IME_DELETE_PAIR_MS) {
-            return false;
-        }
-        if ("d".equals(method)) {
-            lastImeDeleteSurroundingAt = now;
-        } else {
-            lastImeDeleteKeyAt = now;
-        }
-        return true;
-    }
-
-    /** Show the soft keyboard by focusing the IME host view. Called by the Rust shell via JNI. */
-    public void imeShow() {
-        final EditText view = imeView;
-        if (view == null) {
-            return;
-        }
-        imeWanted = true;
-        runOnUiThread(() -> {
-            if (!imeWanted) {
-                return;
-            }
-            try {
-                view.setFocusable(true);
-                view.setFocusableInTouchMode(true);
-                view.requestFocus();
-                InputMethodManager imm =
-                        (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null && imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)) {
-                    return;
-                }
-                // Some devices ignore the request until focus and layout have settled; retry once on
-                // the next message-loop turn (guarded so a following hide wins).
-                view.post(() -> {
-                    if (!imeWanted) {
-                        return;
-                    }
-                    try {
-                        InputMethodManager retry =
-                                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                        if (retry != null) {
-                            retry.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
-                        }
-                    } catch (Throwable error) {
-                        Log.w(TAG, "Could not show the soft keyboard", error);
-                    }
-                });
-            } catch (Throwable error) {
-                Log.w(TAG, "Could not show the soft keyboard", error);
-            }
-        });
-    }
-
-    /** Hide the soft keyboard and release the IME host view. Called by the Rust shell via JNI. */
-    public void imeHide() {
-        imeWanted = false;
-        final EditText view = imeView;
-        if (view == null) {
-            return;
-        }
-        runOnUiThread(() -> {
-            try {
-                InputMethodManager imm =
-                        (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
-                }
-                view.clearFocus();
-                // Drop the scratch buffer between sessions so it cannot grow without bound.
-                view.setText("");
-            } catch (Throwable error) {
-                Log.w(TAG, "Could not hide the soft keyboard", error);
-            }
-        });
-    }
-
-    /**
-     * Hand the Rust shell at most one queued keyboard event per call. The first character tags the
-     * event ("c" commit, "p" pre-edit, "f" finish, "d" delete-with-counts, "a" editor action) and
-     * the remainder is the payload; returns {@code null} when the queue is empty.
-     */
-    public String imePoll() {
-        return imeEvents.poll();
     }
 
     /**
@@ -793,10 +543,27 @@ public final class PhotoCraftActivity extends GameActivity {
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
+        try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r")) {
+            if (pfd != null) {
+                try (FileInputStream in = new FileInputStream(pfd.getFileDescriptor());
+                     FileOutputStream out = new FileOutputStream(destination)) {
+                    java.nio.channels.FileChannel inChannel = in.getChannel();
+                    java.nio.channels.FileChannel outChannel = out.getChannel();
+                    long size = inChannel.size();
+                    long transferred = 0;
+                    while (transferred < size) {
+                        long count = outChannel.transferFrom(inChannel, transferred, size - transferred);
+                        if (count <= 0) break;
+                        transferred += count;
+                    }
+                    return;
+                }
+            }
+        } catch (Exception ignored) { }
         InputStream input = getContentResolver().openInputStream(uri);
         if (input == null) throw new Exception("Android document provider did not open the selected file");
         try (InputStream in = input; FileOutputStream out = new FileOutputStream(destination)) {
-            byte[] buffer = new byte[64 * 1024];
+            byte[] buffer = new byte[256 * 1024];
             int count;
             while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
             out.flush();

@@ -32,11 +32,6 @@ use vectorcraft_ui_egui::{FilePick, Inbox, Services, VectorcraftApp};
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 
-// Shared with the generated launchers: turns Android's soft keyboard into egui IME events (see
-// templates/android/ime_bridge.rs). The `mod ime_bridge;` marker also keeps the vendored
-// android-activity, which forwards show/hide to this Activity's imeShow/imeHide, in step.
-mod ime_bridge;
-
 /// Emitted at startup so the builder can confirm the bridge is present in the packaged `.so`.
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_VECTORCRAFT_SAF_BRIDGE_V1";
 
@@ -287,6 +282,13 @@ impl PickState {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&id)
     }
+
+    fn is_empty(&self) -> bool {
+        self.senders
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+    }
 }
 
 /// A MIME type for an open dialog, from its first file-type filter (every file when it has none).
@@ -415,6 +417,9 @@ fn poll_answers(state: &Arc<PickState>, bridge: &AndroidFileBridge, ctx: &egui::
         let _ = sender.send(paths);
         ctx.request_repaint();
     }
+    if !state.is_empty() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+    }
 }
 
 /// Write `bytes` to `path`, then copy them to the selected SAF document when `path` is staged.
@@ -478,25 +483,22 @@ fn persist_read(dir: &Path, name: &str) -> Option<Vec<u8>> {
     fs::read(dir.join(name)).ok()
 }
 
-/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
-/// app's UI scale to 150 % for phones while tablets are left at their own sizing. Returns `None`
-/// when the answer cannot be read, in which case the UI scale is left alone. Android's own
-/// form-factor test (`smallestScreenWidthDp < 600`, the `sw600dp` boundary) is used: it is stable
-/// across rotation and describes screen size rather than density.
-fn device_is_phone(app: &AndroidApp) -> Option<bool> {
+/// Ask the Activity whether the screen is below 600 dpi (phones) for the launch to apply the
+/// app's own scale. Denser screens stay at Auto. Returns `None` when unreadable.
+fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
     // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
     let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
     let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
     let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
         let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
         Ok(env
-            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
+            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
             .z()?)
     });
     match result {
-        Ok(is_phone) => Some(is_phone),
+        Ok(is_dense) => Some(is_dense),
         Err(error) => {
-            log::warn!("Could not determine the screen class: {error}");
+            log::warn!("Could not determine the screen density: {error}");
             None
         }
     }
@@ -515,6 +517,24 @@ fn persist_write(dir: &Path, name: &str, bytes: &[u8]) {
     if let Err(error) = written {
         log::warn!("settings: {}: {error}", path.display());
     }
+}
+
+/// Whether the high-density UI scale should be applied to this launch, and the sidecar that
+/// remembers that it was.
+///
+/// The scale belongs to the *device*, but `ui.json` belongs to the *user*: it is written on the
+/// first launch and never revisited, so a screen that later stops being high-density (a foldable, an
+/// external display, a display-size change) kept the old scale. The choice is remembered in its own
+/// sidecar (`device_class`), so "first launch" means "the scale has not been set for this device
+/// yet" and a user who changes the scale by hand keeps it: the sidecar already says it was applied,
+/// so nothing is re-applied.
+fn device_scale_first_time(dir: &Path) -> bool {
+    let marker = dir.join("device_class");
+    if fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "scaled") {
+        return false;
+    }
+    persist_write(dir, "device_class", b"scaled");
+    true
 }
 
 /// Read a saved `ui.json` leniently: a docking layout or hidden-panel entry this version cannot
@@ -560,6 +580,8 @@ fn persist_load(app: &mut VectorcraftApp, dir: &Path) {
         app.ui = ui.sanitized();
     }
     vectorcraft_ui_egui::prefs_dialog::restore(app);
+    let recovery = dir.join("Data Recovery").to_string_lossy().to_string();
+    app.session.recovery.set_default_folder(Some(recovery));
 }
 
 /// Save the UI state and engine preferences, as the desktop app does on exit.
@@ -568,6 +590,11 @@ fn persist_save(app: &mut VectorcraftApp, dir: &Path) {
     ui.engine_prefs = app.session.prefs.to_json();
     if let Ok(bytes) = serde_json::to_vec_pretty(&ui) {
         persist_write(dir, "ui.json", &bytes);
+    }
+    if app.session.documents().iter().any(|doc| doc.is_dirty()) {
+        vectorcraft_ui_egui::recovery::tick(app, 0.0);
+        vectorcraft_ui_egui::recovery::tick(app, 1e9);
+        vectorcraft_ui_egui::background::wait_all(app);
     }
 }
 
@@ -601,13 +628,7 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                // Backspace/Delete always pass through with clean modifiers on Android,
-                // so Ctrl/Alt state never blocks deleting characters.
-                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
-                    *modifiers = egui::Modifiers::default();
-                } else {
-                    *modifiers = *state;
-                }
+                *modifiers = *state;
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
@@ -638,6 +659,7 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 
 fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> Services {
     let write_bridge = bridge.clone_for_services();
+    let write_shared_bridge = bridge.clone_for_services();
     let pick_bridge = bridge.clone_for_services();
     let pick_state = state.clone();
     Services {
@@ -650,6 +672,9 @@ fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> S
         })),
         write: Some(Box::new(move |path: &str, bytes: &[u8]| {
             write_mobile(&write_bridge, path, bytes)
+        })),
+        write_shared: Some(Arc::new(move |path: &str, bytes: &[u8]| {
+            write_mobile(&write_shared_bridge, path, bytes)
         })),
         // Shown off the UI thread, so `ask` never calls these; they make the dialogs count as
         // available (`picks::can`).
@@ -664,11 +689,45 @@ fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> S
     }
 }
 
+/// Diff keyboard text into the edit egui understands.
+fn ime_diff(prev: &str, now: &str) -> (usize, String, bool) {
+    let common = prev.chars().zip(now.chars()).take_while(|(a, b)| a == b).count();
+    let backspaces = prev.chars().count() - common;
+    let added: String = now.chars().skip(common).collect();
+    let enter = added.contains('\n');
+    let insert: String = added.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+    (backspaces, insert, enter)
+}
+
+fn ime_events(edit: &(usize, String, bool)) -> Vec<egui::Event> {
+    let (backspaces, insert, enter) = edit.clone();
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut out: Vec<egui::Event> = Vec::with_capacity(backspaces + 2);
+    for _ in 0..backspaces {
+        out.push(key(egui::Key::Backspace));
+    }
+    if !insert.is_empty() {
+        out.push(egui::Event::Text(insert));
+    }
+    if enter {
+        out.push(key(egui::Key::Enter));
+    }
+    out
+}
+
 struct VectorCraftAndroidApp {
     inner: VectorcraftApp,
     bridge: AndroidFileBridge,
     picks: Arc<PickState>,
-    ime: ime_bridge::ime::ImeBridge,
+    ime_text: String,
+    ime_stale: Option<String>,
+    editing: bool,
     modifiers: egui::Modifiers,
     persist: Option<std::path::PathBuf>,
     persist_last: Option<std::time::Instant>,
@@ -846,6 +905,63 @@ impl VectorCraftAndroidApp {
             persist_save(&mut self.inner, &dir);
         }
     }
+
+    /// Poll android-activity's IME text and turn changes into egui events.
+    ///
+    /// winit opens the soft keyboard for a focused text field but drops GameActivity's text
+    /// events, so the shell drains the keyboard's own text state. While a field has focus the
+    /// buffer is polled every frame and a change becomes Backspace/Text/Enter events.
+    fn poll_ime(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // A focused egui field, or text the app edits on its canvas: the canvas asks for the
+        // keyboard through egui's IME output instead of focusing a field.
+        let editing = ctx.egui_wants_keyboard_input() || ctx.output(|o| o.ime.is_some());
+        if editing != self.editing {
+            self.editing = editing;
+            if editing {
+                self.bridge.app.set_ime_editor_info(
+                    android_activity::input::InputType::TYPE_CLASS_TEXT
+                        | android_activity::input::InputType::TYPE_TEXT_FLAG_MULTI_LINE,
+                    android_activity::input::TextInputAction::None,
+                    android_activity::input::ImeOptions::IME_FLAG_NO_FULLSCREEN,
+                );
+                self.bridge.app.set_text_input_state(android_activity::input::TextInputState {
+                    text: String::new(),
+                    selection: android_activity::input::TextSpan { start: 0, end: 0 },
+                    compose_region: None,
+                });
+                let old = std::mem::take(&mut self.ime_text);
+                self.ime_stale = if old.is_empty() { None } else { Some(old) };
+                self.bridge.app.show_soft_input(false);
+            } else {
+                self.bridge.app.hide_soft_input(false);
+            }
+        }
+        if self.editing {
+            // The user tapped in the text again or pressed a key: if Android's back key had
+            // dismissed the keyboard, bring it back. Escape is the back key itself.
+            let interacted = raw.events.iter().any(|event| match event {
+                egui::Event::PointerButton { pressed: true, .. } => true,
+                egui::Event::Key { key, pressed: true, .. } => *key != egui::Key::Escape,
+                _ => false,
+            });
+            if interacted {
+                self.bridge.app.show_soft_input(false);
+            }
+            let now = self.bridge.app.text_input_state().text;
+            if self.ime_stale.as_ref().is_some_and(|old| *old != now) {
+                self.ime_stale = None;
+            }
+            if now != self.ime_text && self.ime_stale.is_none() {
+                let prev = self.ime_text.clone();
+                self.ime_text = now.clone();
+                for event in ime_events(&ime_diff(&prev, &now)) {
+                    raw.events.push(event);
+                }
+            }
+            // GameActivity's text events don't wake the UI: keep a frame coming while typing.
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
 }
 
 impl Drop for VectorCraftAndroidApp {
@@ -869,13 +985,13 @@ impl eframe::App for VectorCraftAndroidApp {
         self.persist_tick();
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.ime.poll(raw);
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.poll_ime(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }
-        self.inner.raw_input_hook(_ctx, raw);
+        self.inner.raw_input_hook(ctx, raw);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -896,7 +1012,7 @@ fn android_main(android_app: AndroidApp) {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("com.artcraft.vectorcraft"),
     );
-    log::info!("{SAF_BRIDGE_MARKER} ready; {ANDROID_SHELL_MARKER}; {}", ime_bridge::ime::IME_MARKER);
+    log::info!("{SAF_BRIDGE_MARKER} ready; {ANDROID_SHELL_MARKER}; ARTCRAFT_ANDROID_NATIVE_IME_V1");
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
@@ -932,20 +1048,27 @@ fn android_main(android_app: AndroidApp) {
             );
             let persist = persist_dir(&app_bridge.app);
             if let Some(dir) = &persist {
-                // First launch on a phone-class screen: set the UI scale to 75 % before the app
-                // reads its settings, then save it, so a user who changes it later keeps their
-                // choice (this runs only while `ui.json` does not exist yet). VectorCraft draws
-                // its work on a canvas, so a phone gets a smaller interface, not a larger one.
-                if !dir.join("ui.json").exists() && device_is_phone(&app_bridge.app) == Some(true) {
-                    let _ = app.session.execute("prefs.set", &serde_json::json!({"key": "uiScaling", "value": 0.75}));
-                }
+                // Load the saved settings *first*, so the device's default UI scale below is not
+                // overwritten by `prefs_dialog::restore` (which rebuilds the prefs from the saved
+                // state, or from the defaults when there is none).
                 persist_load(&mut app, dir);
+                // VectorCraft draws its work on a canvas, so a high-density screen gets a *smaller*
+                // interface (75 %), not a larger one; every other screen keeps the app's own
+                // default, Auto. Applied once (`device_scale_first_time`), which covers a first
+                // launch and an upgrade from a build without this bootstrap; a user who sets the
+                // scale by hand keeps it, since the sidecar already says it was applied.
+                if device_is_high_density(&app_bridge.app) == Some(true) && device_scale_first_time(dir) {
+                    let _ = app.session.execute("prefs.set", &serde_json::json!({"key": "uiScaling", "value": 0.75}));
+                    persist_save(&mut app, dir);
+                }
             }
             Ok(Box::new(VectorCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
                 picks: app_picks.clone(),
-                ime: ime_bridge::ime::ImeBridge::new(&app_bridge.app),
+                ime_text: String::new(),
+                ime_stale: None,
+                editing: false,
                 modifiers: egui::Modifiers::default(),
                 persist,
                 persist_last: None,

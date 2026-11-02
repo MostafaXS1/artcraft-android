@@ -1,0 +1,19 @@
+[package]
+name = "krilla-svg"
+version = "0.8.1"
+description = "Converting SVG files to PDF."
+authors = { workspace = true }
+edition = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+krilla = { workspace = true, features = ["raster-images"] }
+usvg = { workspace = true }
+tiny-skia = { workspace = true }
+resvg = { workspace = true }
+flate2 = { workspace = true }
+fontdb = { workspace = true }
+skrifa = { workspace = true }
+smallvec = { workspace = true }

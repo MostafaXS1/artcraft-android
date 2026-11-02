@@ -78,15 +78,14 @@ read. See the changelog for details. An adapter's `ui` must call
 
 ## Soft keyboard (IME)
 
-Adapters include the shared `mod ime_bridge;`, whose source lives in
-`templates/android/ime_bridge.rs`. The builder copies that file next to the adapter's `src/lib.rs`
-when it stages the Android crate (`prepare.sh` for PhotoCraft; the generator's custom-adapter path for
-VectorCraft), so the one copy stays in step with the generated launchers. `android-activity`'s
-`show_soft_input`/`hide_soft_input` forward to the Activity's `imeShow`/`imeHide` (see the vendored
-`vendor/android-activity`), and `ime_bridge::ime::ImeBridge::poll` drains the Activity's queued
-commit/composition/delete events into egui `ImeEvent`s each frame. An adapter's `raw_input_hook` must
-call `self.ime.poll(raw)`, and its Activity must install the hidden `EditText` (the `imeSetup()` plus
-`imeShow`/`imeHide`/`imePoll` methods in the Java subclass).
+Adapters use `android-activity`'s native IME directly; there is no shared `ime_bridge` module and no
+hidden Java `EditText` host. While egui reports that a text field wants the keyboard, the adapter's
+`raw_input_hook` calls `app.set_ime_editor_info(...)`, resets `app.set_text_input_state(...)`, and
+polls `app.text_input_state().text` each frame. A change from the previous buffer becomes
+Backspace/Text/Enter events pushed into `raw.events`, the same mechanism the generated launchers use.
+On focus gain an adapter calls `app.show_soft_input(false)`; on focus loss it calls
+`app.hide_soft_input(false)`. Cadence is a 16 ms repaint while editing, because GameActivity's text
+events do not wake winit.
 
 ## Inspecting a build on-device
 

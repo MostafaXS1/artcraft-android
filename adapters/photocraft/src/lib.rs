@@ -12,23 +12,22 @@ use jni::{
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
 use photocraft_engine::Session;
+use photocraft_format::RecoveryStore;
 use photocraft_ui_egui::{
-    FileDialogAnswer, FileDialogReply, FileDialogRequest, Inbox, PhotocraftApp, Services,
+    FileDialogAnswer, FileDialogReply, FileDialogRequest, Inbox, PhotocraftApp, Recoverable,
+    Services,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
-
-// Shared with the generated launchers: turns Android's soft keyboard into egui IME events (see
-// templates/android/ime_bridge.rs). The `mod ime_bridge;` marker also keeps the vendored
-// android-activity, which forwards show/hide to this Activity's imeShow/imeHide, in step.
-mod ime_bridge;
 
 /// Emitted at startup so a device log (and the packaged `.so` strings) can confirm this shell —
 /// including the Android modifier-key fix and immersive fullscreen — is the one that is running.
@@ -354,6 +353,9 @@ impl PickerState {
             reply.send(answer);
             ctx.request_repaint();
         }
+        if !self.replies.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
     }
 }
 
@@ -388,11 +390,24 @@ fn write_mobile(bridge: &AndroidFileBridge, path: &str, bytes: &[u8]) -> Result<
     }
 }
 
+type SharedRecovery = Rc<RefCell<Option<RecoveryStore>>>;
+
+fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R) -> Result<R, String> {
+    let mut slot = store.try_borrow_mut().map_err(|_| "crash recovery is busy".to_string())?;
+    Ok(f(slot.as_mut().ok_or("no config directory")?))
+}
+
 fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: PathBuf, inbox: Inbox) -> Services {
     let write_bridge = bridge.clone_for_services();
     let save_bridge = bridge.clone_for_services();
     let prefs_bridge = bridge.clone_for_services();
     let load_prefs_path = prefs_path.clone();
+
+    let recovery_dir = prefs_path.parent().map(|p| p.join("recovery"));
+    let recover_dir = recovery_dir.clone();
+    let store: SharedRecovery = Rc::new(RefCell::new(recovery_dir.map(RecoveryStore::new)));
+    let (s1, s2, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone());
+
     Services {
         // Files the system asked us to open (ACTION_VIEW/ACTION_SEND) are queued here and drained
         // by the app's own per-frame inbox, exactly like a document chosen in the picker.
@@ -484,6 +499,29 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
             )
             .map_err(|e| e.to_string())
         })),
+        autosave: Some(Box::new(move |doc: &Arc<Document>, revision: u64, path: Option<&str>| {
+            with_store(&s1, |s| s.autosave_checked(doc, revision, path.map(str::to_string)))?
+        })),
+        autosave_results: Some(Box::new(move || with_store(&s4, RecoveryStore::take_completed).unwrap_or_default())),
+        flush_autosaves: Some(Box::new(move || with_store(&s5, RecoveryStore::flush).unwrap_or_default())),
+        discard_autosave: Some(Box::new(move |id: u64| {
+            let _ = with_store(&s2, |s| s.discard(id));
+        })),
+        recover: Some(Box::new(move || {
+            let Some(dir) = recover_dir.as_ref() else { return Vec::new() };
+            photocraft_format::list_recovery(dir)
+                .into_iter()
+                .map(|e| Recoverable {
+                    key: e.info.key.clone(),
+                    name: e.info.document_name.clone(),
+                    path: e.info.original_path.clone(),
+                    load: Box::new(move || photocraft_format::recover(&e).map_err(|e| e.to_string())),
+                })
+                .collect()
+        })),
+        adopt_autosave: Some(Box::new(move |id: u64, key: &str| {
+            let _ = with_store(&store, |s| s.adopt(id, key));
+        })),
         ..Services::default()
     }
 }
@@ -528,13 +566,7 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                // Backspace/Delete always pass through with clean modifiers on Android,
-                // so Ctrl/Alt state never blocks deleting characters.
-                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
-                    *modifiers = egui::Modifiers::default();
-                } else {
-                    *modifiers = *state;
-                }
+                *modifiers = *state;
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
@@ -564,11 +596,45 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 }
 
 
+/// Diff keyboard text into the edit egui understands.
+fn ime_diff(prev: &str, now: &str) -> (usize, String, bool) {
+    let common = prev.chars().zip(now.chars()).take_while(|(a, b)| a == b).count();
+    let backspaces = prev.chars().count() - common;
+    let added: String = now.chars().skip(common).collect();
+    let enter = added.contains('\n');
+    let insert: String = added.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+    (backspaces, insert, enter)
+}
+
+fn ime_events(edit: &(usize, String, bool)) -> Vec<egui::Event> {
+    let (backspaces, insert, enter) = edit.clone();
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut out: Vec<egui::Event> = Vec::with_capacity(backspaces + 2);
+    for _ in 0..backspaces {
+        out.push(key(egui::Key::Backspace));
+    }
+    if !insert.is_empty() {
+        out.push(egui::Event::Text(insert));
+    }
+    if enter {
+        out.push(key(egui::Key::Enter));
+    }
+    out
+}
+
 struct PhotoCraftAndroidApp {
     inner: PhotocraftApp,
     bridge: AndroidFileBridge,
     picker: Arc<PickerState>,
-    ime: ime_bridge::ime::ImeBridge,
+    ime_text: String,
+    ime_stale: Option<String>,
+    editing: bool,
     modifiers: egui::Modifiers,
     // Files the system asked us to open are staged by the Activity; this is the shared queue the
     // app's own inbox drains. `intent_warmup` skips the first couple of frames so the app has
@@ -579,6 +645,7 @@ struct PhotoCraftAndroidApp {
     // when the one-time orphan sweep of the directory is due.
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
+    persist_last: Option<std::time::Instant>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -724,6 +791,84 @@ impl PhotoCraftAndroidApp {
         }
         self.staged_seen = current;
     }
+
+    fn persist_tick(&mut self) {
+        let now = std::time::Instant::now();
+        if self.persist_last.is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.persist_last = Some(now);
+        self.persist_now();
+    }
+
+    fn persist_now(&mut self) {
+        if let Some(flush) = self.inner.services.flush_autosaves.as_mut() {
+            let _ = flush();
+        }
+    }
+
+    /// Poll android-activity's IME text and turn changes into egui events.
+    ///
+    /// winit opens the soft keyboard for a focused text field but drops GameActivity's text
+    /// events, so the shell drains the keyboard's own text state. While a field has focus the
+    /// buffer is polled every frame and a change becomes Backspace/Text/Enter events, the same
+    /// mechanism the upstream PhotoCraft Android port uses.
+    fn poll_ime(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // A focused egui field, or text the app edits on its canvas: the canvas asks for the
+        // keyboard through egui's IME output instead of focusing a field.
+        let editing = ctx.egui_wants_keyboard_input() || ctx.output(|o| o.ime.is_some());
+        if editing != self.editing {
+            self.editing = editing;
+            if editing {
+                self.bridge.app.set_ime_editor_info(
+                    android_activity::input::InputType::TYPE_CLASS_TEXT
+                        | android_activity::input::InputType::TYPE_TEXT_FLAG_MULTI_LINE,
+                    android_activity::input::TextInputAction::None,
+                    android_activity::input::ImeOptions::IME_FLAG_NO_FULLSCREEN,
+                );
+                self.bridge.app.set_text_input_state(
+                    android_activity::input::TextInputState {
+                        text: String::new(),
+                        selection: android_activity::input::TextSpan {
+                            start: 0,
+                            end: 0,
+                        },
+                        compose_region: None,
+                    },
+                );
+                let old = std::mem::take(&mut self.ime_text);
+                self.ime_stale = if old.is_empty() { None } else { Some(old) };
+                self.bridge.app.show_soft_input(false);
+            } else {
+                self.bridge.app.hide_soft_input(false);
+            }
+        }
+        if self.editing {
+            // The user tapped in the text again or pressed a key: if Android's back key had
+            // dismissed the keyboard, bring it back. Escape is the back key itself.
+            let interacted = raw.events.iter().any(|event| match event {
+                egui::Event::PointerButton { pressed: true, .. } => true,
+                egui::Event::Key { key, pressed: true, .. } => *key != egui::Key::Escape,
+                _ => false,
+            });
+            if interacted {
+                self.bridge.app.show_soft_input(false);
+            }
+            let now = self.bridge.app.text_input_state().text;
+            if self.ime_stale.as_ref().is_some_and(|old| *old != now) {
+                self.ime_stale = None;
+            }
+            if now != self.ime_text && self.ime_stale.is_none() {
+                let prev = self.ime_text.clone();
+                self.ime_text = now.clone();
+                for event in ime_events(&ime_diff(&prev, &now)) {
+                    raw.events.push(event);
+                }
+            }
+            // GameActivity's text events don't wake the UI: keep a frame coming while typing.
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
 }
 
 impl Drop for PhotoCraftAndroidApp {
@@ -741,7 +886,11 @@ impl eframe::App for PhotoCraftAndroidApp {
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
+        self.persist_tick();
         self.inner.logic(ctx, frame);
+        if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -750,35 +899,61 @@ impl eframe::App for PhotoCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.ime.poll(raw);
+        self.poll_ime(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
+        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
+            self.persist_now();
+        }
         self.inner.raw_input_hook(ctx, raw);
+    }
+
+    fn on_exit(&mut self) {
+        self.persist_now();
     }
 }
 
-/// Ask the Activity whether this is a phone-class (small) screen, so the first launch can raise the
-/// app's UI scale to 150 % for phones while tablets are left at their own sizing. `None` when the
-/// answer cannot be read, in which case the UI scale is left alone. Android's own form-factor test
-/// (`smallestScreenWidthDp < 600`, the `sw600dp` boundary): stable across rotation, and about screen
-/// size rather than density.
+/// Screen below 600 dpi (phones) applies the scale; denser screens stay at Auto.
 #[cfg(target_os = "android")]
-fn device_is_phone(app: &AndroidApp) -> Option<bool> {
+fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
     // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
     let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
     let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
     let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
         let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
         Ok(env
-            .call_method(&*activity, jni_str!("isPhoneDevice"), jni_sig!("()Z"), &[])?
+            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
             .z()?)
     });
     match result {
-        Ok(is_phone) => Some(is_phone),
+        Ok(is_dense) => Some(is_dense),
         Err(error) => {
-            log::warn!("Could not determine the screen class: {error}");
+            log::warn!("Could not determine the screen density: {error}");
             None
         }
     }
+}
+
+/// Whether the high-density UI scale should be applied to this launch, and the sidecar that
+/// remembers that it was.
+///
+/// The scale belongs to the *device*, but `preferences.json` belongs to the *user*: it is written on
+/// the first launch and never revisited, so a screen that later stops being high-density (a
+/// foldable, an external display, a display-size change) kept the old scale. The choice is
+/// remembered in its own sidecar (`device_class`), so "first launch" means "the scale has not been
+/// set for this device yet" and a user who changes the scale by hand keeps it: the sidecar already
+/// says it was applied, so nothing is re-applied.
+#[cfg(target_os = "android")]
+fn device_scale_first_time(dir: &Path) -> bool {
+    let marker = dir.join("device_class");
+    if fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "scaled") {
+        return false;
+    }
+    let path = dir.join("device_class");
+    let temporary = path.with_extension("tmp");
+    if let Err(error) = fs::create_dir_all(dir).and_then(|()| fs::write(&temporary, b"scaled")).and_then(|()| fs::rename(&temporary, &path)) {
+        log::warn!("settings: {}: {error}", path.display());
+    }
+    true
 }
 
 #[cfg(target_os = "android")]
@@ -789,7 +964,7 @@ fn android_main(android_app: AndroidApp) {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("com.artcraft.photocraft"),
     );
-    log::info!("{ANDROID_SHELL_MARKER} ready; {}", ime_bridge::ime::IME_MARKER);
+    log::info!("{ANDROID_SHELL_MARKER} ready; ARTCRAFT_ANDROID_NATIVE_IME_V1");
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     system_fonts::install_font_env(&android_app);
     let bridge = match AndroidFileBridge::new(android_app.clone()) {
@@ -847,10 +1022,14 @@ fn android_main(android_app: AndroidApp) {
                     app_intent_inbox.clone(),
                 ),
             );
-            // First launch on a phone-class screen: raise the UI scale to 150 % (the app saves it
-            // through `save_prefs` on its normal schedule). Runs only while `preferences.json` does
-            // not exist yet, so a user who changes the scale later keeps their choice.
-            if !prefs_path.exists() && device_is_phone(&app_bridge.app) == Some(true) {
+            app.background_jobs = true;
+            // A high-density screen gets the app's 150 % UI scale; every other screen keeps its own
+            // default, Auto. Applied once (`device_scale_first_time`), which covers a first launch
+            // and an upgrade from a build without this bootstrap; a user who sets the scale by hand
+            // keeps it, since the sidecar already says it was applied. The app saves it through
+            // `save_prefs` on its normal schedule.
+            let class_dir = prefs_path.parent().unwrap_or_else(|| Path::new("."));
+            if device_is_high_density(&app_bridge.app) == Some(true) && device_scale_first_time(class_dir) {
                 let _ = app.session.execute("prefs.set", serde_json::json!({"values": {"interface.uiScale": "150"}}));
             }
             // Hand the canvas the live render state when the device is a real GPU, and record the
@@ -868,12 +1047,15 @@ fn android_main(android_app: AndroidApp) {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
                 picker: app_picker.clone(),
-                ime: ime_bridge::ime::ImeBridge::new(&app_bridge.app),
+                ime_text: String::new(),
+                ime_stale: None,
+                editing: false,
                 modifiers: egui::Modifiers::default(),
                 intent_inbox: app_intent_inbox.clone(),
                 intent_warmup: 2,
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+                persist_last: None,
             }))
         }),
     );

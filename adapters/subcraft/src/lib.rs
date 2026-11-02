@@ -28,11 +28,6 @@ use std::sync::Arc;
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 
-// Shared with the generated launchers: turns Android's soft keyboard into egui IME events (see
-// templates/android/ime_bridge.rs). The `mod ime_bridge;` marker also keeps the vendored
-// android-activity, which forwards show/hide to this Activity's imeShow/imeHide, in step.
-mod ime_bridge;
-
 // The SAF bridge, inlined so the adapter is self-contained (a custom adapter is copied verbatim and
 // does not receive templates/android/saf_bridge.rs).
 mod saf;
@@ -176,13 +171,7 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                // Backspace/Delete always pass through with clean modifiers on Android,
-                // so Ctrl/Alt state never blocks deleting characters.
-                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
-                    *modifiers = egui::Modifiers::default();
-                } else {
-                    *modifiers = *state;
-                }
+                *modifiers = *state;
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
@@ -260,19 +249,112 @@ fn install_saf_launcher(bridge: saf::Bridge, state: Arc<SafState>) {
     }));
 }
 
+/// Diff keyboard text into the edit egui understands.
+fn ime_diff(prev: &str, now: &str) -> (usize, String, bool) {
+    let common = prev.chars().zip(now.chars()).take_while(|(a, b)| a == b).count();
+    let backspaces = prev.chars().count() - common;
+    let added: String = now.chars().skip(common).collect();
+    let enter = added.contains('\n');
+    let insert: String = added.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+    (backspaces, insert, enter)
+}
+
+fn ime_events(edit: &(usize, String, bool)) -> Vec<egui::Event> {
+    let (backspaces, insert, enter) = edit.clone();
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut out: Vec<egui::Event> = Vec::with_capacity(backspaces + 2);
+    for _ in 0..backspaces {
+        out.push(key(egui::Key::Backspace));
+    }
+    if !insert.is_empty() {
+        out.push(egui::Event::Text(insert));
+    }
+    if enter {
+        out.push(key(egui::Key::Enter));
+    }
+    out
+}
+
 struct SubCraftAndroidApp {
     inner: subcraft_ui::SubcraftApp,
     /// The live activity handle: queried for the native window size while winit has not reported one.
     app: AndroidApp,
     bridge: saf::Bridge,
     state: Arc<SafState>,
-    ime: ime_bridge::ime::ImeBridge,
+    ime_text: String,
+    ime_stale: Option<String>,
+    editing: bool,
     modifiers: egui::Modifiers,
     // Files the system asked us to open are staged by the Activity; this is the shared queue the
     // app's own per-frame poll drains. `intent_warmup` skips the first couple of frames so the app
     // has finished its own start-up, and goes negative (stop polling) if the host has no intent
     // bridge.
     intent_warmup: i64,
+}
+
+impl SubCraftAndroidApp {
+    /// Poll android-activity's IME text and turn changes into egui events.
+    ///
+    /// winit opens the soft keyboard for a focused text field but drops GameActivity's text
+    /// events, so the shell drains the keyboard's own text state. While a field has focus the
+    /// buffer is polled every frame and a change becomes Backspace/Text/Enter events.
+    fn poll_ime(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // A focused egui field, or text the app edits on its canvas: the canvas asks for the
+        // keyboard through egui's IME output instead of focusing a field.
+        let editing = ctx.egui_wants_keyboard_input() || ctx.output(|o| o.ime.is_some());
+        if editing != self.editing {
+            self.editing = editing;
+            if editing {
+                self.app.set_ime_editor_info(
+                    android_activity::input::InputType::TYPE_CLASS_TEXT
+                        | android_activity::input::InputType::TYPE_TEXT_FLAG_MULTI_LINE,
+                    android_activity::input::TextInputAction::None,
+                    android_activity::input::ImeOptions::IME_FLAG_NO_FULLSCREEN,
+                );
+                self.app.set_text_input_state(android_activity::input::TextInputState {
+                    text: String::new(),
+                    selection: android_activity::input::TextSpan { start: 0, end: 0 },
+                    compose_region: None,
+                });
+                let old = std::mem::take(&mut self.ime_text);
+                self.ime_stale = if old.is_empty() { None } else { Some(old) };
+                self.app.show_soft_input(false);
+            } else {
+                self.app.hide_soft_input(false);
+            }
+        }
+        if self.editing {
+            // The user tapped in the text again or pressed a key: if Android's back key had
+            // dismissed the keyboard, bring it back. Escape is the back key itself.
+            let interacted = raw.events.iter().any(|event| match event {
+                egui::Event::PointerButton { pressed: true, .. } => true,
+                egui::Event::Key { key, pressed: true, .. } => *key != egui::Key::Escape,
+                _ => false,
+            });
+            if interacted {
+                self.app.show_soft_input(false);
+            }
+            let now = self.app.text_input_state().text;
+            if self.ime_stale.as_ref().is_some_and(|old| *old != now) {
+                self.ime_stale = None;
+            }
+            if now != self.ime_text && self.ime_stale.is_none() {
+                let prev = self.ime_text.clone();
+                self.ime_text = now.clone();
+                for event in ime_events(&ime_diff(&prev, &now)) {
+                    raw.events.push(event);
+                }
+            }
+            // GameActivity's text events don't wake the UI: keep a frame coming while typing.
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
 }
 
 impl Drop for SubCraftAndroidApp {
@@ -293,7 +375,7 @@ impl eframe::App for SubCraftAndroidApp {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         ensure_screen_rect(&self.app, ctx, raw);
-        self.ime.poll(raw);
+        self.poll_ime(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.state.mirror.sync(&self.bridge);
@@ -398,9 +480,8 @@ fn android_main(android_app: AndroidApp) {
             .with_tag("com.artcraft.subcraft"),
     );
     log::info!(
-        "{SAF_BRIDGE_MARKER} ready ({}; {ANDROID_SHELL_MARKER}; {})",
+        "{SAF_BRIDGE_MARKER} ready ({}; {ANDROID_SHELL_MARKER}; ARTCRAFT_ANDROID_NATIVE_IME_V1)",
         saf::SAF_MARKER,
-        ime_bridge::ime::IME_MARKER
     );
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     install_persist_env(&android_app);
@@ -439,7 +520,9 @@ fn android_main(android_app: AndroidApp) {
                 inner,
                 app: app_bridge.android_app().clone(),
                 state: Arc::clone(&state),
-                ime: ime_bridge::ime::ImeBridge::new(app_bridge.android_app()),
+                ime_text: String::new(),
+                ime_stale: None,
+                editing: false,
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),

@@ -689,26 +689,7 @@ impl AndroidAppInner {
 
     // TODO: move into a trait
     pub fn show_soft_input(&self, show_implicit: bool) {
-        // Prefer the Activity's own IME host view when it provides one (the same preference
-        // the native-activity backend applies): a bare activity has no editable view, so the
-        // stock call never delivers text; the generated Activity focuses a real editable
-        // imeShow() host instead. Activities without it fall through to the stock path.
-        let ime_host = self
-            .jvm
-            .attach_current_thread(|env| -> jni::errors::Result<bool> {
-                if env
-                    .call_method(&*self.activity, jni::jni_str!("imeShow"), jni::jni_sig!("()V"), &[])
-                    .is_ok()
-                {
-                    return Ok(true);
-                }
-                let _ = env.exception_clear();
-                Ok(false)
-            })
-            .unwrap_or(false);
-        if ime_host {
-            return;
-        }
+        // Use native GameActivity IME; no Java host.
         self.game_activity.with_locked_app(|app_ptr| {
             if app_ptr.is_null() {
                 log::error!("Attempted to show soft input after GameActivity was destroyed");
@@ -728,24 +709,7 @@ impl AndroidAppInner {
 
     // TODO: move into a trait
     pub fn hide_soft_input(&self, hide_implicit_only: bool) {
-        // Mirror of show_soft_input's imeShow preference: the generated Activity's
-        // imeHide() retracts the editable host it owns; anything else falls through.
-        let ime_host = self
-            .jvm
-            .attach_current_thread(|env| -> jni::errors::Result<bool> {
-                if env
-                    .call_method(&*self.activity, jni::jni_str!("imeHide"), jni::jni_sig!("()V"), &[])
-                    .is_ok()
-                {
-                    return Ok(true);
-                }
-                let _ = env.exception_clear();
-                Ok(false)
-            })
-            .unwrap_or(false);
-        if ime_host {
-            return;
-        }
+        // Use native GameActivity IME; no Java host.
         self.game_activity.with_locked_app(|app_ptr| {
             if app_ptr.is_null() {
                 log::error!("Attempted to hide soft input after GameActivity was destroyed");

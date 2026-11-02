@@ -72,6 +72,10 @@ default = [
     "x11",
 ]
 links = ["webbrowser"]
+# `clipboard-image` is requested by storytold eframe 0.37's `clipboard` feature.
+# The builder's patched egui-winit already routes clipboard through arboard/JNI;
+# expose the feature flag so eframe 0.37 resolves against this 0.36.2 copy.
+clipboard-image = ["clipboard"]
 serde = [
     "egui/serde",
     "dep:serde",

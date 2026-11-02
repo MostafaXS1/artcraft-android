@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use android_activity::input::{
-    Axis, Button, Classification, InputEvent, KeyAction, Keycode, MotionAction, ToolType,
+    Axis, Button, InputEvent, KeyAction, Keycode, MotionAction, ToolType,
 };
 use android_activity::{
     AndroidApp, AndroidAppWaker, ConfigurationRef, InputStatus, MainEvent, Rect,
@@ -758,19 +758,10 @@ impl<T: 'static> EventLoop<T> {
                 // smooth and continuous, where a mouse's is a number of notches.
                 let touchpad = device.touchpad;
 
-                // A hardware touchpad's gesture: a two-finger slide or a pinch. Android
-                // reports it as a motion event with a classification and a pointer that
-                // walks across the screen as the gesture goes on — the pointer is not a
-                // finger on the glass (it starts at the cursor and is moved by the
-                // gesture), so the event is a scroll or a zoom and never a press, a drag
-                // or a cursor move.
-                let pad_gesture = match motion_event.classification() {
-                    Classification::TwoFingerSwipe | Classification::MultiFingerSwipe => {
-                        PadGesture::Scroll
-                    }
-                    Classification::Pinch => PadGesture::Pinch,
-                    _ => PadGesture::None,
-                };
+                // A hardware touchpad's gesture: a two-finger slide or a pinch. NativeActivity
+                // does not expose motion-event classification, so touchpad gestures are not
+                // distinguished from other pointer motion here.
+                let pad_gesture = PadGesture::None;
                 if pad_gesture != PadGesture::None {
                     let position = motion_event
                         .pointers()
@@ -1722,8 +1713,6 @@ impl Window {
     }
 
     pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}
-
-    pub fn reset_ime_with_request(&self, _request_id: u64) {}
 
     pub fn focus_window(&self) {}
 

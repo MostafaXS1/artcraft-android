@@ -25,9 +25,8 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 # Ship the shared Android system-font module next to the adapter sources; its launcher references
 # `mod system_fonts;` (see templates/android/system_fonts.rs, shared with the generated launchers).
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
-# Ship the shared Android soft-keyboard bridge too; its launcher references `mod ime_bridge;`
-# (see templates/android/ime_bridge.rs, shared with the generated launchers).
-cp -f "$ROOT/templates/android/ime_bridge.rs" "$DEST/src/ime_bridge.rs"
+# The soft keyboard uses android-activity's native IME (the launcher polls `text_input_state`);
+# there is no ime_bridge module to copy.
 # Launcher icons: density mipmaps plus the API 26+ adaptive layers, from the same shared module
 # the generated launchers use (see lib/app_icons.py).
 if ! python3 "$ROOT/lib/app_icons.py" --src "$SRC_ABS" --app "$APP" --dest "$DEST/res"; then
