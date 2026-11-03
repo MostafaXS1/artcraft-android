@@ -85,8 +85,8 @@ permissions:
 Rust Android cross-compilation builds hundreds of native crates and dependencies per app. The pipeline uses a three-tier caching hierarchy to reduce build times from ~30 minutes down to ~5–8 minutes on warm runners:
 
 ### Tier 1: `sccache` (Shared Compiler Cache)
-* **Action:** `mozilla-actions/sccache-action@v0.0.8`
-* **Backend:** Native GitHub Actions Cache API (`SCCACHE_GHA_ENABLED: "true"`).
+* **Action:** `mozilla-actions/sccache-action@v0.0.11` + `actions/cache@v4`
+* **Backend:** Local disk cache (`~/.cache/sccache`) archived and restored via `actions/cache@v4`.
 * **Compiler Wrapper:** `RUSTC_WRAPPER: "sccache"`
 * **What it caches:** Compiled C/C++ and Rust crate artifacts (`.o`, `.rlib`, `.rmeta`). If multiple apps share identical dependencies (e.g., `egui`, `vello`, `winit`, `cpal`, `symphonia`), `sccache` shares compilation hits across matrix jobs.
 
