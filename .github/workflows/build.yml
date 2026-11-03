@@ -1,0 +1,315 @@
+name: Build APKs
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Build mode'
+        required: false
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      source_version:
+        description: 'Upstream source version'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - photocraft
+          - vectorcraft
+          - filmcraft
+          - lightcraft
+          - pdfcraft
+          - effectcraft
+          - designcraft
+          - figcraft
+          - wordcraft
+          - soundcraft
+          - deckcraft
+          - cadcraft
+          - gridcraft
+          - subcraft
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        timeout-minutes: 3
+        run: |
+          pip install --upgrade pillow
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.8
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Configure JDK for build script
+        run: |
+          sudo mkdir -p /opt/jdk
+          sudo ln -s "$JAVA_HOME" /opt/jdk/temurin-21
+
+      - name: Cache Gradle wrapper & dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ matrix.app }}-
+            gradle-${{ runner.os }}-
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo registry & Git dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-${{ matrix.app }}-
+            cargo-registry-${{ runner.os }}-
+
+      - name: Install cargo-ndk
+        run: |
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            mkdir -p "$HOME/.cargo/bin"
+            curl -fsSL https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-x86_64-unknown-linux-musl-v4.1.2.tgz | tar -xz --strip-components=1 -C "$HOME/.cargo/bin"
+            chmod +x "$HOME/.cargo/bin/cargo-ndk"*
+          fi
+          cargo ndk -V
+
+      - name: Configure Android SDK and NDK
+        run: |
+          # Use pre-installed Android SDK and NDK on the runner
+          if [ -d "$ANDROID_HOME/ndk/27.2.12479018" ]; then
+            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+            echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+          elif [ -d "$ANDROID_HOME/ndk" ]; then
+            LATEST_NDK=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+            if [ -n "$LATEST_NDK" ]; then
+              echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
+              echo "NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
+            fi
+          fi
+          echo "ARTCRAFT_BUILD_TOOLS_VERSION=35.0.0" >> $GITHUB_ENV
+
+      - name: Build ${{ matrix.app }} APK
+        timeout-minutes: 35
+        env:
+          BUILD_MODE: ${{ inputs.mode || 'release' }}
+          BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: "true"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+        run: |
+          mkdir -p logs output
+          rm -f output/*.apk output/*.tmp
+          set -o pipefail
+          BUILD_LOG="logs/${{ matrix.app }}-build.log"
+          if [ "$BUILD_MODE" = "debug" ]; then
+            bash build-debug.sh -${{ matrix.app }} 2>&1 | tee "$BUILD_LOG"
+          else
+            bash build.sh -${{ matrix.app }} 2>&1 | tee "$BUILD_LOG"
+          fi
+          sccache --show-stats || true
+
+      - name: Verify built APK integrity
+        run: |
+          count=0
+          for apk in output/*.apk; do
+            [ -f "$apk" ] || continue
+            count=$((count + 1))
+            size=$(stat -c%s "$apk" 2>/dev/null || echo 0)
+            if [ "$size" -lt 1000000 ]; then
+              echo "::error::APK $apk is empty or too small ($size bytes)" | tee -a "logs/${{ matrix.app }}-build.log" >&2
+              exit 1
+            fi
+            if ! unzip -tq "$apk" >/dev/null 2>&1; then
+              echo "::error::APK $apk is corrupted (failed zip integrity test)" | tee -a "logs/${{ matrix.app }}-build.log" >&2
+              exit 1
+            fi
+            echo "Verified valid APK: $apk ($(( size / 1048576 )) MB)"
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No APK found in output/" | tee -a "logs/${{ matrix.app }}-build.log" >&2
+            exit 1
+          fi
+
+      - name: Upload ${{ matrix.app }} APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-apk
+          path: output/*.apk
+          if-no-files-found: error
+
+      - name: Prepare build logs on failure
+        if: failure()
+        run: |
+          mkdir -p logs
+          if [ -z "$(find logs -maxdepth 1 -type f -name '*.log' 2>/dev/null)" ]; then
+            echo "Build failed for ${{ matrix.app }} before log output could be written." > "logs/${{ matrix.app }}-build.log"
+          fi
+          log_count=$(find logs -maxdepth 1 -type f -name '*.log' | wc -l)
+          if [ "$log_count" -gt 1 ]; then
+            echo "Multiple logs ($log_count) found for ${{ matrix.app }}. Zipping into ${{ matrix.app }}-logs.zip..."
+            (cd logs && zip -q "${{ matrix.app }}-logs.zip" *.log)
+          fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-build-log
+          path: |
+            logs/*.log
+            logs/*.zip
+          if-no-files-found: ignore
+
+  bundle:
+    name: Bundle All APKs
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download all APK artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: all-apks
+          pattern: '*-apk'
+          merge-multiple: true
+
+      - name: Validate and prune APKs
+        id: check_apks
+        run: |
+          mkdir -p all-apks
+          valid_count=0
+          for apk in all-apks/*.apk; do
+            [ -f "$apk" ] || continue
+            size=$(stat -c%s "$apk" 2>/dev/null || echo 0)
+            if [ "$size" -lt 1000000 ] || ! unzip -tq "$apk" >/dev/null 2>&1; then
+              echo "WARNING: Removing corrupted or incomplete APK: $apk ($size bytes)"
+              rm -f "$apk"
+            else
+              valid_count=$((valid_count + 1))
+              echo "Valid APK: $apk ($(( size / 1048576 )) MB)"
+            fi
+          done
+
+          if [ "$valid_count" -gt 0 ]; then
+            echo "Found $valid_count valid APKs to bundle."
+            echo "has_apks=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No valid APKs found to bundle."
+            echo "has_apks=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload all APKs combined artifact
+        if: steps.check_apks.outputs.has_apks == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: artcraft-all-apks
+          path: all-apks/*.apk
+
+      - name: Create Release on Tag Push
+        if: startsWith(github.ref, 'refs/tags/v') && steps.check_apks.outputs.has_apks == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: all-apks/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Download all failed build logs
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: all-build-logs
+          pattern: '*-build-log'
+          merge-multiple: true
+
+      - name: Package failed build logs
+        id: package_logs
+        run: |
+          mkdir -p all-build-logs
+          find all-build-logs -type f -name "*.zip" -exec unzip -q -o -d all-build-logs {} \; -exec rm -f {} \;
+          log_count=$(find all-build-logs -type f -name "*.log" | wc -l)
+          echo "Total failed build log files collected: $log_count"
+
+          if [ "$log_count" -gt 0 ]; then
+            echo "has_logs=true" >> "$GITHUB_OUTPUT"
+            if [ "$log_count" -gt 1 ]; then
+              echo "More than one build log found ($log_count). Zipping into failed-build-logs.zip..."
+              (cd all-build-logs && zip -q -r ../failed-build-logs.zip .)
+              echo "zip_created=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Single build log found ($log_count). No zip required."
+              echo "zip_created=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No build logs found (all builds succeeded)."
+            echo "has_logs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload failed build logs zip
+        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-build-logs
+          path: failed-build-logs.zip
+
+      - name: Upload single failed build log
+        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-build-log
+          path: all-build-logs/*.log
