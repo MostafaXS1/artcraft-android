@@ -479,6 +479,12 @@ source_tree_is_complete() {
 }
 
 if [[ -e "$SRC" ]]; then
+    if [[ -d "$SRC" && ! -d "$SRC/.git" && -z "$(ls -A "$SRC" 2>/dev/null)" ]]; then
+        rmdir "$SRC" 2>/dev/null || true
+    fi
+fi
+
+if [[ -e "$SRC" ]]; then
     [[ -d "$SRC/.git" ]] || fail "$SRC exists but is not a Git checkout. Move it aside manually before retrying."
     ORIGIN="$(git -C "$SRC" remote get-url origin 2>/dev/null || true)"
     case "${ORIGIN%.git}" in
@@ -3898,11 +3904,10 @@ import sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 # The apps now ship the storytold egui 0.37 fork, whose egui-winit (vendored under
-# vendor/egui/crates/egui-winit) is the matching winit 0.30 build. Patch crate-io to that fork
-# copy so egui-winit 0.37 is used (builder's egui-winit 0.36.2 would clash with the fork's winit
-# which re-adds `WindowEvent::ImeResetCompleted`). Keep the builder's egui-winit vendored as a
-# harmless fallback; it is not referenced by the graph.
-entry = 'egui-winit = { path = "vendor/egui/crates/egui-winit" }'
+# vendor/egui/crates/egui-winit or vendor/egui-winit) is the matching winit 0.30 build. Patch crate-io
+# so egui-winit is used. Keep the builder's egui-winit vendored as a harmless fallback.
+winit_rel = "vendor/egui/crates/egui-winit" if (p.parent / "vendor/egui/crates/egui-winit").is_dir() else "vendor/egui-winit"
+entry = f'egui-winit = {{ path = "{winit_rel}" }}'
 import re
 s = re.sub(r'^\s*egui-winit\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
 if entry not in s:
@@ -4253,10 +4258,12 @@ python3 - "$SRC" "$APP" <<'PY'
 from pathlib import Path
 import re, sys
 src, app = Path(sys.argv[1]), sys.argv[2]
-for key, relpath in [("egui-wgpu", "vendor/egui/crates/egui-wgpu"),
-                     ("egui-winit", "vendor/egui/crates/egui-winit"),
-                     ("winit", "vendor/winit"),
-                     ("arboard", "vendor/arboard")]:
+for key, relpaths in [
+    ("egui-wgpu", ["vendor/egui-wgpu", "vendor/egui/crates/egui-wgpu"]),
+    ("egui-winit", ["vendor/egui-winit", "vendor/egui/crates/egui-winit"]),
+    ("winit", ["vendor/winit"]),
+    ("arboard", ["vendor/arboard"]),
+]:
     try:
         text = (src / "Cargo.toml").read_text()
     except OSError:
@@ -4266,7 +4273,8 @@ for key, relpath in [("egui-wgpu", "vendor/egui/crates/egui-wgpu"),
     section = text.split("[workspace.dependencies]", 1)[1].split("\n[", 1)[0]
     if re.search(rf"^\s*{re.escape(key)}\s*=", section, flags=re.M):
         continue
-    if not (src / relpath).is_dir():
+    relpath = next((p for p in relpaths if (src / p).is_dir()), None)
+    if not relpath:
         continue
     marker = "[workspace.dependencies]\n"
     idx = text.find(marker)
@@ -4362,8 +4370,14 @@ CRAFT_FONTS_DIR="$ROOT/source/craft-fonts"
 if [[ -f "$CRAFT_FONTS_DIR/fonts/manifest.txt" ]]; then
     echo "Reusing the craft-fonts checkout in $CRAFT_FONTS_DIR"
 elif [[ -e "$CRAFT_FONTS_DIR" ]]; then
-    echo "The craft-fonts checkout at $CRAFT_FONTS_DIR has no fonts/manifest.txt; leaving it alone." >&2
-else
+    if [[ -d "$CRAFT_FONTS_DIR" && -z "$(ls -A "$CRAFT_FONTS_DIR" 2>/dev/null)" ]]; then
+        rmdir "$CRAFT_FONTS_DIR" 2>/dev/null || true
+    fi
+    if [[ -e "$CRAFT_FONTS_DIR" ]]; then
+        echo "The craft-fonts checkout at $CRAFT_FONTS_DIR has no fonts/manifest.txt; leaving it alone." >&2
+    fi
+fi
+if [[ ! -e "$CRAFT_FONTS_DIR" ]]; then
     echo "Fetching craft-fonts (the shared faces the apps embed)..."
     git clone --depth 1 https://github.com/storytold/craft-fonts.git "$CRAFT_FONTS_DIR" || {
         echo "Could not fetch craft-fonts; the apps will build without the shared faces." >&2
