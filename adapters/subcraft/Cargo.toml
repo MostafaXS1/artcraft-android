@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 subcraft-app = { path = "../../crates/app" }
 subcraft-ui = { path = "../../crates/ui" }
 subcraft-core = { path = "../../crates/core" }
-eframe = { workspace = true, features = ["wgpu", "persistence", "android-native-activity"] }
+eframe = { workspace = true, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }
 log = { workspace = true }

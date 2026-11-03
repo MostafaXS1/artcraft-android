@@ -569,6 +569,19 @@ def fix(rel: str, old: str, new: str) -> bool:
     return True
 
 
+def fix_all(rel: str, old: str, new: str) -> bool:
+    """Replace all occurrences of `old` in `rel` with `new`, unless it is already gone."""
+    path = src / rel
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    if old not in text:
+        return False
+    path.write_text(text.replace(old, new))
+    return True
+
+
 fixed = []
 if app == "photocraft":
     # "load each persisted preset set independently" added `export_presets` to the serialised
@@ -597,6 +610,22 @@ elif app == "cadcraft":
     ]:
         if fix(rel, old, new):
             fixed.append(f"{rel} ({old} -> {new})")
+
+    # Fix rstar 0.12 API (locate_in_envelope_intersecting takes &T::Envelope)
+    if fix(
+        "crates/engine/src/spatial.rs",
+        'self.tree.locate_in_envelope_intersecting(env)',
+        'self.tree.locate_in_envelope_intersecting(&env)',
+    ):
+        fixed.append("crates/engine/src/spatial.rs (rstar API)")
+
+    # Fix quick-xml into_inner() API (returns &[u8], which does not have .as_bytes())
+    if fix_all(
+        "crates/io/src/svg_read.rs",
+        ".into_inner().as_bytes()",
+        ".into_inner()",
+    ):
+        fixed.append("crates/io/src/svg_read.rs (quick-xml into_inner)")
 
 elif app == "wordcraft":
     # rustc 1.99 rejects exhaustive struct patterns that name a field which is private to another
@@ -646,7 +675,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "65"
+GENERATOR_VERSION = "67"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -1890,6 +1919,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     Services {
         pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
         pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
     }
 }
 ''',
@@ -2073,7 +2103,7 @@ INTENT_OPEN = {
             Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
         }
 ''',
-    "cadcraft": '''        self.inner.open_path(path);
+    "cadcraft": '''        self.inner.open_path(std::path::Path::new(path));
 ''',
     "pdfcraft": '''        self.inner.open_path(path);
 ''',
@@ -2650,6 +2680,7 @@ else:
 # A type that does not implement `eframe::App` is an inner app state; its desktop `main.rs` wraps it
 # in a tiny struct that forwards `logic`/`ui`. Emit the same wrapper here.
 has_eframe_app = bool(re.search(r"impl\s+eframe::App\s+for\s+" + re.escape(app_type) + r"\b", ui_text))
+has_logic = bool(re.search(r"\b(?:pub\s+)?fn\s+logic\b", ui_text)) and app != "figcraft"
 has_raw_hook = bool(re.search(r"pub fn raw_input_hook\b", ui_text))
 # A close guard: the app's own "may I close?" check. The desktop runs it when its window closes,
 # so a document with unsaved changes asks first ("Do you want to quit without saving unsaved
@@ -2713,7 +2744,20 @@ try:
         "deckcraft": ("audio", "audio.rs", ("deckcraft-media = { workspace = true }",)),
         "soundcraft": ("audio", "audio.rs", ()),
     }
-    cpal_dep = "".join(f"{dep}\n" for dep in ('cpal = "0.18"', *AUDIO_MODULES[app][2])) if app in AUDIO_MODULES else ''
+    cpal_ver = "0.18"
+    if app in AUDIO_MODULES:
+        lock_p = src / "Cargo.lock"
+        if lock_p.is_file():
+            m_cpal = re.search(r'name = "cpal"\s+version = "(\d+\.\d+)', lock_p.read_text())
+            if m_cpal:
+                cpal_ver = m_cpal.group(1)
+        else:
+            for toml_p in src.glob("**/Cargo.toml"):
+                m_cpal = re.search(r'cpal\s*=\s*(?:\{[^}]*version\s*=\s*)?"(\d+\.\d+)', toml_p.read_text())
+                if m_cpal:
+                    cpal_ver = m_cpal.group(1)
+                    break
+    cpal_dep = "".join(f"{dep}\n" for dep in (f'cpal = "{cpal_ver}"', *AUDIO_MODULES[app][2])) if app in AUDIO_MODULES else ''
     # EffectCraft's Android launcher must build a fully wired session (`effectcraft-host`), not a
     # bare `Session::new()`: without the host's importer and exporter, every import and export fails
     # with "media import is not available in this build" / "export is not available in this build".
@@ -2776,7 +2820,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
-eframe = {{ workspace = true, default-features = false, features = ["wgpu", "persistence", "clipboard", "android-native-activity"] }}
+eframe = {{ workspace = true, default-features = false, features = ["wgpu", "persistence", "clipboard"] }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
@@ -2889,7 +2933,10 @@ icon = "@mipmap/ic_launcher"
         inner_ui = "self.inner.ui(ui, frame);"
         inner_hook = "self.inner.raw_input_hook(ctx, raw);"
     else:
-        inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
+        if has_logic:
+            inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
+        else:
+            inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if has_raw_hook:
             inner_hook = "self.inner.raw_input_hook(ctx, raw);"
@@ -3623,15 +3670,20 @@ impl eframe::App for AndroidShell {{
         # CADCraft's file formats have to be in place before the app opens anything.
         "cadcraft": "            install_cadcraft_io();\n",
     }.get(app, "")
+    theme_line = (
+        "            cc.egui_ctx.set_theme(if dark_mode { egui::Theme::Dark } else { egui::Theme::Light });\n"
+    )
     if create_hook:
         creator = (
             "Box::new(move |cc| {\n"
+            + theme_line
             + create_hook
             + "            Ok(Box::new(shell))\n        })"
         )
     else:
         creator = (
             "Box::new(move |cc| {\n"
+            + theme_line
             + "            Ok(Box::new(shell))\n        })"
         )
 
@@ -3673,6 +3725,25 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         android_app: Some(android_app.clone()),
         ..Default::default()
     }};
+    // Initialize egui theme from Android system UI mode (light/dark preference)
+    let dark_mode = {{
+        use jni::{{JavaVM, jni_sig, jni_str, objects::JObject}};
+        let app_clone = android_app.clone();
+        let vm = unsafe {{ JavaVM::from_raw(app_clone.vm_as_ptr() as *mut _) }};
+        vm.attach_current_thread(|env| -> jni::errors::Result<bool> {{
+            let activity_raw = app_clone.activity_as_ptr() as jni::sys::jobject;
+            let activity = unsafe {{ env.as_cast_raw::<JObject>(&activity_raw)? }};
+            let resources = env.call_method(activity, jni_str!("getResources"), jni_sig!("()Landroid/content/res/Resources;"), &[])?
+                .l()?;
+            let config = env.call_method(&resources, jni_str!("getConfiguration"), jni_sig!("()Landroid/content/res/Configuration;"), &[])?
+                .l()?;
+            let ui_mode = env.get_field(&config, jni_str!("uiMode"), jni_sig!("I"))?.i()?;
+            // UI_MODE_NIGHT_YES = 0x20, UI_MODE_NIGHT_MASK = 0x30
+            let is_dark = (ui_mode & 0x30) == 0x20;
+            Ok(is_dark)
+        }}).unwrap_or(false)
+    }};
+
     // Vulkan first with a GLES fallback for devices without a usable Vulkan driver, and the
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
@@ -3740,6 +3811,24 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         android_app: Some(android_app.clone()),
         ..Default::default()
     }};
+    // Initialize egui theme from Android system UI mode (light/dark preference)
+    let dark_mode = {{
+        use jni::{{JavaVM, jni_sig, jni_str, objects::JObject}};
+        let app_clone = android_app.clone();
+        let vm = unsafe {{ JavaVM::from_raw(app_clone.vm_as_ptr() as *mut _) }};
+        vm.attach_current_thread(|env| -> jni::errors::Result<bool> {{
+            let activity_raw = app_clone.activity_as_ptr() as jni::sys::jobject;
+            let activity = unsafe {{ env.as_cast_raw::<JObject>(&activity_raw)? }};
+            let resources = env.call_method(activity, jni_str!("getResources"), jni_sig!("()Landroid/content/res/Resources;"), &[])?
+                .l()?;
+            let config = env.call_method(&resources, jni_str!("getConfiguration"), jni_sig!("()Landroid/content/res/Configuration;"), &[])?
+                .l()?;
+            let ui_mode = env.get_field(&config, jni_str!("uiMode"), jni_sig!("I"))?.i()?;
+            let is_dark = (ui_mode & 0x30) == 0x20;
+            Ok(is_dark)
+        }}).unwrap_or(false)
+    }};
+
     // Vulkan first with a GLES fallback for devices without a usable Vulkan driver, and the
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
@@ -3768,7 +3857,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         "{title}",
         options,
         Box::new(move |cc| {{
-
+            cc.egui_ctx.set_theme(if dark_mode {{ egui::Theme::Dark }} else {{ egui::Theme::Light }});
             Ok(Box::new(AndroidShell::new({construct_expr}, shell_app.clone())))
         }}),
     );
@@ -3852,20 +3941,10 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 # patched egui-winit (a self-contained JNI `ClipboardManager` backend) and patch it
 # into the workspace so every app's eframe event loop uses it. The patch is
 # platform-gated, so desktop builds are unaffected.
-# Apps shipping the storytold egui fork use its matching egui-winit (vendored under
-# vendor/egui/crates/egui-winit); others get the builder's standalone copy.
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
-if [[ -d "$SRC/vendor/egui/crates/egui-winit" ]]; then
-    rm -rf "$SRC/vendor/egui-winit"
-    cp -a "$SRC/vendor/egui/crates/egui-winit" "$SRC/vendor/egui-winit"
-    # The fork's egui-winit uses version.workspace = true, which would inherit the app's
-    # version (e.g. 0.19.0) instead of egui-winit's own (0.37). Pin it explicitly.
-    sed -i 's/^version\.workspace = true$/version = "0.37.0"/' "$SRC/vendor/egui-winit/Cargo.toml"
-else
-    rm -rf "$SRC/vendor/egui-winit"
-    cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
-fi
+rm -rf "$SRC/vendor/egui-winit"
+cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -3941,8 +4020,6 @@ if [[ -d "$SRC/vendor/winit" ]]; then
     # `reset_ime_with_request` (removed from stock winit 0.30), which the fork's egui-winit 0.37
     # requires. Keep that fork intact so egui-winit stays compatible, and only refresh its Android
     # backend with the builder's patched mouse/scroll-aware backend.
-    # Also sync Cargo.toml so `raw-window-handle` version matches egui-winit (rwh_05 vs rwh_06).
-    cp -a "$ROOT/vendor/winit/Cargo.toml" "$SRC/vendor/winit/Cargo.toml"
     rm -rf "$SRC/vendor/winit/src/platform_impl/android"
     cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
 else
@@ -3952,9 +4029,9 @@ fi
 
 # The storytold winit fork re-adds `WindowEvent::ImeResetCompleted` / `reset_ime_with_request`
 # (removed from stock winit 0.30) and its egui-winit calls `window.reset_ime_with_request()`. Keep
-# winit and egui-winit consistent: ensure the fork's winit declares `ImeResetCompleted` + its
-# `reset_ime_with_request` method whenever the fork's egui-winit uses them, and add a no-op
-# `reset_ime_with_request` to the Android `Window` impl (Android drives its own IME pipeline).
+# winit and egui-winit consistent: ensure the vendored winit declares `ImeResetCompleted` + its
+# `reset_ime_with_request` method, and add a no-op `reset_ime_with_request` to the Android `Window`
+# impl (Android drives its own IME pipeline).
 python3 - "$SRC" <<'PY'
 from pathlib import Path
 import re, sys
@@ -3962,21 +4039,17 @@ src = Path(sys.argv[1])
 event_rs = src / "vendor" / "winit" / "src" / "event.rs"
 window_rs = src / "vendor" / "winit" / "src" / "window.rs"
 mod_rs = src / "vendor" / "winit" / "src" / "platform_impl" / "android" / "mod.rs"
-egui_winit_rs = src / "vendor" / "egui" / "crates" / "egui-winit" / "src" / "lib.rs"
 if not event_rs.is_file() or not window_rs.is_file() or not mod_rs.is_file():
     sys.exit(0)
-winit_has_ime_reset = "ImeResetCompleted" in event_rs.read_text()
-window_has_reset_ime = "fn reset_ime_with_request" in window_rs.read_text()
-egui_winit_needs = egui_winit_rs.is_file() and "ImeResetCompleted" in egui_winit_rs.read_text()
+
 changed = False
 
-# Add the `ImeResetCompleted` variant to winit's WindowEvent enum (after the `Ime(Ime)` arm)
-# whenever fork egui-winit needs it but the enum lacks it.
-if egui_winit_needs and not winit_has_ime_reset:
-    ev = event_rs.read_text()
+# Ensure ImeResetCompleted is in event.rs
+ev = event_rs.read_text()
+if "ImeResetCompleted" not in ev:
     anchor = "    Ime(Ime),\n"
-    if "ImeResetCompleted" not in ev:
-        ev = ev.replace(anchor, anchor + '''
+    if anchor in ev:
+        ev = ev.replace(anchor, anchor + '''\
     /// The ordered cancellation fence requested by [`Window::reset_ime_with_request`].
     ///
     /// ## Platform-specific
@@ -3986,12 +4059,10 @@ if egui_winit_needs and not winit_has_ime_reset:
 ''')
         event_rs.write_text(ev)
         changed = True
-        winit_has_ime_reset = True
 
-# Add `reset_ime_with_request` to winit's `Window` impl (after `set_ime_purpose`) whenever fork
-# egui-winit calls it but the method is missing (independent of whether the enum variant exists).
-if egui_winit_needs and not window_has_reset_ime:
-    wn = window_rs.read_text()
+# Ensure reset_ime_with_request is in window.rs
+wn = window_rs.read_text()
+if "fn reset_ime_with_request" not in wn:
     import re as _re
     m = _re.search(r"set_ime_purpose\(purpose\)\)\s*\n    \}\n", wn)
     if m:
@@ -4003,46 +4074,45 @@ if egui_winit_needs and not window_has_reset_ime:
 ''' + wn[end:]
         window_rs.write_text(wn)
         changed = True
-        window_has_reset_ime = True
 
-# Add a no-op `reset_ime_with_request` to the Android `Window` impl when the variant exists.
-if winit_has_ime_reset or window_has_reset_ime:
-    text = mod_rs.read_text()
-    # Remove any previously-added reset_ime_with_request and collapse duplicate set_ime_purpose.
-    text = re.sub(r'    pub fn reset_ime_with_request\(&self, _request_id: u64\) \{\}\n', '', text)
-    text = text.replace(
-        '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n'
-        '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
-        '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
-    )
-    if "fn reset_ime_with_request" not in text:
-        marker = "    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n"
-        idx = text.find(marker)
-        if idx >= 0:
-            insert = '''
+# Ensure reset_ime_with_request is in Android mod.rs
+text = mod_rs.read_text()
+text = re.sub(r'    pub fn reset_ime_with_request\(&self, _request_id: u64\) \{\}\n', '', text)
+text = text.replace(
+    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n'
+    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
+    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
+)
+if "fn reset_ime_with_request" not in text:
+    marker = "    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n"
+    idx = text.find(marker)
+    if idx >= 0:
+        insert = '''
     /// No-op on Android: the platform drives its own input-method pipeline and does not use the
     /// winit IME-reset protocol.
     pub fn reset_ime_with_request(&self, _request_id: u64) {}
 '''
-            text = text[:idx+len(marker)] + insert + text[idx+len(marker):]
-            mod_rs.write_text(text)
-            changed = True
+        text = text[:idx+len(marker)] + insert + text[idx+len(marker):]
+        mod_rs.write_text(text)
+        changed = True
 
-# Ensure fork egui-winit's exhaustive `short_window_event_description` match covers the
-# `ImeResetCompleted` variant (present in fork winit). gridcraft's checkout includes it; older
-# checkouts (e.g. subcraft) lack it and fail to compile.
-if winit_has_ime_reset and egui_winit_rs.is_file():
-    ew = egui_winit_rs.read_text()
-    if "ImeResetCompleted" in ew:
-        fn_marker = "pub fn short_window_event_description"
-        idx = ew.find(fn_marker)
-        if idx >= 0 and "WindowEvent::ImeResetCompleted { .. } => \"WindowEvent::ImeResetCompleted\"," not in ew[idx:]:
-            arm = '        WindowEvent::Ime { .. } => "WindowEvent::Ime",\n'
-            aidx = ew.find(arm, idx)
-            if aidx >= 0:
-                ew = ew[:aidx+len(arm)] + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n' + ew[aidx+len(arm):]
-                egui_winit_rs.write_text(ew)
-                changed = True
+# Also ensure any fork egui-winit copy present covers ImeResetCompleted in its match
+for ew_path in (
+    src / "vendor" / "egui" / "crates" / "egui-winit" / "src" / "lib.rs",
+    src / "vendor" / "egui-winit" / "src" / "lib.rs",
+):
+    if ew_path.is_file():
+        ew = ew_path.read_text()
+        if "ImeResetCompleted" in ew:
+            fn_marker = "pub fn short_window_event_description"
+            idx = ew.find(fn_marker)
+            if idx >= 0 and 'WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",' not in ew[idx:]:
+                arm = '        WindowEvent::Ime { .. } => "WindowEvent::Ime",\n'
+                aidx = ew.find(arm, idx)
+                if aidx >= 0:
+                    ew = ew[:aidx+len(arm)] + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n' + ew[aidx+len(arm):]
+                    ew_path.write_text(ew)
+                    changed = True
 
 if changed:
     print("  Synced winit IME-reset support with fork egui-winit")
@@ -4065,19 +4135,19 @@ ws_toml = src / "Cargo.toml"
 ws_text = ws_toml.read_text()
 new_ws, n = re.subn(
     r'^\s*egui_dock\s*=\s*\{[^}]*\}\s*(?:#.*)?\n?',
-    'egui_dock = { path = "vendor/egui_dock" }\n',
+    'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n',
     ws_text,
     flags=re.M,
 )
 if n > 0:
     ws_toml.write_text(new_ws)
     print("  Replaced egui_dock with vendored path in [workspace.dependencies]")
-elif 'egui_dock = { path = "vendor/egui_dock" }' not in ws_text:
+elif 'egui_dock = { path = "vendor/egui_dock"' not in ws_text:
     marker = "[workspace.dependencies]\n"
     idx = ws_text.find(marker)
     if idx >= 0:
         ws_text = (ws_text[:idx + len(marker)]
-                   + 'egui_dock = { path = "vendor/egui_dock" }\n'
+                   + 'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n'
                    + ws_text[idx + len(marker):])
         ws_toml.write_text(ws_text)
         print("  Added egui_dock to [workspace.dependencies]")
@@ -4133,25 +4203,15 @@ PY
 # that (ERROR_NATIVE_WINDOW_IN_USE_KHR) and wgpu panics on the error, so an app whose surface was
 # lost — the app coming back from a file picker, for instance — died with it. Vendor the builder's
 # patched egui-wgpu, which releases the old surface first, and patch it into the workspace.
-# Apps shipping the storytold egui fork use its matching egui-wgpu (vendored under
-# vendor/egui/crates/egui-wgpu); others get the builder's standalone copy.
 echo "Vendoring the surface-fixing egui-wgpu for $TITLE..."
-if [[ -d "$SRC/vendor/egui/crates/egui-wgpu" ]]; then
-    rm -rf "$SRC/vendor/egui-wgpu"
-    cp -a "$SRC/vendor/egui/crates/egui-wgpu" "$SRC/vendor/egui-wgpu"
-    wgpu_rel="vendor/egui-wgpu"
-else
-    rm -rf "$SRC/vendor/egui-wgpu"
-    cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
-    wgpu_rel="vendor/egui-wgpu"
-fi
-python3 - "$SRC/Cargo.toml" "$wgpu_rel" <<'PY'
+rm -rf "$SRC/vendor/egui-wgpu"
+cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
+python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
 p = Path(sys.argv[1])
-wgpu_rel = sys.argv[2]
 s = p.read_text()
-entry = f'egui-wgpu = {{ path = "{wgpu_rel}" }}'
+entry = 'egui-wgpu = { path = "vendor/egui-wgpu" }'
 import re
 s = re.sub(r'^\s*egui-wgpu\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
 if entry not in s:
@@ -4211,7 +4271,7 @@ if [[ ! -f "$KEY_PASSWORD_FILE" ]]; then
         # Compatibility with earlier builder versions, which used this local-only password.
         printf 'android\n' > "$KEY_PASSWORD_FILE"
     else
-        python3 -c 'import secrets; print(secrets.token_urlsafe(24))' > "$KEY_PASSWORD_FILE"
+        python3 -c 'import secrets; print(secrets.token_hex(24))' > "$KEY_PASSWORD_FILE"
     fi
     chmod 600 "$KEY_PASSWORD_FILE"
 fi

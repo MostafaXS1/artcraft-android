@@ -14,7 +14,7 @@ flowchart TD
     
     subgraph BuildJob ["build (matrix per app)"]
         SetupToolchain[Setup Python 3.12, Java 21, Rust ARM64, NDK]
-        RestoreCaches[Restore Caches: Gradle, Cargo, sccache GHA]
+        RestoreCaches[Restore Caches: Gradle, Cargo, sccache]
         ResolveSource[Resolve Source: Stable Tag vs. Main Branch]
         CompileApp[Compile APK via build.sh / cargo-ndk]
         VerifyAPK[Verify Integrity: Size &gt; 1MB + unzip -tq]
@@ -76,7 +76,7 @@ permissions:
 | Permission | Purpose |
 | :--- | :--- |
 | `contents: write` | Required to create GitHub Releases, tag releases, and attach compiled `.apk` files via `softprops/action-gh-release@v2`. |
-| `actions: write` | **Critical for `sccache`:** GitHub Actions Cache requires the Actions read/write API token. Without `actions: write`, `sccache` hits `403 Forbidden` on cache storage, causing all cache operations to miss. |
+| `actions: write` | Required for GitHub Actions cache management (`actions/cache@v4`) and artifact handling. |
 
 ---
 
@@ -85,8 +85,8 @@ permissions:
 Rust Android cross-compilation builds hundreds of native crates and dependencies per app. The pipeline uses a three-tier caching hierarchy to reduce build times from ~30 minutes down to ~5–8 minutes on warm runners:
 
 ### Tier 1: `sccache` (Shared Compiler Cache)
-* **Action:** `mozilla-actions/sccache-action@v0.0.8`
-* **Backend:** Native GitHub Actions Cache API (`SCCACHE_GHA_ENABLED: "true"`).
+* **Action:** `mozilla-actions/sccache-action@v0.0.11` + `actions/cache@v4`
+* **Backend:** Local disk cache (`~/.cache/sccache`) archived and restored via `actions/cache@v4`.
 * **Compiler Wrapper:** `RUSTC_WRAPPER: "sccache"`
 * **What it caches:** Compiled C/C++ and Rust crate artifacts (`.o`, `.rlib`, `.rmeta`). If multiple apps share identical dependencies (e.g., `egui`, `vello`, `winit`, `cpal`, `symphonia`), `sccache` shares compilation hits across matrix jobs.
 

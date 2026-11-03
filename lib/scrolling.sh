@@ -360,12 +360,24 @@ if app == "wordcraft":
         fixed.append("crates/ui-egui/src/lib.rs (the keyboard-hide request)")
 
     if fix(
+        "crates/ui-egui/src/app.rs",
+        "            comment_drafts: Default::default(),\n",
+        "            comment_drafts: Default::default(),\n"
+        "            request_ime_hide: false,\n",
+    ) or fix(
         "crates/ui-egui/src/lib.rs",
         "            comment_drafts: Default::default(),\n",
         "            comment_drafts: Default::default(),\n"
         "            request_ime_hide: false,\n",
     ):
-        fixed.append("crates/ui-egui/src/lib.rs (the keyboard-hide request, at rest)")
+        fixed.append("crates/ui-egui (the keyboard-hide request, at rest)")
+
+    if fix(
+        "crates/ui-egui/src/window_ui.rs",
+        "            shown_document,\n        } = self;",
+        "            shown_document,\n            request_ime_hide: _,\n        } = self;",
+    ):
+        fixed.append("crates/ui-egui/src/window_ui.rs (the keyboard-hide request destructure)")
 
     # The flick's coast. The upstream constant leaves the momentum to the platform on the
     # platforms that send their own: macOS and Windows (they report the lift, and a touchpad

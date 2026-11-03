@@ -1,35 +1,5 @@
 use egui::ViewportBuilder;
 
-/// Position and size of a native window.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct WindowGeometry {
-    /// Position of window frame/titlebar in physical pixels.
-    outer_position_pixels: Option<egui::Pos2>,
-
-    /// Scale factor of the window when it was saved, without egui zoom.
-    scale_factor: f32,
-
-    /// Inner size of window in points.
-    inner_size_points: egui::Vec2,
-}
-
-impl WindowGeometry {
-    pub fn from_window(egui_zoom_factor: f32, window: &winit::window::Window) -> Self {
-        let scale_factor = window.scale_factor() as f32;
-        let inner_size = window.inner_size();
-        Self {
-            outer_position_pixels: window
-                .outer_position()
-                .ok()
-                .map(|p| egui::pos2(p.x as f32, p.y as f32)),
-            scale_factor,
-            inner_size_points: egui::vec2(inner_size.width as f32, inner_size.height as f32)
-                / (egui_zoom_factor * scale_factor),
-        }
-    }
-}
-
 /// Can be used to store native window settings (position and size).
 #[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]

@@ -14,7 +14,7 @@ photocraft-io = { path = "../../crates/io" }
 photocraft-doc = { path = "../../crates/doc" }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-format = { path = "../../crates/format" }
-eframe = { workspace = true, features = ["wgpu", "persistence", "android-native-activity"] }
+eframe = { workspace = true, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }
 log = { workspace = true }

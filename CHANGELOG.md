@@ -3,34 +3,42 @@
 ## v39 — 2026-11-03
 
 ### Fixed
-- Soft-keyboard input fixed across all apps: winit's Android backend now handles
-  `InputEvent::TextEvent` / `TextAction` from the NativeActivity input queue, translating
-  them into `WindowEvent::Ime::Preedit` / `Commit` events that egui-winit delivers to
-  egui's text fields. The soft keyboard appears reliably, composition text is shown inline,
-  and committed text lands in the focused widget without lag or flashing.
-- `Window::set_ime_purpose` implemented on Android: maps egui's `ImePurpose` (Normal,
-  Password, Terminal) to Android's `InputType` + `TextInputAction` so the soft keyboard
-  shows the right layout and action button for each field.
-- `Window::set_ime_allowed` fixed: uses `SHOW_IMPLICIT` (respects user's "show keyboard"
-  preference) when enabling and `HIDE_NOT_ALWAYS` when disabling, so the keyboard is
-  reliably shown/hidden.
-- `Window::reset_ime_with_request` added: toggles `set_ime_allowed` off and on to reset
-  the IME state on NativeActivity.
-- `WindowEvent::ImeResetCompleted` added to winit's event enum and handled by egui-winit
-  (clears pending composing state, repaints).
-- `WindowEvent::Ime` platform note updated: Android is no longer listed as unsupported.
-- Vendored egui-winit gained `WindowGeometry` type required by eframe's
-  `epi_integration` on Android.
+- WordCraft crashed on launch. Its generated launcher was stale: the Java Activity still
+  extended `GameActivity` while the native library was built for `NativeActivity`, so the
+  process died before the first frame. `GENERATOR_VERSION` is now `67`, which forces every
+  app's generated launcher (including WordCraft's) to regenerate. WordCraft now starts and
+  runs with `WordCraftActivity extends NativeActivity`.
 
-### Fixed
-- Light/dark mode user settings now honored: the launcher no longer overrides egui's theme
-  from Android's system UI mode at startup. egui's own theme handling (which reads the
-  user's saved preference) takes effect instead, so a user's explicit light/dark choice is
-  respected rather than being overridden by the system night-mode setting.
+- Startup light/dark mode is back to following the Android system setting. The generated
+  launcher again reads `Configuration.uiMode` and calls `egui_ctx.set_theme(...)`, matching
+  the v38 baseline. The v39 experiment that removed this override (leaving the theme at the
+  app default) has been reverted.
 
-- All 14 apps rebuilt in release mode and verified: CADCraft, DeckCraft, DesignCraft,
-  EffectCraft, FigCraft, FilmCraft, GridCraft, LightCraft, PDFCraft, PhotoCraft,
-  SoundCraft, SubCraft, VectorCraft, WordCraft.
+- PDFCraft's menu icons are back. The regression came from the v39 builder changes; the
+  v38 baseline is restored, and PDFCraft's tracked vendored crates are left untouched.
+
+- Soft-keyboard typing is retained from the v39 work on top of the v38 baseline: winit's
+  Android backend translates `InputEvent::TextEvent` / `TextAction` into
+  `WindowEvent::Ime::Preedit` / `Commit` for egui-winit, `set_ime_purpose` maps egui's
+  `ImePurpose` to Android `InputType`/`TextInputAction`, and `set_ime_allowed` uses
+  `SHOW_IMPLICIT` / `HIDE_NOT_ALWAYS` so the keyboard shows and hides reliably.
+
+- Local release builds no longer crash AAPT2: `lib/android_project.py` keeps Gradle's JVM at
+  `-Xmx4g` (CI continues to use its own value).
+
+### Changed
+- Restored the last CI-green baseline (v38) for the builder: `lib/build-common.sh`,
+  `lib/scrolling.sh`, `lib/ime.sh`, the PhotoCraft/SubCraft/VectorCraft adapters, the
+  vendored `arboard`/`egui_dock`/`egui-winit` crates, and the GitHub Actions workflow. Only
+  the IME additions above remain on top of it.
+- GENERATOR_VERSION: `66` → `67` (regenerates all launchers, notably WordCraft).
+- Removed 15 unused Python helpers from `lib/` that no build path referenced
+  (`apply_patches.py`, `fix_services.py`, the `patch_*` scripts, `repair_services.py`,
+  `safe_patcher*.py`, `patcher_*.py`). Only `android_project.py`, `app_icons.py`,
+  `file_associations.py`, and `subcraft.sh` remain.
+- All 14 apps rebuilt in release mode: CADCraft, DeckCraft, DesignCraft, EffectCraft,
+  FigCraft, FilmCraft, GridCraft, LightCraft, PDFCraft, PhotoCraft, SoundCraft, SubCraft,
+  VectorCraft, WordCraft.
 
 ## v38 — 2026-11-02
 

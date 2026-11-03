@@ -39,8 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
+      SCCACHE_DIR: "/home/runner/.cache/sccache"
+      SCCACHE_CACHE_SIZE: "2G"
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +76,18 @@ jobs:
           pip install --upgrade pillow
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.8
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: "v0.9.0"
+
+      - name: Cache sccache compiler artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: sccache-${{ runner.os }}-${{ matrix.app }}-${{ github.sha }}
+          restore-keys: |
+            sccache-${{ runner.os }}-${{ matrix.app }}-
+            sccache-${{ runner.os }}-
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -146,7 +158,6 @@ jobs:
           BUILD_MODE: ${{ inputs.mode || 'release' }}
           BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
           RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "thin"
           CARGO_PROFILE_RELEASE_DEBUG: "false"

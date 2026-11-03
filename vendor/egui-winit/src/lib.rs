@@ -30,7 +30,7 @@ mod safe_area;
 mod system_theme;
 mod window_settings;
 
-pub use window_settings::{WindowGeometry, WindowSettings};
+pub use window_settings::WindowSettings;
 
 use raw_window_handle::HasDisplayHandle;
 
@@ -178,7 +178,9 @@ impl State {
             current_cursor_icon: None,
             current_custom_cursor: None,
 
-            clipboard: clipboard::Clipboard::new(None),
+            clipboard: clipboard::Clipboard::new(
+                display_target.display_handle().ok().map(|h| h.as_raw()),
+            ),
 
             simulate_touch_screen: false,
             pointer_touch_id: None,
@@ -413,14 +415,6 @@ impl State {
                     consumed: self.egui_ctx.egui_wants_keyboard_input(),
                 }
             }
-            WindowEvent::ImeResetCompleted { .. } => {
-                // The IME has been reset; clear any pending composing state and repaint.
-                self.ime_rect_px = None;
-                EventResponse {
-                    repaint: true,
-                    consumed: false,
-                }
-            }
             WindowEvent::KeyboardInput {
                 event,
                 is_synthetic,
@@ -557,7 +551,8 @@ impl State {
             // Things we completely ignore:
             WindowEvent::ActivationTokenDone { .. }
             | WindowEvent::AxisMotion { .. }
-            | WindowEvent::DoubleTapGesture { .. } => EventResponse {
+            | WindowEvent::DoubleTapGesture { .. }
+            | WindowEvent::ImeResetCompleted { .. } => EventResponse {
                 repaint: false,
                 consumed: false,
             },
@@ -2432,7 +2427,6 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
         WindowEvent::KeyboardInput { .. } => "WindowEvent::KeyboardInput",
         WindowEvent::ModifiersChanged { .. } => "WindowEvent::ModifiersChanged",
         WindowEvent::Ime { .. } => "WindowEvent::Ime",
-        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
         WindowEvent::CursorMoved { .. } => "WindowEvent::CursorMoved",
         WindowEvent::CursorEntered { .. } => "WindowEvent::CursorEntered",
         WindowEvent::CursorLeft { .. } => "WindowEvent::CursorLeft",
@@ -2449,5 +2443,6 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
         WindowEvent::ThemeChanged { .. } => "WindowEvent::ThemeChanged",
         WindowEvent::Occluded { .. } => "WindowEvent::Occluded",
         WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
+        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
     }
 }
