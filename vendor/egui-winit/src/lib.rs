@@ -551,7 +551,8 @@ impl State {
             // Things we completely ignore:
             WindowEvent::ActivationTokenDone { .. }
             | WindowEvent::AxisMotion { .. }
-            | WindowEvent::DoubleTapGesture { .. } => EventResponse {
+            | WindowEvent::DoubleTapGesture { .. }
+            | WindowEvent::ImeResetCompleted { .. } => EventResponse {
                 repaint: false,
                 consumed: false,
             },
@@ -2442,5 +2443,6 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
         WindowEvent::ThemeChanged { .. } => "WindowEvent::ThemeChanged",
         WindowEvent::Occluded { .. } => "WindowEvent::Occluded",
         WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
+        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
     }
 }

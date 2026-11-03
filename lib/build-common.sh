@@ -569,6 +569,19 @@ def fix(rel: str, old: str, new: str) -> bool:
     return True
 
 
+def fix_all(rel: str, old: str, new: str) -> bool:
+    """Replace all occurrences of `old` in `rel` with `new`, unless it is already gone."""
+    path = src / rel
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    if old not in text:
+        return False
+    path.write_text(text.replace(old, new))
+    return True
+
+
 fixed = []
 if app == "photocraft":
     # "load each persisted preset set independently" added `export_presets` to the serialised
@@ -605,6 +618,14 @@ elif app == "cadcraft":
         'self.tree.locate_in_envelope_intersecting(&env)',
     ):
         fixed.append("crates/engine/src/spatial.rs (rstar API)")
+
+    # Fix quick-xml into_inner() API (returns &[u8], which does not have .as_bytes())
+    if fix_all(
+        "crates/io/src/svg_read.rs",
+        ".into_inner().as_bytes()",
+        ".into_inner()",
+    ):
+        fixed.append("crates/io/src/svg_read.rs (quick-xml into_inner)")
 
 elif app == "wordcraft":
     # rustc 1.99 rejects exhaustive struct patterns that name a field which is private to another
@@ -2797,7 +2818,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
-eframe = {{ workspace = true, default-features = false, features = ["wgpu", "persistence", "clipboard", "android-native-activity"] }}
+eframe = {{ workspace = true, default-features = false, features = ["wgpu", "persistence", "clipboard"] }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
