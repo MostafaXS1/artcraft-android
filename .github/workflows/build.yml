@@ -153,10 +153,12 @@ jobs:
         run: |
           mkdir -p logs output
           rm -f output/*.apk output/*.tmp
+          set -o pipefail
+          BUILD_LOG="logs/${{ matrix.app }}-build.log"
           if [ "$BUILD_MODE" = "debug" ]; then
-            bash build-debug.sh -${{ matrix.app }}
+            bash build-debug.sh -${{ matrix.app }} 2>&1 | tee "$BUILD_LOG"
           else
-            bash build.sh -${{ matrix.app }}
+            bash build.sh -${{ matrix.app }} 2>&1 | tee "$BUILD_LOG"
           fi
           sccache --show-stats || true
 
@@ -168,17 +170,17 @@ jobs:
             count=$((count + 1))
             size=$(stat -c%s "$apk" 2>/dev/null || echo 0)
             if [ "$size" -lt 1000000 ]; then
-              echo "::error::APK $apk is empty or too small ($size bytes)" >&2
+              echo "::error::APK $apk is empty or too small ($size bytes)" | tee -a "logs/${{ matrix.app }}-build.log" >&2
               exit 1
             fi
             if ! unzip -tq "$apk" >/dev/null 2>&1; then
-              echo "::error::APK $apk is corrupted (failed zip integrity test)" >&2
+              echo "::error::APK $apk is corrupted (failed zip integrity test)" | tee -a "logs/${{ matrix.app }}-build.log" >&2
               exit 1
             fi
             echo "Verified valid APK: $apk ($(( size / 1048576 )) MB)"
           done
           if [ "$count" -eq 0 ]; then
-            echo "::error::No APK found in output/" >&2
+            echo "::error::No APK found in output/" | tee -a "logs/${{ matrix.app }}-build.log" >&2
             exit 1
           fi
 
@@ -189,12 +191,27 @@ jobs:
           path: output/*.apk
           if-no-files-found: error
 
+      - name: Prepare build logs on failure
+        if: failure()
+        run: |
+          mkdir -p logs
+          if [ -z "$(find logs -maxdepth 1 -type f -name '*.log' 2>/dev/null)" ]; then
+            echo "Build failed for ${{ matrix.app }} before log output could be written." > "logs/${{ matrix.app }}-build.log"
+          fi
+          log_count=$(find logs -maxdepth 1 -type f -name '*.log' | wc -l)
+          if [ "$log_count" -gt 1 ]; then
+            echo "Multiple logs ($log_count) found for ${{ matrix.app }}. Zipping into ${{ matrix.app }}-logs.zip..."
+            (cd logs && zip -q "${{ matrix.app }}-logs.zip" *.log)
+          fi
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app }}-build-log
-          path: logs/
+          path: |
+            logs/*.log
+            logs/*.zip
           if-no-files-found: ignore
 
   bundle:
@@ -251,3 +268,48 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+      - name: Download all failed build logs
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: all-build-logs
+          pattern: '*-build-log'
+          merge-multiple: true
+
+      - name: Package failed build logs
+        id: package_logs
+        run: |
+          mkdir -p all-build-logs
+          find all-build-logs -type f -name "*.zip" -exec unzip -q -o -d all-build-logs {} \; -exec rm -f {} \;
+          log_count=$(find all-build-logs -type f -name "*.log" | wc -l)
+          echo "Total failed build log files collected: $log_count"
+
+          if [ "$log_count" -gt 0 ]; then
+            echo "has_logs=true" >> "$GITHUB_OUTPUT"
+            if [ "$log_count" -gt 1 ]; then
+              echo "More than one build log found ($log_count). Zipping into failed-build-logs.zip..."
+              (cd all-build-logs && zip -q -r ../failed-build-logs.zip .)
+              echo "zip_created=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Single build log found ($log_count). No zip required."
+              echo "zip_created=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No build logs found (all builds succeeded)."
+            echo "has_logs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload failed build logs zip
+        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-build-logs
+          path: failed-build-logs.zip
+
+      - name: Upload single failed build log
+        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-build-log
+          path: all-build-logs/*.log

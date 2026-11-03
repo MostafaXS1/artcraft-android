@@ -1214,6 +1214,7 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 ### 35.1 General Principles
 - **Read before modifying**: Always understand existing code patterns
 - **Preserve upstream**: Don't modify upstream source in `source/`, use patches/adapters
+- **Developer Privacy & Relative Paths**: NEVER include absolute local file paths (e.g., `/home/<user>/...`, `C:\Users\<user>\...`, `/Users/<user>/...`, or machine-specific user directory paths) in markdown files, documentation, commit messages, code comments, or PR descriptions. Always use workspace-relative paths (e.g., `lib/build-common.sh`, `agents.md`, `source/<app>/`) to protect developer privacy and prevent accidental exposure of local usernames and filesystem structure.
 - **Test on device**: Use connected tablet via ADB for validation
 - **Follow patterns**: Match existing code style and architecture
 - **Be defensive**: Check for nulls, handle errors gracefully
@@ -1275,10 +1276,15 @@ SubCraft uses external app-private storage via `install_persist_env()`:
 - Requires `RECORD_AUDIO` permission (manifest + runtime)
 - Runtime permission requested via `safRequestStoragePermission()` in `SafActivity.java`
 
+### 35.6 Developer Privacy & Path Hygiene
+- **Never Include Local Machine Paths**: Do not expose machine-specific usernames, home directory paths, or absolute paths (such as `/home/username/...`, `C:\Users\username\...`, or `/Users/username/...`) in markdown files, documentation, commit messages, PR descriptions, or source code comments.
+- **Always Use Relative Paths**: Always use workspace-relative paths (e.g., `lib/build-common.sh`, `adapters/photocraft/src/lib.rs`, `agents.md`).
+- **Privacy in Error Logs & Debugging**: When quoting local debug commands, stack traces, or error logs in markdown, documentation, or issue reports, sanitize and scrub personal usernames or local filesystem hierarchies, replacing them with generic relative paths or placeholders.
+
 ---
 
-**Document Version:** 55  
-**Last Updated:** October 25, 2026  
+**Document Version:** 56  
+**Last Updated:** November 3, 2026  
 **Maintained by:** ArtCraft Android Builder Team
 
 
@@ -1856,7 +1862,7 @@ Shown in UpdateCheck, included in APK metadata.
 - Add to appropriate patch script
 
 ### 52.4 Commit Messages
-Use clear, descriptive commit messages. Follow project style.
+Use clear, descriptive commit messages. Follow project style. Never include local system paths, home directories, or personal usernames in commit messages, code comments, or documentation; always use workspace-relative paths.
 
 ## 53. Appendix
 

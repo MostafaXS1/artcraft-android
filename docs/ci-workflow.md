@@ -200,7 +200,7 @@ bundle:
 1. **Never ship broken APKs:** Multi-stage validation (`size > 1MB` and `unzip -tq`) ensures corrupt or empty artifacts are discarded.
 2. **Reproducible builds:** Stable tag targeting guarantees deterministic builds identical to upstream releases.
 3. **Resilient matrix:** Individual failures do not disrupt the rest of the suite.
-4. **Traceable debugging:** Full logs are captured and preserved as artifacts on failure.
+4. **Traceable debugging:** Full build logs are captured and preserved as artifacts on failure, automatically bundled into a zip archive if more than one log is present.
 
 ---
 
@@ -281,7 +281,7 @@ Add the new app identifier to the `matrix.app` list in `.github/workflows/build.
 - The runner automatically executes `bash build.sh -myapp`.
 - Caching (`sccache`, Cargo registry, Gradle) is dynamically isolated and namespaced to `myapp`.
 - The built APK is verified for minimum size and zip integrity.
-- Artifacts are uploaded as `myapp-apk` and bundled into `artcraft-all-apks` and GitHub Releases.
+- Artifacts are uploaded as `myapp-apk` and bundled into `artcraft-all-apks` and GitHub Releases. On build failure, detailed logs are captured and bundled into a zip archive if multiple failure logs occur.
 
 ---
 
