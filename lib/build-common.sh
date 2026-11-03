@@ -1919,6 +1919,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     Services {
         pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
         pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
     }
 }
 ''',
@@ -2102,7 +2103,7 @@ INTENT_OPEN = {
             Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
         }
 ''',
-    "cadcraft": '''        self.inner.open_path(path);
+    "cadcraft": '''        self.inner.open_path(std::path::Path::new(path));
 ''',
     "pdfcraft": '''        self.inner.open_path(path);
 ''',
@@ -2678,7 +2679,10 @@ else:
     staged_logic = ""
 # A type that does not implement `eframe::App` is an inner app state; its desktop `main.rs` wraps it
 # in a tiny struct that forwards `logic`/`ui`. Emit the same wrapper here.
-has_eframe_app = bool(re.search(r"impl\s+eframe::App\s+for\s+" + re.escape(app_type) + r"\b", ui_text))
+has_eframe_app = bool(
+    re.search(r"impl\s+(?:(?:::)?eframe::(?:epi::)?)?App\s+for\s+" + re.escape(app_type) + r"\b", ui_text)
+    or app in ("figcraft", "filmcraft", "effectcraft", "lightcraft")
+)
 has_raw_hook = bool(re.search(r"pub fn raw_input_hook\b", ui_text))
 # A close guard: the app's own "may I close?" check. The desktop runs it when its window closes,
 # so a document with unsaved changes asks first ("Do you want to quit without saving unsaved
@@ -4130,19 +4134,19 @@ ws_toml = src / "Cargo.toml"
 ws_text = ws_toml.read_text()
 new_ws, n = re.subn(
     r'^\s*egui_dock\s*=\s*\{[^}]*\}\s*(?:#.*)?\n?',
-    'egui_dock = { path = "vendor/egui_dock" }\n',
+    'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n',
     ws_text,
     flags=re.M,
 )
 if n > 0:
     ws_toml.write_text(new_ws)
     print("  Replaced egui_dock with vendored path in [workspace.dependencies]")
-elif 'egui_dock = { path = "vendor/egui_dock" }' not in ws_text:
+elif 'egui_dock = { path = "vendor/egui_dock"' not in ws_text:
     marker = "[workspace.dependencies]\n"
     idx = ws_text.find(marker)
     if idx >= 0:
         ws_text = (ws_text[:idx + len(marker)]
-                   + 'egui_dock = { path = "vendor/egui_dock" }\n'
+                   + 'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n'
                    + ws_text[idx + len(marker):])
         ws_toml.write_text(ws_text)
         print("  Added egui_dock to [workspace.dependencies]")
