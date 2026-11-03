@@ -1714,6 +1714,10 @@ impl Window {
 
     pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}
 
+    /// No-op on Android: the platform drives its own input-method pipeline and does not use the
+    /// winit IME-reset protocol.
+    pub fn reset_ime_with_request(&self, _request_id: u64) {}
+
     pub fn focus_window(&self) {}
 
     pub fn request_user_attention(&self, _request_type: Option<window::UserAttentionType>) {}

@@ -1319,6 +1319,10 @@ impl Window {
             .maybe_queue_on_main(move |w| w.set_ime_purpose(purpose))
     }
 
+    /// Requests an IME reset, identifying the request with `request_id`. No-op on Android.
+    #[inline]
+    pub fn reset_ime_with_request(&self, _request_id: u64) {}
+
     /// Brings the window to the front and sets input focus. Has no effect if the window is
     /// already in focus, minimized, or not visible.
     ///

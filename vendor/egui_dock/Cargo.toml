@@ -61,7 +61,6 @@ version = "2.0"
 
 [dependencies.egui]
 version = "0.37"
-path = "../../vendor/egui/crates/egui"
 default-features = false
 
 [dependencies.paste]
