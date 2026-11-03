@@ -2679,10 +2679,8 @@ else:
     staged_logic = ""
 # A type that does not implement `eframe::App` is an inner app state; its desktop `main.rs` wraps it
 # in a tiny struct that forwards `logic`/`ui`. Emit the same wrapper here.
-has_eframe_app = bool(
-    re.search(r"impl\s+(?:(?:::)?eframe::(?:epi::)?)?App\s+for\s+" + re.escape(app_type) + r"\b", ui_text)
-    or app in ("figcraft", "filmcraft", "effectcraft", "lightcraft")
-)
+has_eframe_app = bool(re.search(r"impl\s+eframe::App\s+for\s+" + re.escape(app_type) + r"\b", ui_text))
+has_logic = bool(re.search(r"\b(?:pub\s+)?fn\s+logic\b", ui_text)) and app != "figcraft"
 has_raw_hook = bool(re.search(r"pub fn raw_input_hook\b", ui_text))
 # A close guard: the app's own "may I close?" check. The desktop runs it when its window closes,
 # so a document with unsaved changes asks first ("Do you want to quit without saving unsaved
@@ -2935,7 +2933,10 @@ icon = "@mipmap/ic_launcher"
         inner_ui = "self.inner.ui(ui, frame);"
         inner_hook = "self.inner.raw_input_hook(ctx, raw);"
     else:
-        inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
+        if has_logic:
+            inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
+        else:
+            inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if has_raw_hook:
             inner_hook = "self.inner.raw_input_hook(ctx, raw);"
@@ -4270,7 +4271,7 @@ if [[ ! -f "$KEY_PASSWORD_FILE" ]]; then
         # Compatibility with earlier builder versions, which used this local-only password.
         printf 'android\n' > "$KEY_PASSWORD_FILE"
     else
-        python3 -c 'import secrets; print(secrets.token_urlsafe(24))' > "$KEY_PASSWORD_FILE"
+        python3 -c 'import secrets; print(secrets.token_hex(24))' > "$KEY_PASSWORD_FILE"
     fi
     chmod 600 "$KEY_PASSWORD_FILE"
 fi
