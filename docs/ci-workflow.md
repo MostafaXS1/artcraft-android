@@ -14,7 +14,7 @@ flowchart TD
     
     subgraph BuildJob ["build (matrix per app)"]
         SetupToolchain[Setup Python 3.12, Java 21, Rust ARM64, NDK]
-        RestoreCaches[Restore Caches: Gradle, Cargo, sccache GHA]
+        RestoreCaches[Restore Caches: Gradle, Cargo, sccache]
         ResolveSource[Resolve Source: Stable Tag vs. Main Branch]
         CompileApp[Compile APK via build.sh / cargo-ndk]
         VerifyAPK[Verify Integrity: Size &gt; 1MB + unzip -tq]
@@ -76,7 +76,7 @@ permissions:
 | Permission | Purpose |
 | :--- | :--- |
 | `contents: write` | Required to create GitHub Releases, tag releases, and attach compiled `.apk` files via `softprops/action-gh-release@v2`. |
-| `actions: write` | **Critical for `sccache`:** GitHub Actions Cache requires the Actions read/write API token. Without `actions: write`, `sccache` hits `403 Forbidden` on cache storage, causing all cache operations to miss. |
+| `actions: write` | Required for GitHub Actions cache management (`actions/cache@v4`) and artifact handling. |
 
 ---
 

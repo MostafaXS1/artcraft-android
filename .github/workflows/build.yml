@@ -158,7 +158,6 @@ jobs:
           BUILD_MODE: ${{ inputs.mode || 'release' }}
           BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
           RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "thin"
           CARGO_PROFILE_RELEASE_DEBUG: "false"
