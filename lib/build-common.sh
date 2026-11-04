@@ -4357,8 +4357,86 @@ PY
 # lost — the app coming back from a file picker, for instance — died with it. Vendor the builder's
 # patched egui-wgpu, which releases the old surface first, and patch it into the workspace.
 echo "Vendoring the surface-fixing egui-wgpu for $TITLE..."
-rm -rf "$SRC/vendor/egui-wgpu"
-cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
+if [[ -d "$SRC/vendor/egui-wgpu" ]]; then
+    # Upstream already vendors egui-wgpu with its own custom additions (e.g. SolidCraft's CAD
+    # pipelines, blur shaders, FrameCompositor, and DeviceLost). Keep its custom APIs intact
+    # and patch the Android surface-loss recovery in-place in its winit.rs.
+    python3 - "$SRC/vendor/egui-wgpu" <<'PY'
+from pathlib import Path
+import sys
+winit_rs = Path(sys.argv[1]) / "src" / "winit.rs"
+if not winit_rs.is_file():
+    sys.exit(0)
+text = winit_rs.read_text()
+if "dropping the lost surface" not in text:
+    recreate_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+            return Ok(());
+        };
+
+        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+
+    recreate_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+            return Ok(());
+        };
+
+        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
+        drop(old_state);
+
+        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }
+
+        self.instance.poll_all(true);
+
+        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+
+    lost_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+            return Ok(());
+        };
+
+        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+
+    lost_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+            return Ok(());
+        };
+
+        let (width, height, resizing) = (old_state.width, old_state.height, old_state.resizing);
+        drop(old_state);
+
+        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }
+
+        self.instance.poll_all(true);
+
+        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+
+    if "fn recreate_surface" in text and recreate_target in text:
+        text = text.replace(recreate_target, recreate_replacement)
+        pre, post = text.split("drop(old_state);", 1)
+        post = post.replace("old_state.requested.0", "requested.0")
+        post = post.replace("old_state.requested.1", "requested.1")
+        post = post.replace("old_state.resizing", "resizing")
+        post = post.replace("let mut retry = old_state.retry;", "")
+        text = pre + "drop(old_state);" + post
+        winit_rs.write_text(text)
+        print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
+    elif lost_target in text:
+        text = text.replace(lost_target, lost_replacement)
+        pre, post = text.split("drop(old_state);", 1)
+        post = post.replace("old_state.width", "width")
+        post = post.replace("old_state.height", "height")
+        post = post.replace("old_state.resizing", "resizing")
+        text = pre + "drop(old_state);" + post
+        winit_rs.write_text(text)
+        print("  Patched existing vendored egui-wgpu on_surface_lost for Android surface handling")
+PY
+else
+    rm -rf "$SRC/vendor/egui-wgpu"
+    cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
+fi
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
