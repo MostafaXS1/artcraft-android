@@ -903,7 +903,7 @@ impl eframe::App for PhotoCraftAndroidApp {
             } else {
                 photocraft_ui_egui::theme::ThemeKind::Pro
             };
-            if self.inner.ui.theme.dark() == is_light {
+            if self.inner.ui.theme.is_dark() == is_light {
                 self.inner.set_theme(ctx, target_kind);
             }
         }

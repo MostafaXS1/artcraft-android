@@ -28,6 +28,9 @@ pub mod android_activity;
 pub mod open_url;
 mod pointer_icon;
 mod safe_area;
+#[cfg(target_os = "android")]
+pub mod system_theme;
+#[cfg(not(target_os = "android"))]
 mod system_theme;
 mod window_settings;
 

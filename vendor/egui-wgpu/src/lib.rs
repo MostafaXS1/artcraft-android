@@ -62,11 +62,20 @@ pub enum WgpuError {
     #[cfg(feature = "winit")]
     #[error(transparent)]
     HandleError(#[from] ::winit::raw_window_handle::HandleError),
+
+    /// The device raised an error while a new window's surface was
+    /// configured (see [`winit::catch_errors`]).
+    #[cfg(feature = "winit")]
+    #[error("The window's surface couldn't be configured: {0}")]
+    ConfigureSurface(wgpu::Error),
+
+    /// The device rejected renderer resources before the app was created.
+    #[cfg(feature = "winit")]
+    #[error("The egui renderer couldn't be created: {0}")]
+    CreateRenderer(wgpu::Error),
 }
 
 /// Runtime-mutable subset of [`WgpuConfiguration`].
-///
-/// Edit any field to have the surface reconfigured on the next paint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SurfaceConfig {
     /// Present mode used for the primary surface.
@@ -129,11 +138,6 @@ pub struct RenderState {
 
     /// Egui renderer responsible for drawing the UI.
     pub renderer: Arc<RwLock<Renderer>>,
-
-    /// Runtime-mutable subset of the wgpu configuration.
-    ///
-    /// Update this to have the surface reconfigured on the next paint.
-    pub surface_config: SurfaceConfig,
 }
 
 async fn request_adapter(
@@ -277,6 +281,13 @@ impl RenderState {
         };
         let target_format = crate::preferred_framebuffer_format(&surface_formats)?;
 
+        // Return startup pipeline errors so eframe's caller can retry with another renderer.
+        #[cfg(feature = "winit")]
+        let renderer =
+            winit::catch_errors(&device, || Renderer::new(&device, target_format, options))
+                .await
+                .map_err(WgpuError::CreateRenderer)?;
+        #[cfg(not(feature = "winit"))]
         let renderer = Renderer::new(&device, target_format, options);
 
         // On wasm, depending on feature flags, wgpu objects may or may not implement sync.
@@ -291,7 +302,6 @@ impl RenderState {
             queue,
             target_format,
             renderer: Arc::new(RwLock::new(renderer)),
-            surface_config: config.surface,
         })
     }
 }
@@ -333,9 +343,6 @@ pub enum SurfaceErrorAction {
 #[derive(Clone)]
 pub struct WgpuConfiguration {
     /// Runtime-mutable configuration for the surface (present mode, frame latency).
-    ///
-    /// These are the fields exposed via [`RenderState::surface_config`] for live
-    /// reconfiguration at runtime.
     pub surface: SurfaceConfig,
 
     /// How to create the wgpu adapter & device
@@ -352,11 +359,21 @@ pub struct WgpuConfiguration {
         Arc<dyn Fn(&wgpu::CurrentSurfaceTexture) -> SurfaceErrorAction + Send + Sync>,
 }
 
-#[test]
-fn wgpu_config_impl_send_sync() {
-    fn assert_send_sync<T: Send + Sync>() {}
+// Compile-time check that `WgpuConfiguration` is `Send + Sync`.
+// Deliberately not a `#[test]`: tests never run on wasm, but `cargo check` does.
+// On wasm this only holds with `fragile-send-sync-non-atomic-wasm` and without threads;
+// look at the feature flag for an explanation.
+#[cfg(any(
+    not(target_arch = "wasm32"),
+    all(
+        feature = "fragile-send-sync-non-atomic-wasm",
+        not(target_feature = "atomics")
+    ),
+))]
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<WgpuConfiguration>();
-}
+};
 
 impl core::fmt::Debug for WgpuConfiguration {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
