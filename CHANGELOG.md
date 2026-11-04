@@ -11,6 +11,10 @@
 - Added `solidcraft`, `materialcraft`, and `texturecraft` to GitHub Actions CI build matrix (`.github/workflows/build.yml`).
 - Registered build targets and SAF launcher recipes in `lib/build-common.sh`.
 
+### Fixed
+- **SubCraft launch crash on low-memory devices** — The viewport's first-frame placeholder rect (10,000×10,000 points) was passed to the render target without clamping, requesting a texture that exceeded `max_texture_dimension_2d` and 2.4 GB of VRAM, triggering the Android OOM killer. Patched `lib/subcraft.sh` to apply the viewport clamp at the new `physical_size` call site, capped `RenderTarget::new` to 4096 px, and added a safe fallback in `ensure_screen_rect` (adapters/subcraft) when the native window is not yet available.
+- **SubCraft viewport size clamping skipped by pattern mismatch** — Upstream changed the viewport sizing from manual rounding to `physical_size()`, so the builder's patch no longer matched. `lib/subcraft.sh` now matches both the old and new signatures.
+
 ## v39 — 2026-11-03
 
 ### Fixed
