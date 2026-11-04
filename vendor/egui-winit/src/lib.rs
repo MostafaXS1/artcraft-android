@@ -24,6 +24,7 @@ pub mod clipboard;
 mod dropped_file;
 #[cfg(target_os = "android")]
 pub mod android_activity;
+#[cfg(target_os = "android")]
 pub mod open_url;
 mod pointer_icon;
 mod safe_area;
@@ -63,6 +64,57 @@ pub fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
 }
 
 // ----------------------------------------------------------------------------
+
+/// Hold-to-right-click configuration and state.
+/// When a single finger is held for the configured duration without moving beyond slop,
+/// a right-click is emitted at that location.
+#[derive(Clone, Copy, Debug)]
+struct HoldToRightClick {
+    /// The touch ID being tracked.
+    #[allow(dead_code)]
+    touch_id: u64,
+    /// The position where the touch started (in physical pixels).
+    start_pos: winit::dpi::PhysicalPosition<f64>,
+    /// The time when the touch started.
+    start_time: web_time::Instant,
+    /// Whether the right-click has been emitted.
+    fired: bool,
+}
+
+impl HoldToRightClick {
+    const HOLD_DURATION_MS: u64 = 500;
+    const SLOP_PX: f64 = 16.0; // allowable movement in physical pixels
+
+    fn new(touch_id: u64, start_pos: winit::dpi::PhysicalPosition<f64>) -> Self {
+        Self {
+            touch_id,
+            start_pos,
+            start_time: web_time::Instant::now(),
+            fired: false,
+        }
+    }
+
+    fn should_fire(&self, current_pos: winit::dpi::PhysicalPosition<f64>) -> bool {
+        if self.fired {
+            return false;
+        }
+        let dx = current_pos.x - self.start_pos.x;
+        let dy = current_pos.y - self.start_pos.y;
+        if dx * dx + dy * dy > Self::SLOP_PX * Self::SLOP_PX {
+            return false;
+        }
+        self.start_time.elapsed().as_millis() >= Self::HOLD_DURATION_MS as u128
+    }
+
+    fn is_cancelled(&self, current_pos: winit::dpi::PhysicalPosition<f64>) -> bool {
+        if self.fired {
+            return false;
+        }
+        let dx = current_pos.x - self.start_pos.x;
+        let dy = current_pos.y - self.start_pos.y;
+        dx * dx + dy * dy > Self::SLOP_PX * Self::SLOP_PX
+    }
+}
 
 #[must_use]
 #[derive(Clone, Copy, Debug, Default)]
@@ -134,6 +186,10 @@ pub struct State {
     /// the suppression stuck on and break every later gesture.
     gesture_touch_ids: Vec<u64>,
 
+    /// Hold-to-right-click: tracks a single finger hold for configurable duration before emitting
+    /// a right-click. Cancelled by movement beyond slop, second finger, or lift.
+    hold_to_right_click: Option<HoldToRightClick>,
+
     #[cfg(feature = "accesskit")]
     pub accesskit: Option<accesskit_winit::Adapter>,
 
@@ -185,6 +241,7 @@ impl State {
             simulate_touch_screen: false,
             pointer_touch_id: None,
             gesture_touch_ids: Vec::new(),
+            hold_to_right_click: None,
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
@@ -291,6 +348,7 @@ impl State {
         {
             self.egui_input.system_theme = crate::system_theme::system_theme();
         }
+        self.check_hold_to_right_click_timer();
 
         // On Windows, a minimized window will have 0 width and height.
         // See: https://github.com/rust-windowing/winit/issues/208
@@ -902,6 +960,39 @@ impl State {
         }
     }
 
+    fn fire_hold_to_right_click(&mut self) {
+        if let Some(ref mut hold) = self.hold_to_right_click {
+            if !hold.fired {
+                hold.fired = true;
+                // If Left button was pressed as pointer, release it so any drag/click is cancelled cleanly
+                if self.pointer_touch_id.is_some() {
+                    self.on_mouse_button_input(
+                        winit::event::ElementState::Released,
+                        winit::event::MouseButton::Left,
+                    );
+                }
+                // Emit Right button Pressed and Released at current pointer position
+                self.on_mouse_button_input(
+                    winit::event::ElementState::Pressed,
+                    winit::event::MouseButton::Right,
+                );
+                self.on_mouse_button_input(
+                    winit::event::ElementState::Released,
+                    winit::event::MouseButton::Right,
+                );
+                self.egui_ctx.request_repaint();
+            }
+        }
+    }
+
+    fn check_hold_to_right_click_timer(&mut self) {
+        if let Some(hold) = self.hold_to_right_click {
+            if !hold.fired && hold.start_time.elapsed().as_millis() >= HoldToRightClick::HOLD_DURATION_MS as u128 {
+                self.fire_hold_to_right_click();
+            }
+        }
+    }
+
     fn on_touch(&mut self, window: &Window, touch: &winit::event::Touch) {
         let pixels_per_point = pixels_per_point(&self.egui_ctx, window);
 
@@ -950,17 +1041,17 @@ impl State {
         // started rather than following the finger) and stay off the pointer for the rest of the
         // gesture. The app is also patched (see the builder) to ignore a press while a gesture is
         // in progress, since this release can only arrive a frame after the press.
+        // We deliberately keep `pointer_pos_in_points` so the canvas knows the pointer is over it
+        // and egui delivers two-finger scroll and pinch-zoom events to the right widget!
         if self.gesture_touch_ids.len() > 1 {
+            // Cancel any pending hold-to-right-click when a second finger joins
+            self.hold_to_right_click = None;
             if self.pointer_touch_id.is_some() {
                 self.pointer_touch_id = None;
                 self.on_mouse_button_input(
                     winit::event::ElementState::Released,
                     winit::event::MouseButton::Left,
                 );
-            }
-            if self.pointer_pos_in_points.is_some() {
-                self.pointer_pos_in_points = None;
-                self.egui_input.events.push(egui::Event::PointerGone);
             }
             return;
         }
@@ -977,7 +1068,13 @@ impl State {
                 winit::event::TouchPhase::Started if self.pointer_touch_id.is_some() => {}
                 winit::event::TouchPhase::Moved if !was_pointer => {}
                 winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled
-                    if !was_pointer => {}
+                    if !was_pointer =>
+                {
+                    if self.gesture_touch_ids.is_empty() && self.pointer_pos_in_points.is_some() {
+                        self.pointer_pos_in_points = None;
+                        self.egui_input.events.push(egui::Event::PointerGone);
+                    }
+                }
                 winit::event::TouchPhase::Started => {
                     self.pointer_touch_id = Some(touch.id);
                     // First move the pointer to the right location
@@ -986,16 +1083,34 @@ impl State {
                         winit::event::ElementState::Pressed,
                         winit::event::MouseButton::Left,
                     );
+                    // Start hold-to-right-click timer for this single finger
+                    self.hold_to_right_click = Some(HoldToRightClick::new(
+                        touch.id,
+                        touch.location,
+                    ));
+                    self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(HoldToRightClick::HOLD_DURATION_MS + 20));
                 }
                 winit::event::TouchPhase::Moved => {
                     self.on_cursor_moved(window, touch.location);
+                    // Check hold-to-right-click: fire right-click if hold duration exceeded
+                    if let Some(hold) = self.hold_to_right_click {
+                        if hold.should_fire(touch.location) {
+                            self.fire_hold_to_right_click();
+                        } else if hold.is_cancelled(touch.location) {
+                            self.hold_to_right_click = None;
+                        }
+                    }
                 }
                 winit::event::TouchPhase::Ended => {
+                    let was_hold_fired = self.hold_to_right_click.as_ref().map_or(false, |h| h.fired);
+                    self.hold_to_right_click = None;
                     self.pointer_touch_id = None;
-                    self.on_mouse_button_input(
-                        winit::event::ElementState::Released,
-                        winit::event::MouseButton::Left,
-                    );
+                    if !was_hold_fired {
+                        self.on_mouse_button_input(
+                            winit::event::ElementState::Released,
+                            winit::event::MouseButton::Left,
+                        );
+                    }
                     // The pointer should vanish completely to not get any
                     // hover effects
                     self.pointer_pos_in_points = None;
@@ -1014,6 +1129,7 @@ impl State {
                         );
                     }
                     self.pointer_touch_id = None;
+                    self.hold_to_right_click = None;
                 }
             }
         }

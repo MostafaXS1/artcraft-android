@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.95"
 name = "egui-wgpu"
-version = "0.36.2"
+version = "0.37.0"
 authors = [
     "Nils Hasenbanck <nils@hasenbanck.de>",
     "embotech <opensource@embotech.com>",

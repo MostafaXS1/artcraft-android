@@ -17,11 +17,25 @@
 /// a device with no browser at all is not an error worth surfacing).
 #[expect(unsafe_code)]
 pub fn open_url(url: &str) -> bool {
-    let ctx = ndk_context::android_context();
-    // SAFETY: AndroidApp owns the live VM pointer; `ndk-context` initialized it before `android_main`.
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
-    let Some(activity_ptr) = crate::android_activity::activity_raw() else {
+    let vm_ptr: Option<*mut jni::sys::JavaVM> = crate::android_activity::vm_raw().or_else(|| {
+        let ctx = ndk_context::android_context();
+        let p: *mut jni::sys::JavaVM = ctx.vm().cast();
+        if p.is_null() { None } else { Some(p) }
+    });
+    let Some(vm_ptr) = vm_ptr else {
+        log::error!("egui-winit open_url: no JavaVM available");
         return false;
+    };
+    let vm = unsafe { jni::JavaVM::from_raw(vm_ptr) };
+    let Some(activity_ptr) = crate::android_activity::activity_raw() else {
+        log::warn!("egui-winit open_url: Activity not yet published");
+        return false;
+    };
+
+    let normalized_url = if !url.contains("://") && !url.starts_with("mailto:") && !url.starts_with("tel:") {
+        format!("https://{url}")
+    } else {
+        url.to_owned()
     };
 
     let result = vm.attach_current_thread(|env| -> jni::errors::Result<bool> {
@@ -33,7 +47,7 @@ pub fn open_url(url: &str) -> bool {
 
         // `Uri.parse(url)`
         let uri_class = env.find_class(jni_str!("android/net/Uri"))?;
-        let url_obj = env.new_string(url)?;
+        let url_obj = env.new_string(&normalized_url)?;
         let url_ref: &JObject<'_> = url_obj.as_ref();
         let uri = env
             .call_static_method(
@@ -62,24 +76,24 @@ pub fn open_url(url: &str) -> bool {
             &[JValue::Object(&action_view), JValue::Object(&uri)],
         )?;
 
-        // `intent.addCategory(Intent.CATEGORY_BROWSABLE)` — keep it in the foreground browser
-        // rather than whatever the system decides is a handler.
-        let category = env
-            .get_static_field(
-                &intent_class,
-                jni_str!("CATEGORY_BROWSABLE"),
-                jni_sig!("Ljava/lang/String;"),
-            )?
-            .l()?;
-        env.call_method(
-            &intent,
-            jni_str!("addCategory"),
-            jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
-            &[JValue::Object(&category)],
-        )?;
+        // Only add CATEGORY_BROWSABLE for http/https web links
+        if normalized_url.starts_with("http://") || normalized_url.starts_with("https://") {
+            let category = env
+                .get_static_field(
+                    &intent_class,
+                    jni_str!("CATEGORY_BROWSABLE"),
+                    jni_sig!("Ljava/lang/String;"),
+                )?
+                .l()?;
+            env.call_method(
+                &intent,
+                jni_str!("addCategory"),
+                jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
+                &[JValue::Object(&category)],
+            )?;
+        }
 
-        // `intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)` — starting from an Activity context does
-        // not need it, but the extra task keeps a second tap from stacking on the current one.
+        // `intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)`
         let flags = env
             .get_static_field(
                 &intent_class,
@@ -95,13 +109,19 @@ pub fn open_url(url: &str) -> bool {
         )?;
 
         // `activity.startActivity(intent)`
-        env.call_method(
+        match env.call_method(
             &*activity,
             jni_str!("startActivity"),
             jni_sig!("(Landroid/content/Intent;)V"),
             &[JValue::Object(&intent)],
-        )?;
-        Ok(true)
+        ) {
+            Ok(_) => Ok(true),
+            Err(err) => {
+                let _ = env.exception_clear();
+                log::error!("egui-winit Android startActivity failed: {err}");
+                Ok(false)
+            }
+        }
     });
 
     match result {

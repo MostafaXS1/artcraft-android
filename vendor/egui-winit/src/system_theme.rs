@@ -43,32 +43,53 @@ pub fn theme_from_ui_mode(ui_mode: i32) -> Theme {
 pub fn system_theme() -> Option<Theme> {
     use jni::{jni_sig, jni_str, objects::JObject, JavaVM};
 
-    let ctx = ndk_context::android_context();
-    // SAFETY: AndroidApp owns the live VM pointer; `ndk-context` initialized it before `android_main`.
-    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
+    let activity_raw = crate::android_activity::activity_raw();
+    let vm_ptr: Option<*mut jni::sys::JavaVM> = crate::android_activity::vm_raw().or_else(|| {
+        let ctx = ndk_context::android_context();
+        let p: *mut jni::sys::JavaVM = ctx.vm().cast();
+        if p.is_null() { None } else { Some(p) }
+    });
+    let Some(vm_ptr) = vm_ptr else {
+        return None;
+    };
+    // SAFETY: AndroidApp owns the live VM pointer
+    let vm = unsafe { JavaVM::from_raw(vm_ptr) };
     let res = vm.attach_current_thread(|env| -> jni::errors::Result<Option<Theme>> {
-        let ctx_raw: jni::sys::jobject = ctx.context().cast();
-        // SAFETY: the context is an Android global ref owned by ndk-context; borrow, never delete.
-        let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&ctx_raw)? };
-        let resources = env
-            .call_method(
-                &*activity,
-                jni_str!("getResources"),
-                jni_sig!("()Landroid/content/res/Resources;"),
-                &[],
-            )?
-            .l()?;
+        let target_raw = activity_raw.unwrap_or_else(|| {
+            let ctx = ndk_context::android_context();
+            ctx.context().cast()
+        });
+        if target_raw.is_null() {
+            return Ok(None);
+        }
+        let target_obj = unsafe { env.as_cast_raw::<JObject<'_>>(&target_raw)? };
+        let resources = match env.call_method(
+            &*target_obj,
+            jni_str!("getResources"),
+            jni_sig!("()Landroid/content/res/Resources;"),
+            &[],
+        ) {
+            Ok(val) => val.l()?,
+            Err(e) => {
+                let _ = env.exception_clear();
+                return Err(e);
+            }
+        };
         if resources.is_null() {
             return Ok(None);
         }
-        let config = env
-            .call_method(
-                &resources,
-                jni_str!("getConfiguration"),
-                jni_sig!("()Landroid/content/res/Configuration;"),
-                &[],
-            )?
-            .l()?;
+        let config = match env.call_method(
+            &resources,
+            jni_str!("getConfiguration"),
+            jni_sig!("()Landroid/content/res/Configuration;"),
+            &[],
+        ) {
+            Ok(val) => val.l()?,
+            Err(e) => {
+                let _ = env.exception_clear();
+                return Err(e);
+            }
+        };
         if config.is_null() {
             return Ok(None);
         }

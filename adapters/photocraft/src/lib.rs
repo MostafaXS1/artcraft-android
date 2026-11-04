@@ -481,6 +481,13 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
         write: Some(Box::new(move |path: &str, bytes: &[u8]| {
             write_mobile(&write_bridge, path, bytes)
         })),
+        open_url: Some(Box::new(|url: &str| {
+            if egui_winit::open_url::open_url(url) {
+                Ok(())
+            } else {
+                Err("Failed to open URL".to_owned())
+            }
+        })),
         load_prefs: Some(Box::new(move || fs::read_to_string(&load_prefs_path).ok())),
         save_prefs: Some(Box::new(move |text: &str| {
             write_mobile(
@@ -966,6 +973,7 @@ fn android_main(android_app: AndroidApp) {
     );
     log::info!("{ANDROID_SHELL_MARKER} ready; ARTCRAFT_ANDROID_NATIVE_IME_V1");
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     system_fonts::install_font_env(&android_app);
     let bridge = match AndroidFileBridge::new(android_app.clone()) {
         Ok(bridge) => bridge,

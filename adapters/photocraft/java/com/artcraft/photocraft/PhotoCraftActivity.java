@@ -26,6 +26,8 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 import android.app.NativeActivity;
+import android.content.res.Configuration;
+import android.view.KeyEvent;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -255,6 +257,16 @@ public final class PhotoCraftActivity extends NativeActivity {
         if (hasFocus) {
             applyImmersiveFullscreen();
         }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyImmersiveFullscreen();
+        try {
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable ignored) {}
     }
 
     /**

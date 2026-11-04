@@ -1,7 +1,7 @@
 use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, ptr::NonNull, sync::OnceLock};
 
 use crate::input::{
-    Axis, Button, ButtonState, EdgeFlags, KeyAction, Keycode, MetaState, MotionAction,
+    Axis, Button, ButtonState, Classification, EdgeFlags, KeyAction, Keycode, MetaState, MotionAction,
     MotionEventFlags, Pointer, PointersIter, Source, ToolType,
 };
 
@@ -26,6 +26,25 @@ fn action_button_fn() -> Option<ActionButtonFn> {
             None
         } else {
             Some(unsafe { std::mem::transmute::<*mut libc::c_void, ActionButtonFn>(sym) })
+        }
+    })
+}
+
+/// The `AMotionEvent_getClassification` entry point of `libandroid.so`.
+///
+/// Added in Android 10 (API level 29). Resolving dynamically keeps compatibility across all
+/// API levels.
+type ClassificationFn = unsafe extern "C" fn(*const ndk_sys::AInputEvent) -> i32;
+
+fn classification_fn() -> Option<ClassificationFn> {
+    static CLASSIFICATION: OnceLock<Option<ClassificationFn>> = OnceLock::new();
+    *CLASSIFICATION.get_or_init(|| {
+        let name = CStr::from_bytes_with_nul(b"AMotionEvent_getClassification\0").unwrap();
+        let sym = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+        if sym.is_null() {
+            None
+        } else {
+            Some(unsafe { std::mem::transmute::<*mut libc::c_void, ClassificationFn>(sym) })
         }
     })
 }
@@ -103,6 +122,22 @@ impl MotionEvent<'_> {
             None => 0,
         };
         action_button.into()
+    }
+
+    /// Get the classification of the gesture the event belongs to.
+    ///
+    /// Hardware touchpad gestures are reported as motion events with a
+    /// classification: a two-finger slide is a swipe, a two-finger pinch is a pinch, and
+    /// a tap is neither.
+    #[inline]
+    pub fn classification(&self) -> Classification {
+        let classification = match classification_fn() {
+            Some(get_classification) => unsafe {
+                get_classification(self.ndk_event.ptr().as_ptr()) as u32
+            },
+            None => 0,
+        };
+        classification.into()
     }
 
     /// Returns the pointer index of an `Up` or `Down` event.

@@ -484,6 +484,7 @@ fn android_main(android_app: AndroidApp) {
         saf::SAF_MARKER,
     );
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
     let bridge = saf::Bridge::new(&android_app);

@@ -12,6 +12,7 @@
 /// The pointer is an unowned JNI global reference owned by `android-activity`, so it must never be
 /// deleted by anything that reads it here.
 static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+static VM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 /// Publish the Activity jobject for the bridges. Call once at startup with
 /// `app.activity_as_ptr() as usize`. Safe to call more than once; the first wins.
@@ -19,7 +20,18 @@ pub fn set_activity(activity_as_ptr: *mut std::ffi::c_void) {
     let _ = ACTIVITY.set(activity_as_ptr as usize);
 }
 
+/// Publish the JavaVM pointer for the bridges. Call once at startup with
+/// `app.vm_as_ptr() as usize`. Safe to call more than once; the first wins.
+pub fn set_vm(vm_as_ptr: *mut std::ffi::c_void) {
+    let _ = VM.set(vm_as_ptr as usize);
+}
+
 /// The published Activity jobject, or `None` before the shell publishes it.
 pub fn activity_raw() -> Option<jni::sys::jobject> {
     ACTIVITY.get().copied().map(|ptr| ptr as jni::sys::jobject)
+}
+
+/// The published JavaVM pointer, or `None` before the shell publishes it.
+pub fn vm_raw() -> Option<*mut jni::sys::JavaVM> {
+    VM.get().copied().map(|ptr| ptr as *mut jni::sys::JavaVM)
 }

@@ -203,6 +203,7 @@ android {{
             java.srcDirs = ['../java']
             res.srcDirs = ['../res']
             jniLibs.srcDirs = ['../jniLibs']
+            assets.srcDirs = ['../../../assets']
         }}
     }}
 

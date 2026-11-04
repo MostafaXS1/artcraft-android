@@ -2,11 +2,13 @@ package __PACKAGE__;
 
 import android.Manifest;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.pdf.PdfRenderer;
@@ -118,7 +120,18 @@ public final class __CLASS__ extends NativeActivity {
                     case DragEvent.ACTION_DRAG_STARTED:
                         // Accept only drags that actually carry files; returning false here keeps
                         // text/other drags free for whatever else wants them.
+                        // Check ClipDescription for file MIME types
+                        ClipDescription desc = event.getClipDescription();
+                        if (desc != null && hasFileMimeType(desc)) {
+                            return true;
+                        }
                         return !collectDragUris(event.getClipData()).isEmpty();
+                    case DragEvent.ACTION_DRAG_ENTERED:
+                        // Visual feedback could be added here (e.g., highlight drop zone)
+                        return true;
+                    case DragEvent.ACTION_DRAG_LOCATION:
+                        // Track drag location for precise drop positioning if needed
+                        return true;
                     case DragEvent.ACTION_DROP: {
                         List<Uri> uris = collectDragUris(event.getClipData());
                         if (uris.isEmpty()) return false;
@@ -128,15 +141,40 @@ public final class __CLASS__ extends NativeActivity {
                         stageDroppedFiles(uris);
                         return true;
                     }
+                    case DragEvent.ACTION_DRAG_EXITED:
+                        // Visual feedback removal could be added here
+                        return true;
+                    case DragEvent.ACTION_DRAG_ENDED:
+                        // Clean up any drag-state if needed
+                        return true;
                     default:
-                        // ENTERED/EXITED/LOCATION/ENDED: default handling is fine; only STARTED
-                        // and DROP outcomes matter to a receiver.
                         return false;
                 }
             } catch (Throwable error) {
                 Log.e(TAG, "Could not handle a dragged file", error);
                 return false;
             }
+        }
+
+        /**
+         * Check if the ClipDescription contains file-related MIME types.
+         * This allows accepting drags from desktop/multi-window sources that may not
+         * have URIs immediately available but declare file MIME types.
+         */
+        private boolean hasFileMimeType(ClipDescription desc) {
+            int count = desc.getMimeTypeCount();
+            for (int i = 0; i < count; i++) {
+                String mimeType = desc.getMimeType(i);
+                if (mimeType != null && (mimeType.startsWith("application/") ||
+                        mimeType.startsWith("image/") ||
+                        mimeType.startsWith("video/") ||
+                        mimeType.startsWith("audio/") ||
+                        mimeType.startsWith("text/") ||
+                        "message/rfc822".equals(mimeType))) {
+                    return true;
+                }
+            }
+            return false;
         }
     };
 
@@ -383,6 +421,14 @@ public final class __CLASS__ extends NativeActivity {
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         refreshWindowInsets();
+        int uiMode = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        boolean isDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
+        Log.i(TAG, "System theme changed: " + (isDark ? "dark" : "light"));
+        // Wake native event loop so egui immediately re-renders with the new theme
+        try {
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable ignored) {}
     }
 
     /**

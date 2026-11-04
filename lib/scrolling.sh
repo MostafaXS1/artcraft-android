@@ -100,48 +100,78 @@ if app == "wordcraft":
         "fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], "
         "layout: &DocLayout, scale: f32) {"
     )
-    # A source that has never been patched: add the guard. A source that already has one
-    # (an earlier builder's, or an upstream that grew its own) gets it updated instead.
-    if "fn touch_gesture_active" not in (src / "crates/ui-egui/src/canvas.rs").read_text():
+    has_input_mod = (src / "crates/ui-egui/src/canvas/input.rs").is_file()
+    if has_input_mod:
+        input_file = "crates/ui-egui/src/canvas/input.rs"
+        input_mouse = "pub(super) fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) {"
+        if "fn touch_gesture_active" not in (src / input_file).read_text():
+            if fix(input_file, input_mouse, guard + "\n" + input_mouse):
+                fixed.append(f"{input_file} (touch gestures start no selection)")
         if fix(
+            input_file,
+            "    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);\n",
+            "    let pressed = ui.input(|i| i.pointer.primary_pressed())\n"
+            "        && !touch_gesture_active(ui)\n"
+            "        && resp.contains_pointer()\n"
+            "        && !over_balloon(app, p);\n",
+        ):
+            fixed.append(f"{input_file} (two-finger press does not select)")
+        if fix(
+            input_file,
+            "    } else if app.canvas.dragging\n"
+            "        && ui.input(|i| i.pointer.primary_down())\n"
+            "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
+            "    } else if app.canvas.dragging && touch_gesture_active(ui) {\n"
+            "        // A two-finger scroll took over: stop selecting and forget the drag.\n"
+            "        app.canvas.cancel_text_drag();\n"
+            "    } else if app.canvas.dragging\n"
+            "        && ui.input(|i| i.pointer.primary_down())\n"
+            "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
+        ):
+            fixed.append(f"{input_file} (scroll cancels a live selection drag)")
+    else:
+        # A source that has never been patched: add the guard. A source that already has one
+        # (an earlier builder's, or an upstream that grew its own) gets it updated instead.
+        if "fn touch_gesture_active" not in (src / "crates/ui-egui/src/canvas.rs").read_text():
+            if fix(
+                "crates/ui-egui/src/canvas.rs",
+                mouse_line,
+                guard + "\n" + mouse_line,
+            ):
+                fixed.append("crates/ui-egui/src/canvas.rs (touch gestures start no selection)")
+        elif sub(
             "crates/ui-egui/src/canvas.rs",
-            mouse_line,
-            guard + "\n" + mouse_line,
+            r"/// A two-finger gesture \(scroll or pinch\) is in progress.*?\nfn touch_gesture_active\(ui: &Ui\) -> bool \{\n.*?\n\}\n",
+            guard,
         ):
             fixed.append("crates/ui-egui/src/canvas.rs (touch gestures start no selection)")
-    elif sub(
-        "crates/ui-egui/src/canvas.rs",
-        r"/// A two-finger gesture \(scroll or pinch\) is in progress.*?\nfn touch_gesture_active\(ui: &Ui\) -> bool \{\n.*?\n\}\n",
-        guard,
-    ):
-        fixed.append("crates/ui-egui/src/canvas.rs (touch gestures start no selection)")
 
-    # Do not begin a selection on a press that is part of a two-finger gesture.
-    if fix(
-        "crates/ui-egui/src/canvas.rs",
-        "    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);\n",
-        "    let pressed = ui.input(|i| i.pointer.primary_pressed())\n"
-        "        && !touch_gesture_active(ui)\n"
-        "        && resp.contains_pointer()\n"
-        "        && !over_balloon(app, p);\n",
-    ):
-        fixed.append("crates/ui-egui/src/canvas.rs (two-finger press does not select)")
+        # Do not begin a selection on a press that is part of a two-finger gesture.
+        if fix(
+            "crates/ui-egui/src/canvas.rs",
+            "    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);\n",
+            "    let pressed = ui.input(|i| i.pointer.primary_pressed())\n"
+            "        && !touch_gesture_active(ui)\n"
+            "        && resp.contains_pointer()\n"
+            "        && !over_balloon(app, p);\n",
+        ):
+            fixed.append("crates/ui-egui/src/canvas.rs (two-finger press does not select)")
 
-    # A second finger arriving after the press already started a drag: drop it, so the scroll
-    # never carries a selection along. Runs before the drag-extension arms below.
-    if fix(
-        "crates/ui-egui/src/canvas.rs",
-        "    } else if app.canvas.dragging\n"
-        "        && ui.input(|i| i.pointer.primary_down())\n"
-        "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
-        "    } else if app.canvas.dragging && touch_gesture_active(ui) {\n"
-        "        // A two-finger scroll took over: stop selecting and forget the drag.\n"
-        "        app.canvas.cancel_text_drag();\n"
-        "    } else if app.canvas.dragging\n"
-        "        && ui.input(|i| i.pointer.primary_down())\n"
-        "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
-    ):
-        fixed.append("crates/ui-egui/src/canvas.rs (scroll cancels a live selection drag)")
+        # A second finger arriving after the press already started a drag: drop it, so the scroll
+        # never carries a selection along. Runs before the drag-extension arms below.
+        if fix(
+            "crates/ui-egui/src/canvas.rs",
+            "    } else if app.canvas.dragging\n"
+            "        && ui.input(|i| i.pointer.primary_down())\n"
+            "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
+            "    } else if app.canvas.dragging && touch_gesture_active(ui) {\n"
+            "        // A two-finger scroll took over: stop selecting and forget the drag.\n"
+            "        app.canvas.cancel_text_drag();\n"
+            "    } else if app.canvas.dragging\n"
+            "        && ui.input(|i| i.pointer.primary_down())\n"
+            "        && let Some(d) = app.canvas.unit_drag.as_mut()\n",
+        ):
+            fixed.append("crates/ui-egui/src/canvas.rs (scroll cancels a live selection drag)")
 
     # The soft keyboard during a scroll or a drag. Android shows the keyboard whenever the
     # focused text field asks for it — and the canvas asks on every frame while it holds the
@@ -193,10 +223,7 @@ if app == "wordcraft":
     # The gesture itself. A scroll (the middle-button pan or the cancelled two-finger touch),
     # a draw, or any other non-text drag is not text editing: the canvas gives the keyboard up
     # and asks the shell to hide it, and the frame's IME output stands down.
-    if fix(
-        "crates/ui-egui/src/canvas.rs",
-        '        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());\n',
-        '        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());\n'
+    gesture_surrender = (
         "        // On Android: if there's an active touch scroll/drag (not text selection),\n"
         "        // surrender focus immediately so the soft keyboard doesn't show during scroll.\n"
         '        if cfg!(target_os = "android") {\n'
@@ -210,14 +237,28 @@ if app == "wordcraft":
         "                && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));\n"
         "            let is_scrolling = app.canvas.auto_scroll.blocks_input();\n"
         "            let is_drawing_action = is_drawing || app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();\n"
-        "            let has_gesture = (is_scrolling || is_drawing_action || crate::canvas::touch_gesture_active(ui))\n"
+        "            let active_touch_gesture = if cfg!(target_os = \"android\") {\n"
+        "                ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. })))\n"
+        "            } else {\n"
+        "                false\n"
+        "            };\n"
+        "            let has_gesture = (is_scrolling || is_drawing_action || active_touch_gesture)\n"
         "                && !is_text_drag;\n"
         "            if has_gesture {\n"
         "                resp.surrender_focus();\n"
         "                app.canvas.surrendered_focus = true; // suppress IME output this frame\n"
         "                app.request_ime_hide = true; // tell shell to hide IME\n"
         "            }\n"
-        "        }\n",
+        "        }\n"
+    )
+    if fix(
+        "crates/ui-egui/src/canvas.rs",
+        "        let resp = canvas_response(ui, content, scroll_target);\n",
+        "        let resp = canvas_response(ui, content, scroll_target);\n" + gesture_surrender,
+    ) or fix(
+        "crates/ui-egui/src/canvas.rs",
+        '        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());\n',
+        '        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());\n' + gesture_surrender,
     ):
         fixed.append("crates/ui-egui/src/canvas.rs (a scroll hides the keyboard)")
 
@@ -286,7 +327,60 @@ if app == "wordcraft":
     # takes it; a drag that belongs to a scroll, a pan or a drawing tool must not — taking focus
     # there is what showed the keyboard mid-gesture. On Android only an explicit tap takes focus
     # at all: the programmatic `want_focus` (a dialog closing, say) must not raise the keyboard.
+    focus_old_interrupt = (
+        "    let focus_click = pointer_click || accesskit_click || resp.drag_started();\n"
+        "    if focus_click {\n"
+        "        ui.memory_mut(|memory| memory.interrupt_ime());\n"
+        "    }\n"
+        "    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {\n"
+        "        resp.request_focus();\n"
+        "    }\n"
+        "    if focus_click || app.canvas.want_focus {\n"
+        "        app.canvas.want_focus = false;\n"
+        "    }\n"
+    )
+    focus_new_interrupt = (
+        "    // click, an accessibility click, or a text-selection drag takes focus. But drags for\n"
+        "    // scrolling (middle-button), drawing (table pen), or panning must NOT take focus —\n"
+        "    // they would show the soft keyboard and interrupt composition.\n"
+        "    let middle_gesture = app.canvas.auto_scroll.blocks_input();\n"
+        "    let is_drawing = app.canvas.ink.is_some()\n"
+        "        || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select\n"
+        "        || app.canvas.table_tool.is_some();\n"
+        "    let is_text_drag = resp.drag_started()\n"
+        "        && !middle_gesture\n"
+        "        && !is_drawing\n"
+        "        && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));\n"
+        "    let focus_click = (pointer_click && !is_drawing) || accesskit_click || is_text_drag;\n"
+        "    if focus_click {\n"
+        "        ui.memory_mut(|memory| memory.interrupt_ime());\n"
+        "    }\n"
+        "\n"
+        "    // On Android, the canvas should ONLY get keyboard focus from an explicit user\n"
+        "    // tap (focus_click). Programmatic want_focus (e.g. closing a dialog) must not\n"
+        "    // show the soft keyboard — it would appear during scroll/draw/transitions.\n"
+        "    let want_focus_honored = if cfg!(target_os = \"android\") {\n"
+        "        false // Only focus_click takes focus on Android\n"
+        "    } else {\n"
+        "        app.canvas.want_focus\n"
+        "    };\n"
+        "    if focus_click || (want_focus_honored && !resp.has_focus()) {\n"
+        "        resp.request_focus();\n"
+        "        app.canvas.user_focused = true;\n"
+        "    }\n"
+        "    if focus_click || app.canvas.want_focus {\n"
+        "        app.canvas.want_focus = false;\n"
+        "    }\n"
+        "    let initial_surrender = !app.canvas.user_focused && resp.has_focus();\n"
+        "    if initial_surrender {\n"
+        "        resp.surrender_focus();\n"
+        "    }\n"
+    )
     if fix(
+        "crates/ui-egui/src/canvas.rs",
+        focus_old_interrupt,
+        focus_new_interrupt,
+    ) or fix(
         "crates/ui-egui/src/canvas.rs",
         "    // click, an accessibility click, or a drag still takes focus, including a click on\n"
         "    // a canvas that already has it, so a composition commits. `want_focus` focuses only\n"

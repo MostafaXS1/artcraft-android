@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use android_activity::input::{
-    Axis, Button, InputEvent, ImeOptions, InputType, KeyAction, Keycode, MotionAction, ToolType,
+    Axis, Button, Classification, InputEvent, ImeOptions, InputType, KeyAction, Keycode, MotionAction, ToolType,
     TextInputAction,
 };
 use android_activity::{
@@ -759,10 +759,12 @@ impl<T: 'static> EventLoop<T> {
                 // smooth and continuous, where a mouse's is a number of notches.
                 let touchpad = device.touchpad;
 
-                // A hardware touchpad's gesture: a two-finger slide or a pinch. NativeActivity
-                // does not expose motion-event classification, so touchpad gestures are not
-                // distinguished from other pointer motion here.
-                let pad_gesture = PadGesture::None;
+                // A hardware touchpad's gesture: a two-finger slide or a pinch.
+                let pad_gesture = match motion_event.classification() {
+                    Classification::TwoFingerSwipe => PadGesture::Scroll,
+                    Classification::Pinch => PadGesture::Pinch,
+                    _ => PadGesture::None,
+                };
                 if pad_gesture != PadGesture::None {
                     let position = motion_event
                         .pointers()
@@ -1081,6 +1083,18 @@ impl<T: 'static> EventLoop<T> {
                         match self.recognise_touch_gesture(motion_event) {
                             GestureStep::Pan(delta) => {
                                 trace!("Two-finger scroll {device_id:?} {delta:?}");
+                                if let Some(midpoint) = self.touch_midpoint() {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::CursorMoved {
+                                                device_id,
+                                                position: midpoint,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
                                 callback(
                                     event::Event::WindowEvent {
                                         window_id,
@@ -1096,6 +1110,18 @@ impl<T: 'static> EventLoop<T> {
                             }
                             GestureStep::Pinch(factor) => {
                                 trace!("Two-finger pinch {device_id:?} {factor:?}");
+                                if let Some(midpoint) = self.touch_midpoint() {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::CursorMoved {
+                                                device_id,
+                                                position: midpoint,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
                                 callback(
                                     event::Event::WindowEvent {
                                         window_id,

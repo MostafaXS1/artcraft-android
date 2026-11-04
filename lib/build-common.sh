@@ -675,7 +675,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "67"
+GENERATOR_VERSION = "68"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2052,6 +2052,10 @@ impl Services for SafServices {
         Box::pin(async move {
             saf_folder_path(&bridge, &state).map(std::path::PathBuf::from)
         })
+    }
+    fn open_url(&mut self, url: &str) {
+        #[cfg(target_os = "android")]
+        egui_winit::open_url::open_url(url);
     }
 }
 ''',
@@ -3671,7 +3675,7 @@ impl eframe::App for AndroidShell {{
         "cadcraft": "            install_cadcraft_io();\n",
     }.get(app, "")
     theme_line = (
-        "            cc.egui_ctx.set_theme(if dark_mode { egui::Theme::Dark } else { egui::Theme::Light });\n"
+        "            cc.egui_ctx.set_theme(egui::ThemePreference::System);\n"
     )
     if create_hook:
         creator = (
@@ -3710,6 +3714,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     log::info!("{{ARTCRAFT_ANDROID_SHELL_MARKER}} ready ({{}})", saf::SAF_MARKER);
     apply_immersive_fullscreen(&android_app);
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
 {persist_env_call}    system_fonts::install_font_env(&android_app);
     let saf_bridge = saf::Bridge::new(&android_app);
     saf_bridge.request_storage_permission();
@@ -3801,6 +3806,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     log::info!("{{ARTCRAFT_ANDROID_SHELL_MARKER}} ready ({{}})", saf::SAF_MARKER);
     apply_immersive_fullscreen(&android_app);
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
 {persist_env_call}    system_fonts::install_font_env(&android_app);
     let shell_app = android_app.clone();
     let mut options = eframe::NativeOptions {{
@@ -3857,7 +3863,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         "{title}",
         options,
         Box::new(move |cc| {{
-            cc.egui_ctx.set_theme(if dark_mode {{ egui::Theme::Dark }} else {{ egui::Theme::Light }});
+            cc.egui_ctx.set_theme(egui::ThemePreference::System);
             Ok(Box::new(AndroidShell::new({construct_expr}, shell_app.clone())))
         }}),
     );

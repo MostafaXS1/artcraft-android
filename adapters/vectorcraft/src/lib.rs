@@ -682,6 +682,9 @@ fn services(bridge: AndroidFileBridge, state: Arc<PickState>, inbox: Inbox) -> S
         pick_save: Some(Box::new(|_pick: &FilePick| None)),
         pick_open_multi: Some(Box::new(Vec::new)),
         pick_folder: Some(Box::new(|| None)),
+        open_url: Some(Box::new(|url: &str| {
+            egui_winit::open_url::open_url(url);
+        })),
         start_pick: Some(Box::new(move |request: PickRequest| {
             start_pick(&pick_state, &pick_bridge, request)
         })),
@@ -1014,6 +1017,7 @@ fn android_main(android_app: AndroidApp) {
     );
     log::info!("{SAF_BRIDGE_MARKER} ready; {ANDROID_SHELL_MARKER}; ARTCRAFT_ANDROID_NATIVE_IME_V1");
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
     let bridge = match AndroidFileBridge::new(android_app.clone()) {
