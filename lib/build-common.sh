@@ -4103,7 +4103,11 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
+if [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+    cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
+else
+    cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
+fi
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -4447,6 +4451,9 @@ if "dropping the lost surface" not in text:
         winit_rs.write_text(text)
         print("  Patched existing vendored egui-wgpu on_surface_lost for Android surface handling")
 PY
+elif [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+    rm -rf "$SRC/vendor/egui-wgpu"
+    cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
