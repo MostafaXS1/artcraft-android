@@ -83,18 +83,25 @@ def pick_source(src: Path, app: str, explicit: Path = None) -> Path:
         if not explicit.is_file():
             raise SystemExit(f"App icon not found: {explicit}")
         return explicit
-    icon_dir = src / "assets" / "app-icon"
-    if icon_dir.is_dir():
+    icon_dirs = [
+        src / "assets" / "app-icon",
+        src / "assets" / "icons" / "app",
+        src / "assets" / "icons",
+    ]
+    for icon_dir in icon_dirs:
+        if not icon_dir.is_dir():
+            continue
         # Prefer the app's own high-res PNG (master 1024x1024 or 512x512). These are
         # pristine renders produced for distribution. Using them directly avoids
         # ImageMagick MSVG clipPath bugs and huge memory allocation.
         pngs = [p for p in icon_dir.rglob("*.png") if app in p.name.lower()]
-        high_res = [p for p in pngs if "1024" in p.name or "512" in p.name]
+        high_res = [p for p in pngs if "1024" in p.name or "512" in p.name or "1024" in str(p) or "512" in str(p)]
         if high_res:
             return max(high_res, key=lambda p: p.stat().st_size)
         # Vector sources if no high-res PNG is available
         svgs = [icon_dir / f"{app}.svg", icon_dir / "icon.svg"]
         svgs += sorted(p for p in icon_dir.glob("*.svg") if "-small" not in p.stem)
+        svgs += sorted(p for p in icon_dir.rglob("*.svg") if app in p.name.lower() and "-small" not in p.stem)
         rasterizer = _rsvg() or _magick()
         if rasterizer:
             for svg in svgs:
@@ -104,7 +111,7 @@ def pick_source(src: Path, app: str, explicit: Path = None) -> Path:
         if pngs:
             return max(pngs, key=lambda p: p.stat().st_size)
     raise SystemExit(
-        f"Could not find an app icon for {app} under assets/app-icon; "
+        f"Could not find an app icon for {app} under assets/app-icon or assets/icons; "
         f"pass -appicon=<path> or create a custom adapter."
     )
 

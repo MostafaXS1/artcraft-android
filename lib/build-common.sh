@@ -753,7 +753,30 @@ if "workspace" not in ws:
     raise SystemExit("Source root is not a Cargo workspace; a custom adapter is required.")
 members = ws["workspace"].get("members", [])
 if not any("apps/*" in m or m in (f"apps/{app}-android", f"apps/{app}-android/") for m in members):
-    raise SystemExit("Workspace does not include apps/*; auto-add is unsafe. Create a custom adapter or update the workspace members explicitly.")
+    if (src / "apps").is_dir():
+        manifest_text = root_manifest.read_text()
+        m = re.search(r'(?ms)(members\s*=\s*\[)(.*?)(\])', manifest_text)
+        if m:
+            prefix, current, suffix = m.group(1), m.group(2), m.group(3)
+            new_member = f"apps/{app}-android"
+            if f'"{new_member}"' not in current and f"'{new_member}'" not in current:
+                if '\n' in current:
+                    new_current = current.rstrip() + f'\n    "{new_member}",\n'
+                    manifest_text = manifest_text[:m.start()] + prefix + new_current + suffix + manifest_text[m.end():]
+                else:
+                    new_current = current.strip()
+                    if new_current and not new_current.endswith(','):
+                        new_current += ', '
+                    elif new_current:
+                        new_current += ' '
+                    new_current += f'"{new_member}"'
+                    manifest_text = manifest_text[:m.start()] + prefix + ' ' + new_current + ' ' + suffix + manifest_text[m.end():]
+                root_manifest.write_text(manifest_text)
+                ws = tomllib.loads(manifest_text)
+                members = ws["workspace"].get("members", [])
+                print(f"Added {new_member} to workspace members in Cargo.toml")
+    if not any("apps/*" in m or m in (f"apps/{app}-android", f"apps/{app}-android/") for m in members):
+        raise SystemExit("Workspace does not include apps/*; auto-add failed. Create a custom adapter or update the workspace members explicitly.")
 
 engine_manifest = src / "crates" / "engine" / "Cargo.toml"
 ui_manifest = src / "crates" / "ui-egui" / "Cargo.toml"
@@ -811,6 +834,12 @@ SPECIAL = {
     },
     "soundcraft": {"app_type": "SoundApp", "construct": "{app}::new({engine}::Engine::default(), None, Services::default())"},
     "cadcraft": {"app_type": "CadApp", "construct": "{app}::new(Session::empty(), Services::default())"},
+    "solidcraft": {"app_type": "SolveApp", "construct": "{app}::new(Session::default(), Services::default())"},
+    "materialcraft": {"app_type": "MaterialCraftApp", "construct": "{app}::headless({engine}::sample_session(), {ui}::UiState::default())"},
+    "texturecraft": {
+        "app_type": "TextureCraftApp",
+        "construct": "{app}::new(cc, {engine}::sample_session(1024, 256).expect(\"sample session\"))",
+    },
 }
 spec = SPECIAL.get(app, {})
 
@@ -897,6 +926,54 @@ SYNC_SAF_POLL = '''
 fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
     state.mirror.sync(bridge);
 }
+'''
+RFD_SAF_POLL = '''
+fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
+    for _ in 0..16 {
+        let raw = match bridge.poll() {
+            Ok(Some(raw)) => raw,
+            Ok(None) => break,
+            Err(error) => {
+                log::error!("Could not poll the Android file picker: {error}");
+                break;
+            }
+        };
+        let value: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("Ignoring a malformed Android picker result ({error}): {raw}");
+                continue;
+            }
+        };
+        let Some(id) = value.get("id").and_then(serde_json::Value::as_u64) else { continue };
+        let kind = value.get("kind").and_then(serde_json::Value::as_str).unwrap_or_default();
+        let status = value.get("status").and_then(serde_json::Value::as_str).unwrap_or("error");
+        let paths: Option<Vec<std::path::PathBuf>> = if status == "ok" {
+            Some(saf::picker_paths(&value).into_iter().map(std::path::PathBuf::from).collect())
+        } else {
+            None
+        };
+        // The staged destination is written by the app itself; watch it so any writes are
+        // mirrored to the chosen SAF document.
+        if let Some(ref paths) = paths {
+            for path in paths {
+                state.mirror.track(id, &path.to_string_lossy());
+            }
+        }
+        rfd::artcraft_saf::deliver(id, paths);
+    }
+    state.mirror.sync(bridge);
+}
+'''
+RFD_SAF_SETUP = '''
+    let launcher_bridge = saf_bridge.clone_ref();
+    rfd::artcraft_saf::install(std::sync::Arc::new(move |id, kind| {
+        match kind {
+            rfd::artcraft_saf::Kind::Open { multiple } => { launcher_bridge.request_open(id, multiple).ok(); }
+            rfd::artcraft_saf::Kind::Save(ref name) => { launcher_bridge.request_save(id, name).ok(); }
+            rfd::artcraft_saf::Kind::Folder => { launcher_bridge.request_folder(id).ok(); }
+        }
+    }));
 '''
 SAF_RECIPES = {
     "designcraft": {
@@ -1954,10 +2031,9 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
 ''',
         "poll": SYNC_SAF_POLL,
     },
-    # ---- rfd-driven app: pdfcraft calls rfd::AsyncFileDialog directly (no Services to inject). ----
-    # The vendored rfd's Android backend routes its async pickers through rfd::artcraft_saf, which
-    # the launcher below drives: a worker thread blocks on the rfd future while the launcher's
-    # per-frame poll delivers the system picker's answer.
+    # ---- rfd-driven apps: pdfcraft, materialcraft, texturecraft call rfd directly (no Services to inject). ----
+    # The vendored rfd's Android backend routes its async and sync pickers through rfd::artcraft_saf,
+    # which the launcher below drives: the launcher's per-frame poll delivers the system picker's answer.
     "pdfcraft": {
         "activity": "PdfCraftActivity",
         # Staged working copies under media/: drop one when the app lets go of it (Clear Recent, a
@@ -1967,54 +2043,8 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
         "imports": SYNC_SAF_IMPORTS,
         "state": SYNC_SAF_STATE,
         "services": "",
-        "poll": '''
-fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
-    for _ in 0..16 {
-        let raw = match bridge.poll() {
-            Ok(Some(raw)) => raw,
-            Ok(None) => break,
-            Err(error) => {
-                log::error!("Could not poll the Android file picker: {error}");
-                break;
-            }
-        };
-        let value: serde_json::Value = match serde_json::from_str(&raw) {
-            Ok(value) => value,
-            Err(error) => {
-                log::error!("Ignoring a malformed Android picker result ({error}): {raw}");
-                continue;
-            }
-        };
-        let Some(id) = value.get("id").and_then(serde_json::Value::as_u64) else { continue };
-        let kind = value.get("kind").and_then(serde_json::Value::as_str).unwrap_or_default();
-        let status = value.get("status").and_then(serde_json::Value::as_str).unwrap_or("error");
-        let paths: Option<Vec<std::path::PathBuf>> = if status == "ok" {
-            Some(saf::picker_paths(&value).into_iter().map(std::path::PathBuf::from).collect())
-        } else {
-            None
-        };
-        // The staged destination is written by the app itself; watch it so any writes are
-        // mirrored to the chosen SAF document.
-        if let Some(ref paths) = paths {
-            for path in paths {
-                state.mirror.track(id, &path.to_string_lossy());
-            }
-        }
-        rfd::artcraft_saf::deliver(id, paths);
-    }
-    state.mirror.sync(bridge);
-}
-''',
-        "setup": '''
-    let launcher_bridge = saf_bridge.clone_ref();
-    rfd::artcraft_saf::install(std::sync::Arc::new(move |id, kind| {
-        match kind {
-            rfd::artcraft_saf::Kind::Open { multiple } => { launcher_bridge.request_open(id, multiple).ok(); }
-            rfd::artcraft_saf::Kind::Save(ref name) => { launcher_bridge.request_save(id, name).ok(); }
-            rfd::artcraft_saf::Kind::Folder => { launcher_bridge.request_folder(id).ok(); }
-        }
-    }));
-''',
+        "poll": RFD_SAF_POLL,
+        "setup": RFD_SAF_SETUP,
         "construct_expr": "PdfCraftApp::new()",
     },
     # ---- figcraft: a Services trait (not a struct) injected as Box<dyn Services>. ----
@@ -2066,7 +2096,7 @@ impl Services for SafServices {
     },
     "solidcraft": {
         "activity": "SolidCraftActivity",
-        "imports": SYNC_SAF_IMPORTS,
+        "imports": "use std::pin::Pin;\n" + SYNC_SAF_IMPORTS,
         "state": SYNC_SAF_STATE,
         "services": '''
 fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
@@ -2074,9 +2104,31 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     let open_state = Arc::clone(&state);
     let save_bridge = bridge.clone_ref();
     let save_state = Arc::clone(&state);
+    let file_bridge = bridge.clone_ref();
+    let file_state = Arc::clone(&state);
     Services {
-        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
-        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        pick_open: Some(Box::new(move |_exts: &[&str]| {
+            let bridge = open_bridge.clone_ref();
+            let state = Arc::clone(&open_state);
+            Box::pin(async move {
+                saf_open_paths(&bridge, &state).into_iter().next()
+            })
+        })),
+        pick_save: Some(Box::new(move |name: &str, _exts: &[&str]| {
+            let bridge = save_bridge.clone_ref();
+            let state = Arc::clone(&save_state);
+            let name = name.to_owned();
+            Box::pin(async move {
+                saf_save_path(&bridge, &state, &name)
+            })
+        })),
+        pick_file: Some(Box::new(move |_label: &str, _exts: &[&str]| {
+            let bridge = file_bridge.clone_ref();
+            let state = Arc::clone(&file_state);
+            Box::pin(async move {
+                saf_open_paths(&bridge, &state).into_iter().next()
+            })
+        })),
         ..Services::default()
     }
 }
@@ -2085,41 +2137,25 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     },
     "materialcraft": {
         "activity": "MaterialCraftActivity",
+        "recent_paths": "self.inner.ui.recent.clone()",
+        "open_paths": "self.inner.session.path.clone().into_iter().collect::<Vec<_>>()",
         "imports": SYNC_SAF_IMPORTS,
         "state": SYNC_SAF_STATE,
-        "services": '''
-fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
-    let open_bridge = bridge.clone_ref();
-    let open_state = Arc::clone(&state);
-    let save_bridge = bridge.clone_ref();
-    let save_state = Arc::clone(&state);
-    Services {
-        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
-        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
-        ..Services::default()
-    }
-}
-''',
-        "poll": SYNC_SAF_POLL,
+        "services": "",
+        "poll": RFD_SAF_POLL,
+        "setup": RFD_SAF_SETUP,
+        "construct_expr": "MaterialCraftApp::headless(materialcraft_engine::sample_session(), materialcraft_ui_egui::UiState::default())",
     },
     "texturecraft": {
         "activity": "TextureCraftActivity",
+        "recent_paths": "self.inner.ui.recent.clone()",
+        "open_paths": "self.inner.session.path.clone().into_iter().collect::<Vec<_>>()",
         "imports": SYNC_SAF_IMPORTS,
         "state": SYNC_SAF_STATE,
-        "services": '''
-fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
-    let open_bridge = bridge.clone_ref();
-    let open_state = Arc::clone(&state);
-    let save_bridge = bridge.clone_ref();
-    let save_state = Arc::clone(&state);
-    Services {
-        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
-        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
-        ..Services::default()
-    }
-}
-''',
-        "poll": SYNC_SAF_POLL,
+        "services": "",
+        "poll": RFD_SAF_POLL,
+        "setup": RFD_SAF_SETUP,
+        "construct_expr": "TextureCraftApp::new(cc, texturecraft_engine::sample_session(1024, 256).expect(\"sample session\"))",
     },
 }
 
@@ -2187,6 +2223,12 @@ INTENT_OPEN = {
         }
 ''',
     "figcraft": '''        let _ = self.inner.run("file.open", serde_json::json!({ "path": path }));
+''',
+    "solidcraft": '''        self.inner.open_path(path);
+''',
+    "materialcraft": '''        materialcraft_ui_egui::windows::open_path(&mut self.inner, path);
+''',
+    "texturecraft": '''        texturecraft_ui_egui::windows::open_path(&mut self.inner, path);
 ''',
 }
 saf = SAF_RECIPES.get(app)
@@ -2406,6 +2448,35 @@ PERSIST_RECIPES = {
         "save": '''match serde_json::to_string(&serde_json::json!({ "prefs": inner.session.prefs })) {
         Ok(json) => persist_write(dir, "state.json", json.as_bytes()),
         Err(error) => log::warn!("saving preferences: {error}"),
+    }''',
+    },
+    "solidcraft": {
+        "load": '''if let Some(bytes) = persist_read(dir, "prefs.json") {
+        if let Ok(prefs) = std::str::from_utf8(&bytes) {
+            inner.load_prefs(prefs);
+        }
+    }''',
+        "save": '''persist_write(dir, "prefs.json", inner.prefs().as_bytes());''',
+    },
+    "materialcraft": {
+        "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
+        if let Ok(ui) = serde_json::from_slice::<@UI@::UiState>(&bytes) {
+            inner.ui = ui;
+            inner.apply_prefs();
+        }
+    }''',
+        "save": '''if let Ok(bytes) = serde_json::to_vec_pretty(&inner.ui) {
+        persist_write(dir, "ui.json", &bytes);
+    }''',
+    },
+    "texturecraft": {
+        "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
+        if let Ok(ui) = serde_json::from_slice::<@UI@::UiState>(&bytes) {
+            inner.ui = ui;
+        }
+    }''',
+        "save": '''if let Ok(bytes) = serde_json::to_vec_pretty(&inner.ui) {
+        persist_write(dir, "ui.json", &bytes);
     }''',
     },
 }
@@ -3002,7 +3073,10 @@ icon = "@mipmap/ic_launcher"
             inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if has_raw_hook:
-            inner_hook = "self.inner.raw_input_hook(ctx, raw);"
+            if re.search(r"pub\s+fn\s+raw_input_hook\s*\(\s*&mut\s+self\s*,\s*raw\s*:", ui_text):
+                inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
+            else:
+                inner_hook = "self.inner.raw_input_hook(ctx, raw);"
         else:
             inner_hook = "let _ = (ctx, raw);"
 
@@ -3732,23 +3806,31 @@ impl eframe::App for AndroidShell {{
         "figcraft": "            figcraft_ui_egui::theme::install_fonts(&cc.egui_ctx, false, 0);\n",
         # CADCraft's file formats have to be in place before the app opens anything.
         "cadcraft": "            install_cadcraft_io();\n",
+        "materialcraft": "            materialcraft_ui_egui::theme::install(&cc.egui_ctx);\n",
     }.get(app, "")
     theme_line = (
         "            cc.egui_ctx.set_theme(if dark_mode { egui::Theme::Dark } else { egui::Theme::Light });\n"
     )
-    if create_hook:
+    needs_cc = bool(re.search(r"\bcc\b", construct_expr) or re.search(r"\bcc\b", post_construct))
+    if needs_cc:
+        creator = (
+            "Box::new(move |cc| {\n"
+            + theme_line
+            + create_hook
+            + f"            {inner_decl} = {construct_expr};\n"
+            + f"{post_construct}"
+            + "            let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge.clone_ref(), saf_state.clone(), saf_inbox.clone());\n"
+            + "            Ok(Box::new(shell))\n        })"
+        )
+        outer_construct = f"{saf_setup}    // inner and shell constructed inside eframe creator closure below (requires cc)\n"
+    else:
         creator = (
             "Box::new(move |cc| {\n"
             + theme_line
             + create_hook
             + "            Ok(Box::new(shell))\n        })"
         )
-    else:
-        creator = (
-            "Box::new(move |cc| {\n"
-            + theme_line
-            + "            Ok(Box::new(shell))\n        })"
-        )
+        outer_construct = f"{saf_setup}    {inner_decl} = {construct_expr};\n{post_construct}    let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);\n"
 
     if saf:
         entry = f'''//! Generated Android launcher for {title}.
@@ -3778,9 +3860,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     saf_bridge.request_storage_permission();
     let saf_state = saf_new_state();
     let saf_inbox = SafInbox::default();
-{saf_setup}    {inner_decl} = {construct_expr};
-{post_construct}    let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);
-    let mut options = eframe::NativeOptions {{
+{outer_construct}    let mut options = eframe::NativeOptions {{
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_title("{title}")
