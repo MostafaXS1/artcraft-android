@@ -984,6 +984,22 @@ impl eframe::App for VectorCraftAndroidApp {
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
+        // Sync appearance when system theme changes
+        let is_light = egui_winit::system_theme::system_theme() == Some(egui::Theme::Light);
+        let cur_is_light = matches!(
+            self.inner.ui.brightness,
+            vectorcraft_ui_egui::theme::Brightness::Light
+                | vectorcraft_ui_egui::theme::Brightness::MediumLight
+        );
+        if cur_is_light != is_light {
+            let b = if is_light {
+                vectorcraft_ui_egui::theme::Brightness::Light
+            } else {
+                vectorcraft_ui_egui::theme::Brightness::MediumDark
+            };
+            self.inner.ui.brightness = b;
+            vectorcraft_ui_egui::theme::apply(ctx, b);
+        }
         self.inner.logic(ctx);
         self.persist_tick();
     }
@@ -1050,6 +1066,9 @@ fn android_main(android_app: AndroidApp) {
                 Session::new(),
                 services(app_bridge.clone_for_services(), app_picks.clone(), app_intent_inbox.clone()),
             );
+            if egui_winit::system_theme::system_theme() == Some(egui::Theme::Light) {
+                app.ui.brightness = vectorcraft_ui_egui::theme::Brightness::Light;
+            }
             let persist = persist_dir(&app_bridge.app);
             if let Some(dir) = &persist {
                 // Load the saved settings *first*, so the device's default UI scale below is not

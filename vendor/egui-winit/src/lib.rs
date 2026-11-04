@@ -31,7 +31,7 @@ mod safe_area;
 mod system_theme;
 mod window_settings;
 
-pub use window_settings::WindowSettings;
+pub use window_settings::{WindowGeometry, WindowSettings};
 
 use raw_window_handle::HasDisplayHandle;
 
@@ -190,6 +190,8 @@ pub struct State {
     /// a right-click. Cancelled by movement beyond slop, second finger, or lift.
     hold_to_right_click: Option<HoldToRightClick>,
 
+    clipboard_shortcuts: bool,
+
     #[cfg(feature = "accesskit")]
     pub accesskit: Option<accesskit_winit::Adapter>,
 
@@ -242,6 +244,7 @@ impl State {
             pointer_touch_id: None,
             gesture_touch_ids: Vec::new(),
             hold_to_right_click: None,
+            clipboard_shortcuts: true,
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
@@ -646,6 +649,7 @@ impl State {
                     unit: egui::MouseWheelUnit::Point,
                     delta: Vec2::new(delta.x, delta.y) / pixels_per_point,
                     phase: to_egui_touch_phase(*phase),
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: self.modifiers,
                 });
                 EventResponse {
@@ -993,6 +997,30 @@ impl State {
         }
     }
 
+    #[inline]
+    pub fn clipboard_shortcuts(&self) -> bool {
+        self.clipboard_shortcuts
+    }
+
+    #[inline]
+    pub fn set_clipboard_shortcuts(&mut self, enabled: bool) {
+        self.clipboard_shortcuts = enabled;
+    }
+
+    pub fn request_cut(&mut self, _window: &Window) {
+        self.egui_input.events.push(egui::Event::Cut);
+    }
+
+    pub fn request_copy(&mut self, _window: &Window) {
+        self.egui_input.events.push(egui::Event::Copy);
+    }
+
+    pub fn request_paste(&mut self, _window: &Window) {
+        if let Some(text) = self.clipboard.get() {
+            self.egui_input.events.push(egui::Event::Paste(text));
+        }
+    }
+
     fn on_touch(&mut self, window: &Window, touch: &winit::event::Touch) {
         let pixels_per_point = pixels_per_point(&self.egui_ctx, window);
 
@@ -1162,6 +1190,7 @@ impl State {
                 unit,
                 delta,
                 phase,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             });
         }
@@ -1330,6 +1359,7 @@ impl State {
                 egui::OutputCommand::OpenUrl(open_url) => {
                     open_url_in_browser(&open_url.url);
                 }
+                egui::OutputCommand::TextSelectionSettled(_) => {}
             }
         }
 
@@ -1933,12 +1963,19 @@ fn translate_cursor(cursor_icon: egui::CursorIcon) -> Option<winit::window::Curs
 
 // Helpers for egui Viewports
 // ---------------------------------------------------------------------------
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(Debug)]
 pub enum ActionRequested {
-    Screenshot(egui::UserData),
+    Screenshot(egui::ScreenshotCallback),
     Cut,
     Copy,
     Paste,
+    PaintWhileHidden,
+}
+
+impl ActionRequested {
+    pub fn wants_paint(&self) -> bool {
+        matches!(self, Self::Screenshot(_) | Self::PaintWhileHidden)
+    }
 }
 
 pub fn process_viewport_commands(
@@ -1946,6 +1983,7 @@ pub fn process_viewport_commands(
     info: &mut ViewportInfo,
     commands: impl IntoIterator<Item = ViewportCommand>,
     window: &Window,
+    _state: &mut State,
     actions_requested: &mut Vec<ActionRequested>,
 ) {
     for command in commands {
@@ -2167,6 +2205,9 @@ fn process_viewport_command(
         }
         ViewportCommand::Screenshot(user_data) => {
             actions_requested.push(ActionRequested::Screenshot(user_data));
+        }
+        ViewportCommand::RequestPaintWhileHidden => {
+            actions_requested.push(ActionRequested::PaintWhileHidden);
         }
         ViewportCommand::RequestCut => {
             actions_requested.push(ActionRequested::Cut);

@@ -98,9 +98,9 @@ From `README.md` and `lib/build-common.sh`:
 ```
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
-subcraft
+subcraft solidcraft materialcraft texturecraft
 ```
-(14 apps). CI matrix matches these.
+(17 apps). CI matrix matches these.
 
 ---
 
@@ -135,7 +135,7 @@ Simple wrappers that call `lib/build-common.sh` with `MODE` ("release"/"debug") 
 ### `lib/build-common.sh`
 Main orchestrator (~4110 lines). Key responsibilities:
 - Argument parsing: `-<app>`, `-stable|-main|-latest`, `-tag=`, `-branch=`, `-appname=`, `-packagename=`, `-appicon=`, `-h`
-- Resolve app metadata: `TITLE`, `REPO` (defaults to `https://github.com/storytold/<app>.git`), special case SubCraft from `https://github.com/Aalzard/subcraft` (origin check uses `APP_ORIGIN`)
+- Resolve app metadata: `TITLE`, `REPO` (defaults to `https://github.com/storytold/<app>.git`), special cases SubCraft from `https://github.com/Aalzard/subcraft` and SolidCraft from `https://github.com/tangency-labs/solidcraft` (origin check uses `APP_ORIGIN`)
 - Constants: `BUILDER_VERSION="0.2.0"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `GENERATOR_VERSION="55"`
 - Locking: single build lock via `flock` on `.artcraft-build.lock` (records PID)
 - Tool checks: git, cargo, python3 with tomllib
@@ -305,7 +305,7 @@ Checks GitHub latest release vs baked `__BUILDER_VERSION__`, shows notification 
 - Timeout 180s for blocking picks.
 
 ### SAF Apps
-`SAF_APPS` in build-common includes: `designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft` (12). PhotoCraft/VectorCraft use custom adapters with similar SAF patterns.
+`SAF_APPS` in build-common includes: `designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft` (15). PhotoCraft/VectorCraft use custom adapters with similar SAF patterns.
 
 ### Per-app SAF Recipes (in generator)
 Complex recipes define how each app integrates SAF:

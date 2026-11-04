@@ -481,6 +481,7 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
         write: Some(Box::new(move |path: &str, bytes: &[u8]| {
             write_mobile(&write_bridge, path, bytes)
         })),
+        system_theme: Some(Box::new(|_ctx| egui_winit::system_theme::system_theme())),
         open_url: Some(Box::new(|url: &str| {
             if egui_winit::open_url::open_url(url) {
                 Ok(())
@@ -894,6 +895,18 @@ impl eframe::App for PhotoCraftAndroidApp {
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
         self.persist_tick();
+        // Sync appearance when system theme changes if set to Auto
+        if self.inner.session.prefs().interface.appearance_mode == photocraft_engine::prefs::AppearanceMode::Auto {
+            let is_light = egui_winit::system_theme::system_theme() == Some(egui::Theme::Light);
+            let target_kind = if is_light {
+                photocraft_ui_egui::theme::ThemeKind::ProLight
+            } else {
+                photocraft_ui_egui::theme::ThemeKind::Pro
+            };
+            if self.inner.ui.theme.dark() == is_light {
+                self.inner.set_theme(ctx, target_kind);
+            }
+        }
         self.inner.logic(ctx, frame);
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -1020,7 +1033,12 @@ fn android_main(android_app: AndroidApp) {
         "PhotoCraft",
         options,
         Box::new(move |cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, photocraft_ui_egui::theme::ThemeKind::Pro);
+            let initial_theme = if egui_winit::system_theme::system_theme() == Some(egui::Theme::Light) {
+                photocraft_ui_egui::theme::ThemeKind::ProLight
+            } else {
+                photocraft_ui_egui::theme::ThemeKind::Pro
+            };
+            PhotocraftApp::setup_context(&cc.egui_ctx, initial_theme);
             let mut app = PhotocraftApp::new(
                 Session::new(),
                 services(

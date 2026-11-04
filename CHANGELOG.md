@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added Android port targets and APK build support for:
+  - **SolidCraft** (`tangency-labs/solidcraft`): Parametric 3D CAD application in pure Rust with support for `.sc`, `.solidcraft`, `.step`, `.stp`, `.stl`, `.3mf`, `.dxf`, and `.obj` formats.
+  - **MaterialCraft** (`storytold/materialcraft`): Node-based procedural PBR material designer with support for `.mcraft`, `.materialcraft`, `.sbs`, and `.mcmat` formats.
+  - **TextureCraft** (`storytold/texturecraft`): 3D texture painting application with support for `.tcraft`, `.texturecraft`, `.spp`, and 3D mesh formats (`.obj`, `.gltf`, `.glb`, `.fbx`).
+- Added file associations and intent filters for 3D CAD, model, and procedural texture formats in `lib/file_associations.py`.
+- Added `solidcraft`, `materialcraft`, and `texturecraft` to GitHub Actions CI build matrix (`.github/workflows/build.yml`).
+- Registered build targets and SAF launcher recipes in `lib/build-common.sh`.
+
 ## v39 — 2026-11-03
 
 ### Fixed

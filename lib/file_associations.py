@@ -168,6 +168,20 @@ EXT_MIME = {
     "gltf": ("model/gltf+json",),
     "glb": ("model/gltf-binary",),
     "fbx": ("application/octet-stream",),
+    # 3D CAD & procedural materials (SolidCraft, MaterialCraft, TextureCraft)
+    "step": ("application/step", "model/step"),
+    "stp": ("application/step", "model/step"),
+    "stl": ("model/stl", "application/sla"),
+    "3mf": ("application/vnd.ms-package.3dmanufacturing-3dmodel+xml",),
+    "sc": ("application/x-solidcraft",),
+    "solidcraft": ("application/x-solidcraft",),
+    "mcraft": ("application/x-materialcraft",),
+    "materialcraft": ("application/x-materialcraft",),
+    "sbs": ("application/octet-stream",),
+    "mcmat": ("application/x-materialcraft-mat",),
+    "tcraft": ("application/x-texturecraft",),
+    "texturecraft": ("application/x-texturecraft",),
+    "spp": ("application/octet-stream",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -207,6 +221,9 @@ ASSOCIATIONS = {
     "effectcraft": ["ecproj", "ecprojx", "ectemplate"],
     "cadcraft": ["dwg", "dwt", "dxf"],
     "subcraft": ["subcraft", "obj", "gltf", "glb", "fbx"],
+    "solidcraft": ["sc", "solidcraft", "step", "stp", "stl", "3mf", "dxf", "obj"],
+    "materialcraft": ["mcraft", "materialcraft", "sbs", "mcmat"],
+    "texturecraft": ["tcraft", "texturecraft", "spp", "obj", "gltf", "glb", "fbx"],
 }
 
 MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }'
