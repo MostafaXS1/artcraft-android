@@ -90,7 +90,7 @@ if tpath.is_file():
     pub fn new(device: &wgpu::Device, size: [u32; 2], samples: u32) -> Self {
         // An oversized texture is a fatal wgpu validation error, and the viewport is a preview:
         // clamp to what the device can actually create rather than crash the whole app.
-        let max_dim = device.limits().max_texture_dimension_2d;
+        let max_dim = device.limits().max_texture_dimension_2d.min(4096);
         let size = [size[0].min(max_dim).max(1), size[1].min(max_dim).max(1)];
         let extent = wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 };
         let make = |label, format, samples, usage, view_formats: &[wgpu::TextureFormat]| {"""
@@ -146,27 +146,33 @@ if vpath.is_file():
         return;
     }
     state.last_view_size = size;"""
+    old_v_physical = """    let ppp = ui.ctx().pixels_per_point();
+    let size = physical_size([rect.width(), rect.height()], ppp);
+    if size[0] < 8 || size[1] < 8 {
+        return;
+    }
+    state.last_view_size = size;"""
     new_v = """    // egui's placeholder viewport is 10000 points (rescaled by any zoom change on the first frame);
-    // no real Android surface is anywhere near 6000 points, so this is the unset window.
+    // no real Android surface is anywhere near 4096 points, so this is the unset window.
     let window = ui.ctx().input(|i| i.viewport_rect());
-    if window.width() >= 6000.0 || window.height() >= 6000.0 {
+    if window.width() >= 4096.0 || window.height() >= 4096.0 {
         return;
     }
     let ppp = ui.ctx().pixels_per_point();
-    let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
+    let size = physical_size([rect.width(), rect.height()], ppp);
     // The tab cannot be bigger than the window that holds it; clamping to the window's physical size
     // keeps the offscreen target no larger than the surface (a bigger one is unusable anyway).
     let max = [
         (window.width() * ppp).round().max(8.0) as u32,
         (window.height() * ppp).round().max(8.0) as u32,
     ];
-    let size = [size[0].min(max[0]).max(1), size[1].min(max[1]).max(1)];
+    let size = [size[0].min(max[0]).min(4096).max(1), size[1].min(max[1]).min(4096).max(1)];
     if size[0] < 8 || size[1] < 8 {
         return;
     }
     state.last_view_size = size;"""
-    if "window.width() >= 6000.0" not in vtext:
-        for needle in (old_v, old_v_8192, old_v_window):
+    if "window.width() >= 4096.0" not in vtext and "window.width() >= 6000.0" not in vtext:
+        for needle in (old_v, old_v_8192, old_v_window, old_v_physical):
             if needle in vtext:
                 vtext = vtext.replace(needle, new_v, 1)
                 vpath.write_text(vtext)

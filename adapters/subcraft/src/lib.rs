@@ -129,17 +129,20 @@ fn ensure_screen_rect(app: &AndroidApp, ctx: &egui::Context, raw: &mut egui::Raw
     if usable {
         return;
     }
-    let Some(window) = app.native_window() else {
-        return;
+    let (width, height) = if let Some(window) = app.native_window() {
+        let (w, h) = (window.width(), window.height());
+        if w > 0 && h > 0 {
+            (w as f32, h as f32)
+        } else {
+            (1920.0, 1200.0)
+        }
+    } else {
+        (1920.0, 1200.0)
     };
-    let (width, height) = (window.width(), window.height());
-    if width <= 0 || height <= 0 {
-        return;
-    }
     let ppp = ctx.pixels_per_point().max(0.1);
     raw.screen_rect = Some(egui::Rect::from_min_size(
         egui::Pos2::ZERO,
-        egui::vec2(width as f32 / ppp, height as f32 / ppp),
+        egui::vec2(width / ppp, height / ppp),
     ));
 }
 
