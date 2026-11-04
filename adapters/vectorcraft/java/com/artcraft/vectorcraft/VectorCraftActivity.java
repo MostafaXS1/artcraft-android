@@ -17,12 +17,16 @@ import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.DragEvent;
+import android.view.ActionMode;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import android.app.NativeActivity;
 import android.content.res.Configuration;
@@ -218,9 +222,83 @@ public final class VectorCraftActivity extends NativeActivity {
         }
     }
 
+    private void applyEdgeToEdge() {
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        try {
+            window.setStatusBarColor(0x00000000);
+            window.setNavigationBarColor(0x00000000);
+        } catch (Throwable error) {
+            Log.i(TAG, "This device does not accept transparent system bars", error);
+        }
+    }
+
+    public void setBarIconAppearance(boolean lightTheme) {
+        runOnUiThread(() -> {
+            try {
+                Window window = getWindow();
+                if (window == null) {
+                    return;
+                }
+                WindowInsetsControllerCompat insetsController =
+                        WindowCompat.getInsetsController(window, window.getDecorView());
+                if (insetsController != null) {
+                    insetsController.setAppearanceLightStatusBars(lightTheme);
+                    insetsController.setAppearanceLightNavigationBars(lightTheme);
+                }
+            } catch (Throwable error) {
+                Log.e(TAG, "Could not style the system-bar icons", error);
+            }
+        });
+    }
+
+    private void suppressSelectionHandles() {
+        try {
+            View decor = getWindow() != null ? getWindow().getDecorView() : null;
+            if (decor != null) {
+                suppressLongClick(decor);
+                decor.post(() -> suppressLongClick(decor));
+            }
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not suppress selection handles", error);
+        }
+    }
+
+    private void suppressLongClick(View view) {
+        if (view == null) return;
+        view.setLongClickable(false);
+        view.setOnLongClickListener(v -> true);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                suppressLongClick(group.getChildAt(i));
+            }
+        }
+    }
+
+    @Override
+    public ActionMode onWindowStartingActionMode(ActionMode.Callback callback, int type) {
+        return null;
+    }
+
+    @Override
+    public ActionMode onWindowStartingActionMode(ActionMode.Callback callback) {
+        return null;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        suppressSelectionHandles();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyEdgeToEdge();
         applyImmersiveFullscreen();
         // The native surface view is attached after onCreate and can reset the window state:
         // re-apply once the first layout pass runs.
@@ -228,6 +306,7 @@ public final class VectorCraftActivity extends NativeActivity {
         if (window != null) {
             window.getDecorView().post(this::applyImmersiveFullscreen);
         }
+        suppressSelectionHandles();
         installDropTarget();
         // Once, on the first launch: the settings screen that grants the app access to the device's
         // storage (the font folders the shell links included). Answered later, outside the app, so
@@ -279,6 +358,7 @@ public final class VectorCraftActivity extends NativeActivity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             applyImmersiveFullscreen();
+            suppressSelectionHandles();
         }
     }
 
