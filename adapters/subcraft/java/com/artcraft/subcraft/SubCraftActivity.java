@@ -440,15 +440,6 @@ public final class SubCraftActivity extends NativeActivity {
     }
 
     @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            applyImmersiveFullscreen();
-            suppressSelectionHandles();
-        }
-    }
-
-    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyEdgeToEdge();
@@ -505,10 +496,9 @@ public final class SubCraftActivity extends NativeActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            // Re-assert the bars and ask for a fresh inset dispatch: taking focus is the first
-            // moment a desktop window's title bar is known, and it can change without a layout
-            // pass while the window is dragged.
             refreshWindowInsets();
+            applyImmersiveFullscreen();
+            suppressSelectionHandles();
             View decor = getWindow() != null ? getWindow().getDecorView() : null;
             if (decor != null) {
                 decor.requestApplyInsets();
