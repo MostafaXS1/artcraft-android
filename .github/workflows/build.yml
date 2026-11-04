@@ -60,6 +60,9 @@ jobs:
           - cadcraft
           - gridcraft
           - subcraft
+          - solidcraft
+          - materialcraft
+          - texturecraft
 
     steps:
       - name: Checkout repository

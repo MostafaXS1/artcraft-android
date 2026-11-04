@@ -107,8 +107,9 @@ Replace `-pdfcraft` with any supported application name.
 
 | App | Repo |
 | --- | --- |
-| photocraft, vectorcraft, filmcraft, lightcraft, pdfcraft, effectcraft, designcraft, figcraft, wordcraft, soundcraft, deckcraft, cadcraft, gridcraft | Storytold (official) |
+| photocraft, vectorcraft, filmcraft, lightcraft, pdfcraft, effectcraft, designcraft, figcraft, wordcraft, soundcraft, deckcraft, cadcraft, gridcraft, materialcraft, texturecraft | Storytold (official) |
 | subcraft | [Aalzard/subcraft](https://github.com/Aalzard/subcraft) *(Unofficial)* |
+| solidcraft | [tangency-labs/solidcraft](https://github.com/tangency-labs/solidcraft) *(Community)* |
 
 App names are passed as command-line flags, such as `-photocraft` or `-vectorcraft`.
 

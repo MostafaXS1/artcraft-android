@@ -28,7 +28,7 @@ Options:
 App names:
   photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
-  subcraft
+  subcraft solidcraft materialcraft texturecraft
 
 Examples:
   bash build.sh -photocraft
@@ -136,18 +136,24 @@ case "$APP" in
     cadcraft) TITLE="CADCraft" ;;
     gridcraft) TITLE="GridCraft" ;;
     subcraft) TITLE="SubCraft" ;;
+    solidcraft) TITLE="SolidCraft" ;;
+    materialcraft) TITLE="MaterialCraft" ;;
+    texturecraft) TITLE="TextureCraft" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
 
 SRC="source/$APP"
 REPO="https://github.com/storytold/$APP.git"
-# SubCraft is not part of the `storytold` craft family: it is a community 3D-texturing app that
-# happens to be built on the same egui/eframe stack, so it lives at a different origin.
+# SubCraft and SolidCraft are not part of the `storytold` craft family: they are community apps
+# that happen to be built on the same egui/eframe stack, so they live at different origins.
 APP_ORIGIN="https://github.com/storytold/$APP"
 if [[ "$APP" == "subcraft" ]]; then
     REPO="https://github.com/Aalzard/subcraft.git"
     APP_ORIGIN="https://github.com/Aalzard/subcraft"
+elif [[ "$APP" == "solidcraft" ]]; then
+    REPO="https://github.com/tangency-labs/solidcraft.git"
+    APP_ORIGIN="https://github.com/tangency-labs/solidcraft"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -203,7 +209,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -2057,6 +2063,63 @@ impl Services for SafServices {
 ''',
         "poll": SYNC_SAF_POLL,
         "construct_expr": "FigApp::new(Session::new(), Box::new(SafServices::new(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone())))",
+    },
+    "solidcraft": {
+        "activity": "SolidCraftActivity",
+        "imports": SYNC_SAF_IMPORTS,
+        "state": SYNC_SAF_STATE,
+        "services": '''
+fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
+    let open_bridge = bridge.clone_ref();
+    let open_state = Arc::clone(&state);
+    let save_bridge = bridge.clone_ref();
+    let save_state = Arc::clone(&state);
+    Services {
+        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
+        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
+    }
+}
+''',
+        "poll": SYNC_SAF_POLL,
+    },
+    "materialcraft": {
+        "activity": "MaterialCraftActivity",
+        "imports": SYNC_SAF_IMPORTS,
+        "state": SYNC_SAF_STATE,
+        "services": '''
+fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
+    let open_bridge = bridge.clone_ref();
+    let open_state = Arc::clone(&state);
+    let save_bridge = bridge.clone_ref();
+    let save_state = Arc::clone(&state);
+    Services {
+        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
+        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
+    }
+}
+''',
+        "poll": SYNC_SAF_POLL,
+    },
+    "texturecraft": {
+        "activity": "TextureCraftActivity",
+        "imports": SYNC_SAF_IMPORTS,
+        "state": SYNC_SAF_STATE,
+        "services": '''
+fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Services {
+    let open_bridge = bridge.clone_ref();
+    let open_state = Arc::clone(&state);
+    let save_bridge = bridge.clone_ref();
+    let save_state = Arc::clone(&state);
+    Services {
+        pick_open: Some(Box::new(move || saf_open_paths(&open_bridge, &open_state).into_iter().next())),
+        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
+        ..Services::default()
+    }
+}
+''',
+        "poll": SYNC_SAF_POLL,
     },
 }
 

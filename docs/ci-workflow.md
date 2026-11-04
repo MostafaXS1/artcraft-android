@@ -148,6 +148,9 @@ strategy:
       - cadcraft
       - gridcraft
       - subcraft
+      - solidcraft
+      - materialcraft
+      - texturecraft
 ```
 
 ### Why `fail-fast: false` is Critical

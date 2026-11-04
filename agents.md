@@ -55,9 +55,9 @@ From `lib/build-common.sh` and `README.md`:
 ```text
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
-subcraft
+subcraft solidcraft materialcraft texturecraft
 ```
-Total: 14 apps. CI matrix builds all of them.
+Total: 17 apps. CI matrix builds all of them.
 
 ## 3. Repository Structure
 
@@ -120,9 +120,11 @@ GENERATOR_VERSION="55"  # Bumped when generated launcher template changes
 **Repository mappings:**
 ```bash
 REPO="https://github.com/storytold/$APP.git"  # Default for most apps
-# SubCraft exception
+# SubCraft and SolidCraft exceptions
 APP_ORIGIN="https://github.com/Aalzard/subcraft"
 REPO="https://github.com/Aalzard/subcraft.git"
+APP_ORIGIN="https://github.com/tangency-labs/solidcraft"
+REPO="https://github.com/tangency-labs/solidcraft.git"
 ```
 
 **Locking mechanism:**
@@ -295,7 +297,7 @@ The generator creates `android_main` function that wires:
 ```python
 SAF_APPS = {"designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft", 
            "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft", 
-           "figcraft", "subcraft"}
+           "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft"}
 ```
 Note: PhotoCraft and VectorCraft use adapters (custom SAF), so not in SAF_APPS list.
 
@@ -638,7 +640,7 @@ Needs `INTERNET` permission. Compares against `https://api.github.com/repos/Most
 ```python
 SAF_APPS = {"designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft", 
            "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft", 
-           "figcraft", "subcraft"}
+           "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft"}
 ```
 PhotoCraft and VectorCraft use custom adapters with similar SAF patterns.
 
