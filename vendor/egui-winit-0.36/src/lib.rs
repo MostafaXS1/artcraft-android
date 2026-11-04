@@ -353,12 +353,40 @@ impl State {
         // See: https://github.com/rust-windowing/winit/issues/208
         // This solves an issue where egui window positions would be changed when minimizing on Windows.
         let screen_size_in_pixels = screen_size_in_pixels(window);
+        let pixels_per_point = pixels_per_point(&self.egui_ctx, window);
         let screen_size_in_points =
-            screen_size_in_pixels / pixels_per_point(&self.egui_ctx, window);
+            screen_size_in_pixels / pixels_per_point;
+
+        #[cfg(target_os = "android")]
+        let top_inset_points = {
+            let top_pixels = crate::safe_area::top_inset_pixels();
+            if top_pixels > 0.0 && pixels_per_point > 0.0 {
+                top_pixels / pixels_per_point
+            } else {
+                0.0
+            }
+        };
+        #[cfg(not(target_os = "android"))]
+        let top_inset_points = 0.0;
 
         self.egui_input.screen_rect = (screen_size_in_points.x > 0.0
-            && screen_size_in_points.y > 0.0)
-            .then(|| Rect::from_min_size(Pos2::ZERO, screen_size_in_points));
+            && screen_size_in_points.y > top_inset_points)
+            .then(|| Rect::from_min_max(
+                Pos2::new(0.0, top_inset_points),
+                Pos2::new(screen_size_in_points.x, screen_size_in_points.y),
+            ));
+
+        #[cfg(target_os = "android")]
+        {
+            if top_inset_points > 0.0 {
+                self.egui_input.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 {
+                    top: top_inset_points,
+                    left: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                }));
+            }
+        }
 
         // Tell egui which viewport is now active:
         self.egui_input.viewport_id = self.viewport_id;

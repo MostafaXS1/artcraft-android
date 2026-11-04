@@ -505,6 +505,13 @@ if app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/scroll.rs (the app makes the coast Android does not send)")
 
+    if fix(
+        "apps/wordcraft-web/index.html",
+        '    #wordcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }',
+        '    #wordcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }',
+    ):
+        fixed.append("apps/wordcraft-web/index.html (touch-action: none)")
+
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")
 PY

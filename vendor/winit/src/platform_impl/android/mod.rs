@@ -855,8 +855,7 @@ impl<T: 'static> EventLoop<T> {
                     // button/move arms so a hovering mouse never lands in the touch path.
                     MotionAction::HoverMove
                     | MotionAction::HoverEnter
-                    | MotionAction::HoverExit
-                        if pointer_class =>
+                    | MotionAction::HoverExit =>
                     {
                         let position = motion_event
                             .pointers()
@@ -914,7 +913,7 @@ impl<T: 'static> EventLoop<T> {
                     // down the smooth path, where they fed the momentum and the page coasted
                     // on after the wheel had stopped — a scroll that felt like it happened
                     // twice.
-                    MotionAction::Scroll if pointer_class => {
+                    MotionAction::Scroll => {
                         let (vertical, horizontal) = motion_event
                             .pointers()
                             .next()

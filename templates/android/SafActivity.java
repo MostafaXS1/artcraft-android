@@ -262,9 +262,38 @@ public final class __CLASS__ extends NativeActivity {
         });
     }
 
+    public boolean isDesktopOrFreeform() {
+        try {
+            if (isInMultiWindowMode()) return true;
+            Configuration config = getResources().getConfiguration();
+            if ((config.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_DESK) {
+                return true;
+            }
+            if (config.toString().contains("semDesktopModeEnabled=1") || config.toString().contains("desk-mode")) {
+                return true;
+            }
+            PackageManager pm = getPackageManager();
+            if (pm != null && (
+                    pm.hasSystemFeature("org.chromium.arc") ||
+                    pm.hasSystemFeature("org.chromium.arc.device_management") ||
+                    (Build.VERSION.SDK_INT >= 27 && pm.hasSystemFeature(PackageManager.FEATURE_PC))
+            )) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    public int getSafeInsetTop() {
+        return captionBarPadding;
+    }
+
     private void applyImmersiveFullscreen() {
         Window window = getWindow();
         if (window == null) {
+            return;
+        }
+        if (isDesktopOrFreeform()) {
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -338,14 +367,26 @@ public final class __CLASS__ extends NativeActivity {
     private void applyCaptionBarInsets(WindowInsets insets) {
         try {
             Window window = getWindow();
-            View content = window != null
-                    ? window.getDecorView().findViewById(android.R.id.content) : null;
+            if (window == null) {
+                return;
+            }
+            View decor = window.getDecorView();
+            View content = decor.findViewById(android.R.id.content);
             if (content == null) {
                 return;
             }
             int top = 0;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && insets != null) {
-                top = insets.getInsets(WindowInsets.Type.captionBar()).top;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsets rootInsets = insets != null ? insets : decor.getRootWindowInsets();
+                if (rootInsets != null) {
+                    top = rootInsets.getInsets(WindowInsets.Type.captionBar()).top;
+                    if (top == 0 && isDesktopOrFreeform()) {
+                        top = rootInsets.getInsetsIgnoringVisibility(
+                                WindowInsets.Type.captionBar() | WindowInsets.Type.statusBars()).top;
+                    }
+                }
+            } else if (insets != null) {
+                top = insets.getSystemWindowInsetTop();
             }
             if (top == captionBarPadding) {
                 return;
@@ -356,6 +397,14 @@ public final class __CLASS__ extends NativeActivity {
             // nothing to reserve.
             content.setBackgroundColor(top > 0 ? (lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E) : 0x00000000);
             content.setPadding(0, top, 0, 0);
+            if (content.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) content.getLayoutParams();
+                if (mlp.topMargin != top) {
+                    mlp.topMargin = top;
+                    content.setLayoutParams(mlp);
+                    content.requestLayout();
+                }
+            }
         } catch (Throwable error) {
             Log.i(TAG, "Could not inset the interface below the window's title bar", error);
         }
@@ -487,6 +536,7 @@ public final class __CLASS__ extends NativeActivity {
         if (view == null) return;
         view.setLongClickable(false);
         view.setOnLongClickListener(v -> true);
+        view.setOnHoverListener(null);
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {

@@ -19,6 +19,7 @@ import android.util.Log;
 import android.view.DragEvent;
 import android.view.ActionMode;
 import android.view.Display;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -72,6 +73,9 @@ public final class VectorCraftActivity extends NativeActivity {
     private final Map<Integer, Long> requestIds = new HashMap<>();
     private final Map<Long, String> suggestedNames = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private int captionBarPadding = 0;
+    private boolean lightTheme = false;
+    private View.OnApplyWindowInsetsListener chainedInsetsListener;
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -199,9 +203,38 @@ public final class VectorCraftActivity extends NativeActivity {
         }
     }
 
+    public boolean isDesktopOrFreeform() {
+        try {
+            if (isInMultiWindowMode()) return true;
+            Configuration config = getResources().getConfiguration();
+            if ((config.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_DESK) {
+                return true;
+            }
+            if (config.toString().contains("semDesktopModeEnabled=1") || config.toString().contains("desk-mode")) {
+                return true;
+            }
+            PackageManager pm = getPackageManager();
+            if (pm != null && (
+                    pm.hasSystemFeature("org.chromium.arc") ||
+                    pm.hasSystemFeature("org.chromium.arc.device_management") ||
+                    (Build.VERSION.SDK_INT >= 27 && pm.hasSystemFeature(PackageManager.FEATURE_PC))
+            )) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    public int getSafeInsetTop() {
+        return captionBarPadding;
+    }
+
     private void applyImmersiveFullscreen() {
         Window window = getWindow();
         if (window == null) {
+            return;
+        }
+        if (isDesktopOrFreeform()) {
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -236,9 +269,78 @@ public final class VectorCraftActivity extends NativeActivity {
         }
     }
 
+    private void applyCaptionBarInsets(WindowInsets insets) {
+        try {
+            Window window = getWindow();
+            if (window == null) {
+                return;
+            }
+            View decor = window.getDecorView();
+            View content = decor.findViewById(android.R.id.content);
+            if (content == null) {
+                return;
+            }
+            int top = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsets rootInsets = insets != null ? insets : decor.getRootWindowInsets();
+                if (rootInsets != null) {
+                    top = rootInsets.getInsets(WindowInsets.Type.captionBar()).top;
+                    if (top == 0 && isDesktopOrFreeform()) {
+                        top = rootInsets.getInsetsIgnoringVisibility(
+                                WindowInsets.Type.captionBar() | WindowInsets.Type.statusBars()).top;
+                    }
+                }
+            } else if (insets != null) {
+                top = insets.getSystemWindowInsetTop();
+            }
+            if (top == captionBarPadding) {
+                return;
+            }
+            captionBarPadding = top;
+            content.setBackgroundColor(top > 0 ? (lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E) : 0x00000000);
+            content.setPadding(0, top, 0, 0);
+            if (content.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) content.getLayoutParams();
+                if (mlp.topMargin != top) {
+                    mlp.topMargin = top;
+                    content.setLayoutParams(mlp);
+                    content.requestLayout();
+                }
+            }
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not inset the interface below the window's title bar", error);
+        }
+    }
+
+    private void installCaptionBarInsets() {
+        try {
+            Window window = getWindow();
+            if (window == null) {
+                return;
+            }
+            View decor = window.getDecorView();
+            decor.setOnApplyWindowInsetsListener((view, insets) -> {
+                applyCaptionBarInsets(insets);
+                View.OnApplyWindowInsetsListener next = chainedInsetsListener;
+                return next != null ? next.onApplyWindowInsets(view, insets) : insets;
+            });
+            decor.requestApplyInsets();
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not watch the window's title-bar insets", error);
+        }
+    }
+
     public void setBarIconAppearance(boolean lightTheme) {
         runOnUiThread(() -> {
             try {
+                this.lightTheme = lightTheme;
+                if (captionBarPadding > 0) {
+                    View content = getWindow() != null
+                            ? getWindow().getDecorView().findViewById(android.R.id.content) : null;
+                    if (content != null) {
+                        content.setBackgroundColor(lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E);
+                    }
+                }
                 Window window = getWindow();
                 if (window == null) {
                     return;
@@ -271,12 +373,25 @@ public final class VectorCraftActivity extends NativeActivity {
         if (view == null) return;
         view.setLongClickable(false);
         view.setOnLongClickListener(v -> true);
+        view.setOnHoverListener(null);
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
                 suppressLongClick(group.getChildAt(i));
             }
         }
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (event != null && (
+            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
+        )) {
+            return super.dispatchGenericMotionEvent(event);
+        }
+        return super.dispatchGenericMotionEvent(event);
     }
 
     @Override
@@ -306,6 +421,7 @@ public final class VectorCraftActivity extends NativeActivity {
         if (window != null) {
             window.getDecorView().post(this::applyImmersiveFullscreen);
         }
+        installCaptionBarInsets();
         suppressSelectionHandles();
         installDropTarget();
         // Once, on the first launch: the settings screen that grants the app access to the device's

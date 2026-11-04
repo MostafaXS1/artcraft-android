@@ -15,27 +15,24 @@ import android.os.Environment;
 import android.os.SystemClock;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
-import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.ActionMode;
 import android.view.DragEvent;
 import android.view.Display;
-import android.view.Gravity;
-import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputConnectionWrapper;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
-import android.widget.FrameLayout;
 
-import com.google.androidgamesdk.GameActivity;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+
+import android.app.NativeActivity;
+import android.content.res.Configuration;
+import android.view.KeyEvent;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -55,8 +52,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/** GameActivity subclass that supplies Android SAF open/save results to the Rust UI shell. */
-public final class PhotoCraftActivity extends GameActivity {
+/** NativeActivity subclass that supplies Android SAF open/save results to the Rust UI shell. */
+public final class PhotoCraftActivity extends NativeActivity {
     private static final String TAG = "PhotoCraftSAF";
     private static final int REQ_OPEN = 0x5043;
     private static final int REQ_SAVE = 0x5044;
@@ -66,31 +63,9 @@ public final class PhotoCraftActivity extends GameActivity {
     private final Map<Integer, Long> requestIds = new HashMap<>();
     private final Map<Long, String> suggestedNames = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-
-    // Soft-keyboard host. GameActivity, like the NativeActivity it replaces, has no editable
-    // view for the system IME, so the keyboard opens unreliably and delivers no text. This
-    // tiny, invisible but focusable EditText has a real InputConnection, so the keyboard
-    // shows/dismisses on request and every commit/composition arrives here where imePoll()
-    // hands it to the Rust shell as egui IME events.
-    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();
-    private EditText imeView;
-    // True between imeShow() and imeHide(); suppresses a deferred show that a quick hide overtook.
-    private volatile boolean imeWanted = false;
-    // Some IMEs report one backspace press twice, through two different calls:
-    // `deleteSurroundingText(1,0)` and `sendKeyEvent(KEYCODE_DEL)`. Both arrive back to back, in
-    // the same IME dispatch — microseconds apart — while two deliberate taps are always further
-    // apart (the finger has to lift and press again). So only a *pair of different methods* within
-    // `IME_DELETE_PAIR_MS` is treated as a repeat; the second call is dropped, and the same method
-    // called twice is never dropped (a quick double-tap still erases twice). Both timestamps are
-    // remembered because an IME may send either order.
-    private static final long IME_DELETE_PAIR_MS = 30L;
-    private volatile long lastImeDeleteSurroundingAt = 0L;
-    private volatile long lastImeDeleteKeyAt = 0L;
-    // Key codes an IME synthesised through `sendKeyEvent` and which the host view must therefore
-    // consume instead of letting them bubble up to the native input queue (see the host's
-    // `onKeyDown`/`onKeyUp`). Guarded by itself: `sendKeyEvent` runs on the IME's thread and the
-    // key dispatch on the main thread.
-    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private int captionBarPadding = 0;
+    private boolean lightTheme = false;
+    private View.OnApplyWindowInsetsListener chainedInsetsListener;
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -207,9 +182,38 @@ public final class PhotoCraftActivity extends GameActivity {
         }
     }
 
+    public boolean isDesktopOrFreeform() {
+        try {
+            if (isInMultiWindowMode()) return true;
+            Configuration config = getResources().getConfiguration();
+            if ((config.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_DESK) {
+                return true;
+            }
+            if (config.toString().contains("semDesktopModeEnabled=1") || config.toString().contains("desk-mode")) {
+                return true;
+            }
+            PackageManager pm = getPackageManager();
+            if (pm != null && (
+                    pm.hasSystemFeature("org.chromium.arc") ||
+                    pm.hasSystemFeature("org.chromium.arc.device_management") ||
+                    (Build.VERSION.SDK_INT >= 27 && pm.hasSystemFeature(PackageManager.FEATURE_PC))
+            )) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    public int getSafeInsetTop() {
+        return captionBarPadding;
+    }
+
     private void applyImmersiveFullscreen() {
         Window window = getWindow();
         if (window == null) {
+            return;
+        }
+        if (isDesktopOrFreeform()) {
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -230,20 +234,177 @@ public final class PhotoCraftActivity extends GameActivity {
         }
     }
 
+    private void applyEdgeToEdge() {
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        try {
+            window.setStatusBarColor(0x00000000);
+            window.setNavigationBarColor(0x00000000);
+        } catch (Throwable error) {
+            Log.i(TAG, "This device does not accept transparent system bars", error);
+        }
+    }
+
+    private void applyCaptionBarInsets(WindowInsets insets) {
+        try {
+            Window window = getWindow();
+            if (window == null) {
+                return;
+            }
+            View decor = window.getDecorView();
+            View content = decor.findViewById(android.R.id.content);
+            if (content == null) {
+                return;
+            }
+            int top = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsets rootInsets = insets != null ? insets : decor.getRootWindowInsets();
+                if (rootInsets != null) {
+                    top = rootInsets.getInsets(WindowInsets.Type.captionBar()).top;
+                    if (top == 0 && isDesktopOrFreeform()) {
+                        top = rootInsets.getInsetsIgnoringVisibility(
+                                WindowInsets.Type.captionBar() | WindowInsets.Type.statusBars()).top;
+                    }
+                }
+            } else if (insets != null) {
+                top = insets.getSystemWindowInsetTop();
+            }
+            if (top == captionBarPadding) {
+                return;
+            }
+            captionBarPadding = top;
+            content.setBackgroundColor(top > 0 ? (lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E) : 0x00000000);
+            content.setPadding(0, top, 0, 0);
+            if (content.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) content.getLayoutParams();
+                if (mlp.topMargin != top) {
+                    mlp.topMargin = top;
+                    content.setLayoutParams(mlp);
+                    content.requestLayout();
+                }
+            }
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not inset the interface below the window's title bar", error);
+        }
+    }
+
+    private void installCaptionBarInsets() {
+        try {
+            Window window = getWindow();
+            if (window == null) {
+                return;
+            }
+            View decor = window.getDecorView();
+            decor.setOnApplyWindowInsetsListener((view, insets) -> {
+                applyCaptionBarInsets(insets);
+                View.OnApplyWindowInsetsListener next = chainedInsetsListener;
+                return next != null ? next.onApplyWindowInsets(view, insets) : insets;
+            });
+            decor.requestApplyInsets();
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not watch the window's title-bar insets", error);
+        }
+    }
+
+    public void setBarIconAppearance(boolean lightTheme) {
+        runOnUiThread(() -> {
+            try {
+                this.lightTheme = lightTheme;
+                if (captionBarPadding > 0) {
+                    View content = getWindow() != null
+                            ? getWindow().getDecorView().findViewById(android.R.id.content) : null;
+                    if (content != null) {
+                        content.setBackgroundColor(lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E);
+                    }
+                }
+                Window window = getWindow();
+                if (window == null) {
+                    return;
+                }
+                WindowInsetsControllerCompat insetsController =
+                        WindowCompat.getInsetsController(window, window.getDecorView());
+                if (insetsController != null) {
+                    insetsController.setAppearanceLightStatusBars(lightTheme);
+                    insetsController.setAppearanceLightNavigationBars(lightTheme);
+                }
+            } catch (Throwable error) {
+                Log.e(TAG, "Could not style the system-bar icons", error);
+            }
+        });
+    }
+
+    private void suppressSelectionHandles() {
+        try {
+            View decor = getWindow() != null ? getWindow().getDecorView() : null;
+            if (decor != null) {
+                suppressLongClick(decor);
+                decor.post(() -> suppressLongClick(decor));
+            }
+        } catch (Throwable error) {
+            Log.i(TAG, "Could not suppress selection handles", error);
+        }
+    }
+
+    private void suppressLongClick(View view) {
+        if (view == null) return;
+        view.setLongClickable(false);
+        view.setOnLongClickListener(v -> true);
+        view.setOnHoverListener(null);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                suppressLongClick(group.getChildAt(i));
+            }
+        }
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (event != null && (
+            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
+        )) {
+            return super.dispatchGenericMotionEvent(event);
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    @Override
+    public ActionMode onWindowStartingActionMode(ActionMode.Callback callback, int type) {
+        return null;
+    }
+
+    @Override
+    public ActionMode onWindowStartingActionMode(ActionMode.Callback callback) {
+        return null;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        suppressSelectionHandles();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyEdgeToEdge();
         applyImmersiveFullscreen();
         Window window = getWindow();
         if (window != null) {
             window.getDecorView().post(this::applyImmersiveFullscreen);
         }
+        installCaptionBarInsets();
+        suppressSelectionHandles();
         installDropTarget();
         // Once, on the first launch: the settings screen that grants the app access to the device's
         // storage (the font folders the shell links included). Answered later, outside the app, so
         // the links the shell makes at startup are refreshed when the access arrives.
         requestStoragePermission();
-        imeSetup();
         handleIncomingFiles(getIntent());
         // Ask GitHub whether a newer builder release exists (a few seconds in, off the main
         // thread). The shared checker is installed next to this Activity by the builder.
@@ -261,7 +422,7 @@ public final class PhotoCraftActivity extends GameActivity {
     }
 
     /**
-     * On a real finish, end the process instead of running GameActivity's teardown: the game
+     * On a real finish, end the process instead of running NativeActivity's teardown: the game
      * glue's destroy handshake waits for the Rust thread to acknowledge the destroy, which
      * winit's Android backend doesn't do once eframe's loop has stopped -- the main thread
      * would hang there, and every later launch in this process with it, since winit's event
@@ -290,267 +451,18 @@ public final class PhotoCraftActivity extends GameActivity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             applyImmersiveFullscreen();
+            suppressSelectionHandles();
         }
     }
 
-    /**
-     * Install the invisible, focusable {@link EditText} that makes Android's soft keyboard usable.
-     * Called from {@link #onCreate}; failures are logged and leave the app on the old (unreliable)
-     * decor-view path, so a device that rejects the extra view still runs.
-     */
-    private void imeSetup() {
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyImmersiveFullscreen();
         try {
-            // The IME height must not resize or pan the fullscreen native surface; the keyboard
-            // simply overlays it. STATE_UNCHANGED keeps the initial hidden state under our control.
-            Window window = getWindow();
-            if (window != null) {
-                window.setSoftInputMode(
-                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                                | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
-            }
-            imeView = new EditText(this) {
-                @Override
-                public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-                    InputConnection base = super.onCreateInputConnection(outAttrs);
-                    if (base == null) {
-                        return null;
-                    }
-                    return new InputConnectionWrapper(base, true) {
-                        @Override
-                        public boolean commitText(CharSequence text, int newCursorPosition) {
-                            if (text != null && text.length() > 0) {
-                                queueImeEvent("c" + text);
-                            }
-                            return super.commitText(text, newCursorPosition);
-                        }
-
-                        @Override
-                        public boolean setComposingText(CharSequence text, int newCursorPosition) {
-                            queueImeEvent("p" + (text == null ? "" : text.toString()));
-                            return super.setComposingText(text, newCursorPosition);
-                        }
-
-                        @Override
-                        public boolean finishComposingText() {
-                            queueImeEvent("f");
-                            return super.finishComposingText();
-                        }
-
-                        @Override
-                        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-                            if (beforeLength > 0 || afterLength > 0) {
-                                if (claimDelete("d")) {
-                                    queueImeEvent("d" + beforeLength + "," + afterLength);
-                                }
-                            }
-                            return super.deleteSurroundingText(beforeLength, afterLength);
-                        }
-
-                        @Override
-                        public boolean performEditorAction(int actionCode) {
-                            queueImeEvent("a" + actionCode);
-                            return super.performEditorAction(actionCode);
-                        }
-
-                        @Override
-                        public boolean sendKeyEvent(KeyEvent event) {
-                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                                int code = event.getKeyCode();
-                                if (code == KeyEvent.KEYCODE_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d1,0");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d0,1");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    queueImeEvent("a6");
-                                }
-                            }
-                            // An IME answers some keys by sending a synthesised key event, and the
-                            // wrapper forwards it to the host view. Without this the host's
-                            // `onKeyDown` would return false and the event would bubble up to the
-                            // Activity, into GameActivity's native queue and out through winit as a
-                            // *second* deletion (a real Backspace) on top of the one queued above —
-                            // the double-delete. `onKeyDown`/`onKeyUp` use the flag to consume the
-                            // pair here, so neither reaches the native path.
-                            imeKeySynthesized.add(event.getKeyCode());
-                            return super.sendKeyEvent(event);
-                        }
-                    };
-                }
-
-                @Override
-                public boolean onKeyDown(int keyCode, KeyEvent event) {
-                    // A key the IME synthesised (see sendKeyEvent above): its deletion was already
-                    // queued, so consuming it here stops it bubbling to the Activity and reaching
-                    // winit as a second Backspace. Physical key events never carry the flag, so they
-                    // still fall through to the native queue below and keep working.
-                    if (imeKeySynthesized.contains(keyCode)) {
-                        return true;
-                    }
-                    // Let hardware key events fall through to the native input queue (winit), exactly
-                    // as they did before this view existed; the soft keyboard talks to us through the
-                    // InputConnection instead. This keeps physical keyboards working.
-                    return false;
-                }
-
-                @Override
-                public boolean onKeyUp(int keyCode, KeyEvent event) {
-                    if (imeKeySynthesized.remove(keyCode)) {
-                        return true;
-                    }
-                    return false;
-                }
-
-                @Override
-                public boolean onTouchEvent(android.view.MotionEvent event) {
-                    // Purely a keyboard target: never intercept touch, which belongs to the native
-                    // surface underneath.
-                    return false;
-                }
-            };
-            imeView.setBackground(null);
-            imeView.setCursorVisible(false);
-            imeView.setTextColor(0);
-            imeView.setAlpha(0.01f);
-            imeView.setSoundEffectsEnabled(false);
-            imeView.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-            imeView.setImeOptions(EditorInfo.IME_FLAG_NO_FULLSCREEN);
-            imeView.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1);
-            params.gravity = Gravity.TOP | Gravity.START;
-            addContentView(imeView, params);
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not install the soft-keyboard host view", error);
-        }
-    }
-
-    /** Show the soft keyboard by focusing the IME host view. Called by the Rust shell via JNI. */
-    public void imeShow() {
-        final EditText view = imeView;
-        if (view == null) {
-            return;
-        }
-        imeWanted = true;
-        runOnUiThread(() -> {
-            if (!imeWanted) {
-                return;
-            }
-            try {
-                view.setFocusable(true);
-                view.setFocusableInTouchMode(true);
-                view.requestFocus();
-                InputMethodManager imm =
-                        (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null && imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)) {
-                    return;
-                }
-                // Some devices ignore the request until focus and layout have settled; retry once on
-                // the next message-loop turn (guarded so a following hide wins).
-                view.post(() -> {
-                    if (!imeWanted) {
-                        return;
-                    }
-                    try {
-                        InputMethodManager retry =
-                                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                        if (retry != null) {
-                            retry.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
-                        }
-                    } catch (Throwable error) {
-                        Log.w(TAG, "Could not show the soft keyboard", error);
-                    }
-                });
-            } catch (Throwable error) {
-                Log.w(TAG, "Could not show the soft keyboard", error);
-            }
-        });
-    }
-
-    /** Hide the soft keyboard and release the IME host view. Called by the Rust shell via JNI. */
-    public void imeHide() {
-        imeWanted = false;
-        final EditText view = imeView;
-        if (view == null) {
-            return;
-        }
-        runOnUiThread(() -> {
-            try {
-                InputMethodManager imm =
-                        (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
-                }
-                view.clearFocus();
-                // Drop the scratch buffer between sessions so it cannot grow without bound.
-                view.setText("");
-            } catch (Throwable error) {
-                Log.w(TAG, "Could not hide the soft keyboard", error);
-            }
-        });
-    }
-
-    /**
-     * Queue one keyboard event for the Rust shell, and wake the native loop so the same frame
-     * reads it.
-     *
-     * The native loop (android-activity, then winit and eframe) sleeps in ALooper_pollOnce until
-     * something arrives, and from here only an input event on its own queue can wake it. A queued
-     * keyboard event is not an input event: it would wait in this queue until the loop next woke
-     * for another reason — the next frame timer, a touch, or egui's cursor blink, up to half a
-     * second later — which is the lag felt between a backspace and the character going away.
-     *
-     * GameActivity.onKeyDown hands a key event to the native queue (onKeyDownNative, whose glue
-     * calls ALooper_wake), so it is what wakes the loop. KEYCODE_UNKNOWN reaches winit as
-     * Key::Unidentified, which no widget acts on: the app sees a wake-up and nothing else. Both
-     * the press and the release go, or the key would look held down.
-     */
-    private void queueImeEvent(String event) {
-        imeEvents.offer(event);
-        try {
-            super.onKeyDown(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
-            super.onKeyUp(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
-        }
-    }
-
-    /**
-     * Whether a delete call should be handed to the shell, or dropped as the second half of one
-     * press an IME reported twice.
-     *
-     * Some IMEs answer one backspace with two different calls — `deleteSurroundingText(1,0)` and
-     * `sendKeyEvent(KEYCODE_DEL)`. They arrive back to back in the same dispatch, so a call of the
-     * *other* method within {@link #IME_DELETE_PAIR_MS} of this one is the repeat and is dropped.
-     * The same method twice is always allowed: two quick taps of one key are two deletions.
-     */
-    private boolean claimDelete(String method) {
-        long now = android.os.SystemClock.uptimeMillis();
-        long lastOther = "d".equals(method) ? lastImeDeleteKeyAt : lastImeDeleteSurroundingAt;
-        if (lastOther != 0L && now - lastOther < IME_DELETE_PAIR_MS) {
-            return false;
-        }
-        if ("d".equals(method)) {
-            lastImeDeleteSurroundingAt = now;
-        } else {
-            lastImeDeleteKeyAt = now;
-        }
-        return true;
-    }
-
-    /**
-     * Hand the Rust shell at most one queued keyboard event per call. The first character tags the
-     * event ("c" commit, "p" pre-edit, "f" finish, "d" delete-with-counts, "a" editor action) and
-     * the remainder is the payload; returns {@code null} when the queue is empty.
-     */
-    public String imePoll() {
-        return imeEvents.poll();
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable ignored) {}
     }
 
     /**

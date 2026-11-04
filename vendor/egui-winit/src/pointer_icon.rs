@@ -219,7 +219,7 @@ pub fn apply(cursor: egui::CursorIcon) {
         // a parent when the child has no icon of its own, so the icon has to land on the surface
         // view itself — setting it on an ancestor is silently ignored. Descend until a view has
         // no children; that leaf is the surface view.
-        let mut target = content;
+        let mut target = env.new_local_ref(&content)?;
         for _ in 0..8 {
             let child_count = match env
                 .call_method(&target, jni_str!("getChildCount"), jni_sig!("()I"), &[])
@@ -265,12 +265,24 @@ pub fn apply(cursor: egui::CursorIcon) {
             }
         }
 
-        env.call_method(
+        let _ = env.call_method(
             &target,
             jni_str!("setPointerIcon"),
             jni_sig!("(Landroid/view/PointerIcon;)V"),
             &[jni::objects::JValue::Object(&icon)],
-        )?;
+        );
+        let _ = env.call_method(
+            &content,
+            jni_str!("setPointerIcon"),
+            jni_sig!("(Landroid/view/PointerIcon;)V"),
+            &[jni::objects::JValue::Object(&icon)],
+        );
+        let _ = env.call_method(
+            &decor,
+            jni_str!("setPointerIcon"),
+            jni_sig!("(Landroid/view/PointerIcon;)V"),
+            &[jni::objects::JValue::Object(&icon)],
+        );
         Ok(())
     });
     if let Err(err) = res {
