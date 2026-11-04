@@ -23,6 +23,7 @@ Options:
   -appname=<name>     Override the display name (default: app's built-in title)
   -packagename=<pkg>  Override the Android package (default: com.artcraft.<app>)
   -appicon=<path>     Use a custom launcher icon PNG (default: app's own icon)
+  --noupdate          Skip checking for and downloading newer source
   -h, --help          Show this help
 
 App names:
@@ -56,9 +57,14 @@ APPNAME=""
 PACKAGENAME=""
 APPICON=""
 BUILD_SOURCE="${BUILD_SOURCE:-stable}"
+UPDATE_SOURCE="${UPDATE_SOURCE:-true}"
 RAW_APP=""
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
+        --noupdate|-noupdate)
+            UPDATE_SOURCE="false"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -500,9 +506,51 @@ if [[ -e "$SRC" ]]; then
     if ! source_tree_is_complete "$SRC"; then
         fail "$SRC is an incomplete checkout: some files of the workspace are missing on disk. That happens when a clone is interrupted (a killed build, or a full disk). Move $SRC aside and run the build again to re-clone it."
     fi
-    echo "Reusing existing source checkout (including your Android port changes)."
+    if [[ "$UPDATE_SOURCE" == "true" ]]; then
+        echo "Checking for upstream source updates for $TITLE ($REPO)..."
+        LATEST_REF=""
+        if [[ "$BUILD_SOURCE" == "stable" ]]; then
+            LATEST_TAG="$(git ls-remote --tags --sort=-v:refname "$REPO" 'v*' 2>/dev/null | grep -v '\^{}' | head -n 1 | awk '{print $2}' | sed 's|refs/tags/||' || true)"
+            if [[ -n "$LATEST_TAG" ]]; then
+                LATEST_REF="$LATEST_TAG"
+            fi
+        elif [[ "$BUILD_SOURCE" != "main" && "$BUILD_SOURCE" != "master" && "$BUILD_SOURCE" != "latest" && -n "$BUILD_SOURCE" ]]; then
+            LATEST_REF="$BUILD_SOURCE"
+        fi
+
+        CURRENT_TAG="$(git -C "$SRC" describe --tags --exact-match 2>/dev/null || true)"
+        CURRENT_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+        IS_OUTDATED=false
+
+        if [[ -n "$LATEST_REF" ]]; then
+            if [[ "$CURRENT_TAG" != "$LATEST_REF" ]]; then
+                IS_OUTDATED=true
+            fi
+        else
+            REMOTE_HEAD="$(git ls-remote "$REPO" HEAD 2>/dev/null | awk '{print $1}')"
+            if [[ -n "$REMOTE_HEAD" && "$CURRENT_COMMIT" != "$REMOTE_HEAD" ]]; then
+                IS_OUTDATED=true
+                LATEST_REF="$REMOTE_HEAD"
+            fi
+        fi
+
+        if [[ "$IS_OUTDATED" == "true" ]]; then
+            echo "Current source (${CURRENT_TAG:-${CURRENT_COMMIT:0:7}}) is outdated compared to upstream ($LATEST_REF). Updating..."
+            git -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -C "$SRC" fetch origin >/dev/null 2>&1
+            if git -C "$SRC" checkout -f "$LATEST_REF" >/dev/null 2>&1; then
+                rm -rf "$SRC/apps/$APP-android"
+                echo "Successfully updated $TITLE source to $LATEST_REF ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true))."
+            else
+                echo "Warning: Could not checkout $LATEST_REF; continuing with existing source."
+            fi
+        else
+            echo "Current source is up to date (${CURRENT_TAG:-${CURRENT_COMMIT:0:7}})."
+        fi
+    else
+        echo "Skipping update check (--noupdate passed)."
+        echo "Reusing existing source checkout."
+    fi
     echo "Ref/Commit: $(git -C "$SRC" describe --tags --always 2>/dev/null || git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    echo "Source is not automatically reset or updated."
 else
     # The clone goes into a scratch directory first and is only moved into place once the tree
     # has been verified, so an interrupted clone can never become the checkout a later build
@@ -972,6 +1020,40 @@ RFD_SAF_SETUP = '''
             rfd::artcraft_saf::Kind::Open { multiple } => { launcher_bridge.request_open(id, multiple).ok(); }
             rfd::artcraft_saf::Kind::Save(ref name) => { launcher_bridge.request_save(id, name).ok(); }
             rfd::artcraft_saf::Kind::Folder => { launcher_bridge.request_folder(id).ok(); }
+        }
+    }));
+    let blocking_bridge = saf_bridge.clone_ref();
+    let blocking_state = std::sync::Arc::clone(&saf_state);
+    rfd::artcraft_saf::install_blocking(std::sync::Arc::new(move |kind| {
+        let id = saf_next_id(&blocking_state);
+        let answer = match kind {
+            rfd::artcraft_saf::Kind::Open { multiple } => {
+                let answer = blocking_bridge.pick_open_blocking(id, multiple, saf::PICK_TIMEOUT);
+                if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
+                    for path in paths {
+                        blocking_state.mirror.track(id, path);
+                    }
+                }
+                answer
+            }
+            rfd::artcraft_saf::Kind::Save(ref name) => {
+                let answer = blocking_bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT);
+                if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
+                    if let Some(path) = paths.first() {
+                        blocking_state.mirror.track(id, path);
+                    }
+                }
+                answer
+            }
+            rfd::artcraft_saf::Kind::Folder => blocking_bridge.pick_folder_blocking(id, saf::PICK_TIMEOUT),
+        };
+        match answer {
+            Ok(saf::PickAnswer::Paths(paths)) => Some(paths.into_iter().map(std::path::PathBuf::from).collect()),
+            Ok(saf::PickAnswer::Cancelled) => None,
+            Err(error) => {
+                log::error!("File picker failed: {error}");
+                None
+            }
         }
     }));
 '''
@@ -2956,6 +3038,13 @@ intent_filter = {intent_filter_value}
         if (app == "solidcraft" or is_eframe_36)
         else '["wgpu", "persistence", "clipboard"]'
     )
+    soundcraft_permission = ""
+    if app == "soundcraft":
+        soundcraft_permission = """
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"
+"""
+
     manifest = f'''[package]
 name = "{app}-android"
 version.workspace = true
@@ -3012,6 +3101,7 @@ name = "android.permission.INTERNET"
 # Audio input for recording (SoundCraft only). Required at runtime;
 # cpal's AAudio backend requests the input stream only if the app opens it, but Android rejects
 # the stream without the manifest permission.
+{soundcraft_permission}
 
 [package.metadata.android.application]
 label = "{title}"
@@ -3821,6 +3911,14 @@ impl eframe::App for AndroidShell {{
         # CADCraft's file formats have to be in place before the app opens anything.
         "cadcraft": "            install_cadcraft_io();\n",
         "materialcraft": "            materialcraft_ui_egui::theme::install(&cc.egui_ctx);\n",
+        "solidcraft": """            solidcraft_ui_egui::fonts::setup_bundled_fonts(&cc.egui_ctx);
+            if let Some(rs) = &cc.wgpu_render_state {
+                let supported = eframe::egui_wgpu::supported_msaa_samples(&rs.adapter, &rs.device, rs.target_format, None);
+                let samples = if supported.contains(&4) { 4 } else if supported.contains(&2) { 2 } else { 1 };
+                shell.inner.set_wgpu_split(rs, 24, 8, samples);
+                solidcraft_ui_egui::gpu::install_picture_renderer(rs);
+            }
+""",
     }.get(app, "")
     theme_line = (
         "            cc.egui_ctx.set_theme(egui::ThemePreference::System);\n"
@@ -3844,7 +3942,10 @@ impl eframe::App for AndroidShell {{
             + create_hook
             + "            Ok(Box::new(shell))\n        })"
         )
-        outer_construct = f"{saf_setup}    {inner_decl} = {construct_expr};\n{post_construct}    let shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);\n"
+        shell_decl = "let mut shell" if (app == "solidcraft" or "shell." in create_hook) else "let shell"
+        outer_construct = f"{saf_setup}    {inner_decl} = {construct_expr};\n{post_construct}    {shell_decl} = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);\n"
+
+    soundcraft_mic = "    saf_bridge.request_microphone_permission();\n" if app == "soundcraft" else ""
 
     if saf:
         entry = f'''//! Generated Android launcher for {title}.
@@ -3873,7 +3974,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 {persist_env_call}    system_fonts::install_font_env(&android_app);
     let saf_bridge = saf::Bridge::new(&android_app);
     saf_bridge.request_storage_permission();
-    let saf_state = saf_new_state();
+{soundcraft_mic}    let saf_state = saf_new_state();
     let saf_inbox = SafInbox::default();
 {outer_construct}    let mut options = eframe::NativeOptions {{
         renderer: eframe::Renderer::Wgpu,

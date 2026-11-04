@@ -102,6 +102,24 @@ mod saf {
             }
         }
 
+        /// Ask the Activity for microphone / audio recording permission (SoundCraft).
+        pub fn request_microphone_permission(&self) {
+            let result = self.vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+                let activity_raw = self.app.activity_as_ptr() as jni::sys::jobject;
+                let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+                env.call_method(
+                    &*activity,
+                    jni_str!("safRequestMicrophonePermission"),
+                    jni_sig!("()V"),
+                    &[],
+                )?;
+                Ok(())
+            });
+            if let Err(error) = result {
+                log::error!("Could not request Android microphone access: {error}");
+            }
+        }
+
         pub fn request_open(&self, id: u64, multiple: bool) -> Result<(), String> {
             self.vm
                 .attach_current_thread(|env| -> jni::errors::Result<()> {

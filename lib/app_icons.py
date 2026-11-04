@@ -232,7 +232,7 @@ def _strip_background(im, pristine):
         for y in (offset, WORK_PX - 1 - offset)
         if px[x, y][3] > 150
     ]
-    if not border:
+    if not border or len(border) < ((WORK_PX // 2) * 4) * 0.3:
         return pristine, False
     (br, bg, bb), _n = Counter(border).most_common(1)[0]
 
@@ -303,7 +303,7 @@ def _write_legacy(source: Path, work, res_dir: Path) -> None:
     """The flat density icons file managers and non-adaptive surfaces still read."""
     Image, _ = _pillow()
     base = work
-    if source.suffix.lower() != ".svg":
+    if source.suffix.lower() != ".svg" and work.getpixel((0, 0))[3] == 0:
         try:
             base = Image.open(source).convert("RGBA")
         except Exception:
@@ -324,6 +324,11 @@ def generate(src: Path, app: str, res_dir: Path, explicit: Path = None) -> Path:
     work = _raster(source)
     color = _background_color(Image, work)
     pristine = work.copy()
+    if app == "solidcraft":
+        color = "#000000"
+        bg = Image.new("RGBA", pristine.size, (0, 0, 0, 255))
+        bg.alpha_composite(pristine)
+        pristine = bg
     stripped, _changed = _strip_background(work, pristine=pristine)
     foreground = _foreground(Image, stripped)
 
