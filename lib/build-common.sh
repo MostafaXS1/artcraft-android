@@ -2942,6 +2942,16 @@ intent_filter = {intent_filter_value}
     except (KeyError, TypeError):
         app_version = "0.0.0"
     apk_basename = f"{app}-{app_version}"
+    ws_manifest_text = root_manifest.read_text(errors="replace")
+    is_eframe_36 = bool(
+        re.search(r'eframe\s*=\s*\{[^}]*version\s*=\s*"=?0\.36', ws_manifest_text)
+        or re.search(r'eframe\s*=\s*"=?0\.36', ws_manifest_text)
+    )
+    eframe_features = (
+        '["wgpu", "persistence"]'
+        if (app == "solidcraft" or is_eframe_36)
+        else '["wgpu", "persistence", "clipboard"]'
+    )
     manifest = f'''[package]
 name = "{app}-android"
 version.workspace = true
@@ -2954,7 +2964,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
-eframe = {{ workspace = true, default-features = false, features = ["wgpu", "persistence", "clipboard"] }}
+eframe = {{ workspace = true, default-features = false, features = {eframe_features} }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
