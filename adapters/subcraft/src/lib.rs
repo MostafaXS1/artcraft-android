@@ -252,6 +252,7 @@ fn install_saf_launcher(bridge: saf::Bridge, state: Arc<SafState>) {
     }));
 }
 
+#[allow(dead_code)]
 /// Diff keyboard text into the edit egui understands.
 fn ime_diff(prev: &str, now: &str) -> (usize, String, bool) {
     let common = prev.chars().zip(now.chars()).take_while(|(a, b)| a == b).count();
@@ -262,6 +263,7 @@ fn ime_diff(prev: &str, now: &str) -> (usize, String, bool) {
     (backspaces, insert, enter)
 }
 
+#[allow(dead_code)]
 fn ime_events(edit: &(usize, String, bool)) -> Vec<egui::Event> {
     let (backspaces, insert, enter) = edit.clone();
     let key = |key| egui::Event::Key {
@@ -307,6 +309,7 @@ impl SubCraftAndroidApp {
     /// winit opens the soft keyboard for a focused text field but drops GameActivity's text
     /// events, so the shell drains the keyboard's own text state. While a field has focus the
     /// buffer is polled every frame and a change becomes Backspace/Text/Enter events.
+    #[allow(dead_code)]
     fn poll_ime(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         // A focused egui field, or text the app edits on its canvas: the canvas asks for the
         // keyboard through egui's IME output instead of focusing a field.
@@ -378,7 +381,6 @@ impl eframe::App for SubCraftAndroidApp {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         ensure_screen_rect(&self.app, ctx, raw);
-        self.poll_ime(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.state.mirror.sync(&self.bridge);
