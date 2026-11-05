@@ -1,6 +1,7 @@
 package com.artcraft.subcraft;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;

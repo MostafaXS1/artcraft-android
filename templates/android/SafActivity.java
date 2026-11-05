@@ -752,10 +752,39 @@ public final class __CLASS__ extends NativeActivity {
         suppressSelectionHandles();
     }
 
+    private void extractAssetsIfNeeded() {
+        try {
+            File[] targetDirs = {
+                new File(getFilesDir(), "models"),
+                new File(appStorageDir(), "models")
+            };
+            String[] models = {"text-detection.onnx", "text-recognition.onnx"};
+            for (File modelsDir : targetDirs) {
+                if (!modelsDir.exists()) modelsDir.mkdirs();
+                for (String model : models) {
+                    File target = new File(modelsDir, model);
+                    if (!target.exists() || target.length() == 0) {
+                        try (InputStream in = getAssets().open("models/" + model);
+                             OutputStream out = new FileOutputStream(target)) {
+                            byte[] buf = new byte[64 * 1024];
+                            int read;
+                            while ((read = in.read(buf)) != -1) {
+                                out.write(buf, 0, read);
+                            }
+                            out.flush();
+                            Log.i(TAG, "Extracted asset: " + target.getAbsolutePath() + " (" + target.length() + " bytes)");
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setupAudioRouting();
+        extractAssetsIfNeeded();
         applyEdgeToEdge();
         applyImmersiveFullscreen();
         Window window = getWindow();

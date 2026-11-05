@@ -2659,6 +2659,26 @@ fn install_persist_env(app: &AndroidApp) {
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
+        let internal = app.internal_data_path().map(|p| p.join("models")).unwrap_or_else(|| base.join("models"));
+        let external = base.join("models");
+        if !internal.join("text-detection.onnx").is_file() || !internal.join("text-recognition.onnx").is_file() {
+            let _ = std::fs::create_dir_all(&internal);
+            for name in ["text-detection.onnx", "text-recognition.onnx"] {
+                if let Ok(cname) = std::ffi::CString::new(format!("models/{name}")) {
+                    if let Some(mut asset) = app.asset_manager().open(&cname) {
+                        let dest = internal.join(name);
+                        if let Ok(mut f) = std::fs::File::create(&dest) {
+                            let _ = std::io::copy(&mut asset, &mut f);
+                        }
+                    }
+                }
+            }
+        }
+        if internal.join("text-detection.onnx").is_file() {
+            std::env::set_var("PDFCRAFT_MODELS", &internal);
+        } else {
+            std::env::set_var("PDFCRAFT_MODELS", &external);
+        }
     }
     log::info!("settings directory: {}", config.display());
 }
@@ -4795,6 +4815,19 @@ if [[ -f "$CRAFT_FONTS_DIR/fonts/manifest.txt" ]]; then
     # absolute, so it does not matter where the build runs from.
     export CRAFT_FONTS_DIR
     echo "  -> embedding the craft-fonts faces ($(grep -cve '^#' -e '^$' "$CRAFT_FONTS_DIR/fonts/manifest.txt") of them)"
+fi
+
+if [[ "$APP" == "pdfcraft" ]]; then
+    MODELS_DIR="$ROOT/$SRC/assets/models"
+    if [[ ! -f "$MODELS_DIR/text-detection.onnx" || ! -f "$MODELS_DIR/text-recognition.onnx" ]]; then
+        echo "Fetching OCR models for PdfCraft..."
+        mkdir -p "$MODELS_DIR"
+        curl -sSL "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.onnx" -o "$MODELS_DIR/text-detection.onnx" || true
+        curl -sSL "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.onnx" -o "$MODELS_DIR/text-recognition.onnx" || true
+    fi
+    if [[ -f "$MODELS_DIR/text-detection.onnx" && -f "$MODELS_DIR/text-recognition.onnx" ]]; then
+        echo "  -> packaging OCR models for PdfCraft"
+    fi
 fi
 
 # The Gradle project, AndroidManifest.xml and theme resource are regenerated from the launcher's
