@@ -376,6 +376,13 @@ impl AndroidAppInner {
         let res = self
             .jvm
             .attach_current_thread(|env| -> jni::errors::Result<()> {
+                match env.call_method(self.activity.as_ref(), jni::jni_str!("imeShow"), jni::jni_sig!("()V"), &[]) {
+                    Ok(_) => return Ok(()),
+                    Err(_) => {
+                        let _ = env.exception_clear();
+                    }
+                }
+
                 let activity = env.as_cast::<Activity>(self.activity.as_ref())?;
 
                 let ims = Context::INPUT_METHOD_SERVICE(env)?;
@@ -410,6 +417,13 @@ impl AndroidAppInner {
         let res = self
             .jvm
             .attach_current_thread(|env| -> jni::errors::Result<()> {
+                match env.call_method(self.activity.as_ref(), jni::jni_str!("imeHide"), jni::jni_sig!("()V"), &[]) {
+                    Ok(_) => return Ok(()),
+                    Err(_) => {
+                        let _ = env.exception_clear();
+                    }
+                }
+
                 let activity = env.as_cast::<Activity>(self.activity.as_ref())?;
 
                 let ims = Context::INPUT_METHOD_SERVICE(env)?;

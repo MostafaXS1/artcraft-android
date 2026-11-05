@@ -24,6 +24,8 @@ pub mod clipboard;
 mod dropped_file;
 #[cfg(target_os = "android")]
 pub mod android_activity;
+#[cfg(target_os = "android")]
+pub mod ime;
 pub mod open_url;
 mod pointer_icon;
 mod safe_area;
@@ -346,6 +348,45 @@ impl State {
         #[cfg(target_os = "android")]
         {
             self.egui_input.system_theme = crate::system_theme::system_theme();
+            if self.allow_ime {
+                self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
+            for ev in crate::ime::android::poll_all_ime_events() {
+                if ev == "\x08" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                } else if ev == "\n" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    self.egui_input.events.push(egui::Event::Text("\n".to_string()));
+                } else {
+                    self.egui_input.events.push(egui::Event::Text(ev));
+                }
+            }
         }
         self.check_hold_to_right_click_timer();
 

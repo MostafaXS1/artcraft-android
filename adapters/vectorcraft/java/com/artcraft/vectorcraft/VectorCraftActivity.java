@@ -30,8 +30,15 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import android.app.NativeActivity;
+import android.content.Context;
 import android.content.res.Configuration;
+import android.text.InputType;
 import android.view.KeyEvent;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -76,6 +83,163 @@ public final class VectorCraftActivity extends NativeActivity {
     private int captionBarPadding = 0;
     private boolean lightTheme = false;
     private View.OnApplyWindowInsetsListener chainedInsetsListener;
+
+    private final ConcurrentLinkedQueue<String> imeQueue = new ConcurrentLinkedQueue<>();
+    private ArtCraftInputView inputView;
+
+    public void onImeCommit(String text) {
+        if (text == null || text.isEmpty()) return;
+        imeQueue.add(text);
+    }
+
+    public void onImeDelete() {
+        imeQueue.add("\b");
+    }
+
+    public void onImeEnter() {
+        imeQueue.add("\n");
+    }
+
+    public String pollIme() {
+        return imeQueue.poll();
+    }
+
+    public void imeShow() {
+        runOnUiThread(() -> {
+            try {
+                if (inputView != null) {
+                    inputView.requestFocus();
+                    InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) {
+                        imm.showSoftInput(inputView, 0);
+                    }
+                }
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    public void imeHide() {
+        runOnUiThread(() -> {
+            try {
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    View decor = getWindow() != null ? getWindow().getDecorView() : null;
+                    if (decor != null) {
+                        imm.hideSoftInputFromWindow(decor.getWindowToken(), 0);
+                    }
+                }
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    private void installInputView() {
+        try {
+            Window window = getWindow();
+            if (window == null) return;
+            View decor = window.getDecorView();
+            ViewGroup content = decor.findViewById(android.R.id.content);
+            if (content != null && inputView == null) {
+                inputView = new ArtCraftInputView(this);
+                content.addView(inputView, new ViewGroup.LayoutParams(1, 1));
+                inputView.setFocusable(true);
+                inputView.setFocusableInTouchMode(true);
+                inputView.requestFocus();
+            }
+        } catch (Throwable e) {
+            Log.e(TAG, "Failed to install input view", e);
+        }
+    }
+
+    private final class ArtCraftInputView extends View {
+        public ArtCraftInputView(Context context) {
+            super(context);
+            setFocusable(true);
+            setFocusableInTouchMode(true);
+            setVisibility(View.VISIBLE);
+            setWillNotDraw(true);
+        }
+
+        @Override
+        public boolean onCheckIsTextEditor() {
+            return true;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            return false;
+        }
+
+        @Override
+        public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+            return new BaseInputConnection(this, false) {
+                private String composingText = "";
+
+                @Override
+                public boolean commitText(CharSequence text, int newCursorPosition) {
+                    if (text != null && text.length() > 0) {
+                        if (!composingText.isEmpty()) {
+                            for (int i = 0; i < composingText.length(); i++) onImeDelete();
+                            composingText = "";
+                        }
+                        onImeCommit(text.toString());
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                    if (text != null && text.length() > 0) {
+                        String newComp = text.toString();
+                        if (!composingText.isEmpty()) {
+                            for (int i = 0; i < composingText.length(); i++) onImeDelete();
+                        }
+                        composingText = newComp;
+                        onImeCommit(newComp);
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean finishComposingText() {
+                    composingText = "";
+                    return true;
+                }
+
+                @Override
+                public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+                    for (int i = 0; i < beforeLength; i++) onImeDelete();
+                    composingText = "";
+                    return true;
+                }
+
+                @Override
+                public boolean sendKeyEvent(KeyEvent event) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        if (event.getKeyCode() == KeyEvent.KEYCODE_DEL) {
+                            onImeDelete();
+                            return true;
+                        } else if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                            onImeEnter();
+                            return true;
+                        }
+                    } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                        if (event.getKeyCode() == KeyEvent.KEYCODE_DEL || event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                            return true;
+                        }
+                    }
+                    return super.sendKeyEvent(event);
+                }
+
+                @Override
+                public boolean performEditorAction(int actionCode) {
+                    onImeEnter();
+                    return true;
+                }
+            };
+        }
+    }
 
     // Documents the system asked this app to open (an ACTION_VIEW/ACTION_SEND it is registered for):
     // the private path of each staged copy, drained one per call by the Rust shell through
@@ -424,6 +588,7 @@ public final class VectorCraftActivity extends NativeActivity {
         installCaptionBarInsets();
         suppressSelectionHandles();
         installDropTarget();
+        installInputView();
         // Once, on the first launch: the settings screen that grants the app access to the device's
         // storage (the font folders the shell links included). Answered later, outside the app, so
         // the links the shell makes at startup are refreshed when the access arrives.
@@ -475,6 +640,9 @@ public final class VectorCraftActivity extends NativeActivity {
         if (hasFocus) {
             applyImmersiveFullscreen();
             suppressSelectionHandles();
+            if (inputView != null && !inputView.isFocused()) {
+                inputView.requestFocus();
+            }
         }
     }
 
