@@ -4186,6 +4186,12 @@ PY
     echo "  -> installed the update checker (builder version $BUILDER_VERSION)"
 fi
 
+IME_DIR="$ANDROID_DIR/java/com/artcraft/ime"
+if [[ -d "$ANDROID_DIR/java" ]]; then
+    mkdir -p "$IME_DIR"
+    cp "$ROOT/templates/android/ArtCraftIme.java" "$IME_DIR/ArtCraftIme.java"
+fi
+
 [[ -f "$ANDROID_DIR/Cargo.toml" && -f "$ANDROID_DIR/src/lib.rs" ]] || fail "Android wrapper is incomplete at $ANDROID_DIR. See the build log and adapters/README.md."
 
 # WordCraft's soft-keyboard Backspace-at-the-start-of-a-paragraph fix is applied by its own

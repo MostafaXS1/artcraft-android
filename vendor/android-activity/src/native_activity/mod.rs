@@ -34,6 +34,18 @@ pub const LOOPER_ID_MAIN: libc::c_int = 1;
 pub const LOOPER_ID_INPUT: libc::c_int = 2;
 //pub const LOOPER_ID_USER: ::std::os::raw::c_uint = 3;
 
+static WAKER: std::sync::OnceLock<crate::waker::AndroidAppWaker> = std::sync::OnceLock::new();
+
+#[no_mangle]
+pub extern "system" fn Java_com_artcraft_ime_ArtCraftIme_wake(
+    _env: *mut libc::c_void,
+    _class: *mut libc::c_void,
+) {
+    if let Some(waker) = WAKER.get() {
+        waker.wake();
+    }
+}
+
 /// An interface for saving application state during [MainEvent::SaveState] events
 ///
 /// This interface is only available temporarily while handling a [MainEvent::SaveState] event.
@@ -105,6 +117,8 @@ impl AndroidApp {
                     input_receiver: Mutex::new(None),
                 })),
             };
+
+            let _ = WAKER.set(app.create_waker());
 
             {
                 let guard = app.inner.write().unwrap();

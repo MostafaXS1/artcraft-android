@@ -115,14 +115,23 @@ public final class __CLASS__ extends NativeActivity {
     public void onImeCommit(String text) {
         if (text == null || text.isEmpty()) return;
         imeQueue.add(text);
+        try {
+            com.artcraft.ime.ArtCraftIme.wake();
+        } catch (Throwable ignored) {}
     }
 
     public void onImeDelete() {
         imeQueue.add("\b");
+        try {
+            com.artcraft.ime.ArtCraftIme.wake();
+        } catch (Throwable ignored) {}
     }
 
     public void onImeEnter() {
         imeQueue.add("\n");
+        try {
+            com.artcraft.ime.ArtCraftIme.wake();
+        } catch (Throwable ignored) {}
     }
 
     public String pollIme() {

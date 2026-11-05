@@ -1422,18 +1422,9 @@ impl<T: 'static> EventLoop<T> {
 
             match poll_event {
                 android_activity::PollEvent::Wake => {
-                    // In the X11 backend it's noted that too many false-positive wake ups
-                    // would cause the event loop to run continuously. They handle this by
-                    // re-checking for pending events (assuming they cover all
-                    // valid reasons for a wake up).
-                    //
-                    // For now, user_events and redraw_requests are the only reasons to expect
-                    // a wake up here so we can ignore the wake up if there are no events/requests.
-                    // We also ignore wake ups while suspended.
-                    self.pending_redraw |= self.redraw_flag.get_and_reset();
-                    if !self.running
-                        || (!self.pending_redraw && !self.user_events_receiver.has_incoming())
-                    {
+                    self.pending_redraw = true;
+                    let _ = self.redraw_flag.get_and_reset();
+                    if !self.running {
                         return;
                     }
                 }
