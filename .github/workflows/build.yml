@@ -41,7 +41,7 @@ jobs:
     env:
       RUSTC_WRAPPER: "sccache"
       SCCACHE_DIR: "/home/runner/.cache/sccache"
-      SCCACHE_CACHE_SIZE: "2G"
+      SCCACHE_CACHE_SIZE: "5G"
     strategy:
       fail-fast: false
       matrix:
@@ -162,7 +162,9 @@ jobs:
           BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
           RUSTC_WRAPPER: sccache
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "2"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
           CARGO_PROFILE_RELEASE_DEBUG: "false"
         run: |
           mkdir -p logs output

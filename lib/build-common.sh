@@ -468,6 +468,14 @@ if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep 
     fail "Rust target is missing. Install it once with: rustup target add aarch64-linux-android"
 fi
 
+# Compilation profile optimizations: fast builds, low memory consumption on 2-vCPU / 4GB RAM machines,
+# and stripping leftover debug symbols to keep APK sizes minimal without slow link-time optimization (ThinLTO).
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-16}"
+export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-off}"
+export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-2}"
+export CARGO_PROFILE_RELEASE_STRIP="${CARGO_PROFILE_RELEASE_STRIP:-true}"
+export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-false}"
+
 say 3 "Fetching official source for $TITLE..."
 
 # A checkout is only usable when every tracked file of the workspace is actually on disk.
