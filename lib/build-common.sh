@@ -693,6 +693,131 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/window_ui.rs (swap_fields pattern)")
 
+elif app == "lightcraft":
+    # Interactive slider / curve performance on Android:
+    # 1. Whole-frame drafts on high-DPI Android screens rendered at full 2560px canvas resolution,
+    #    consuming huge memory bandwidth and 80-150ms per draft on mobile GPUs/CPUs. Cap mobile
+    #    interactive drafts to 960px (and 0.35 CPU draft scale) for fluid 60-120 FPS slider updates.
+    if fix(
+        "crates/ui-egui/src/region.rs",
+        '/// Size of a slider drag\'s whole-frame draft when full size would be too slow (the CPU renders\n'
+        '/// it, or full-size drafts of this drag went over [`DRAFT_BUDGET_MS`]), against the render at rest.\n'
+        'pub const CPU_DRAFT_SCALE: f32 = 0.6;\n',
+        '/// Size of a slider drag\'s whole-frame draft when full size would be too slow (the CPU renders\n'
+        '/// it, or full-size drafts of this drag went over [`DRAFT_BUDGET_MS`]), against the render at rest.\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub const CPU_DRAFT_SCALE: f32 = 0.35;\n'
+        '#[cfg(not(target_os = "android"))]\n'
+        'pub const CPU_DRAFT_SCALE: f32 = 0.6;\n'
+        '\n'
+        '/// The maximum long edge for whole-frame drafts during interactive dragging on mobile.\n'
+        '/// Keeps draft rendering within ~2-5 ms on mobile GPUs and drastically reduces memory bandwidth.\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub const DRAFT_EDGE_MAX: usize = 960;\n'
+        '#[cfg(not(target_os = "android"))]\n'
+        'pub const DRAFT_EDGE_MAX: usize = usize::MAX;\n',
+    ):
+        fixed.append("crates/ui-egui/src/region.rs (mobile draft constants)")
+
+    if fix(
+        "crates/ui-egui/src/region.rs",
+        '    if !v.windows {\n'
+        '        // the whole frame at the size it is drawn (a whole-frame diagnostic has no\n'
+        '        // window); while a slider drags, a canvas-sized draft as with windows: a drag at 1:1 must\n'
+        '        // not render the photo\'s every pixel each frame\n'
+        '        let long = if v.draft.is_some() { drawn_long.min(canvas_long) } else { drawn_long };\n'
+        '        let main_edge = settings.loupe_edge(long * scale, v.native_long, v.texture_side);\n'
+        '        return LoupePlan { main_edge, window_edge: None };\n'
+        '    }\n'
+        '    // a user who chose a size above the preview source level (3840, 5120) means it; otherwise the\n'
+        '    // original is not decoded for the whole-frame render\n'
+        '    let source_cap = if settings.preview_limit == 0 { lightcraft_engine::SourceLevel::Preview.max_edge() } else { settings.preview_limit as usize };\n'
+        '    let edge_at = |scale: f32| settings.loupe_edge(drawn_long.min(canvas_long) * scale, v.native_long, v.texture_side).min(source_cap);\n'
+        '    let frame_edge = settings.window_frame_edge(drawn_long, v.native_long);\n'
+        '    // a user who capped the preview size has chosen speed over sharpness at fit\n'
+        '    let fit = drawn_long <= canvas_long * 1.05;\n'
+        '    // (against the undrafted whole-frame render: a drag must not switch the window off and on)\n'
+        '    let window_edge = (frame_edge as f32 > edge_at(1.0) as f32 * WINDOW_RATIO && !(fit && settings.preview_limit != 0)).then_some(frame_edge);\n'
+        '    // with a window over it, the whole-frame draft is hidden (it feeds the histogram and stands in\n'
+        '    // where the window has no pixels yet): the small draft does, and the window keeps the frame time\n'
+        '    let scale = if window_edge.is_some() && v.draft.is_some() { scale.min(CPU_DRAFT_SCALE) } else { scale };\n'
+        '    LoupePlan { main_edge: edge_at(scale), window_edge }',
+        '    if !v.windows {\n'
+        '        // the whole frame at the size it is drawn (a whole-frame diagnostic has no\n'
+        '        // window); while a slider drags, a canvas-sized draft as with windows: a drag at 1:1 must\n'
+        '        // not render the photo\'s every pixel each frame\n'
+        '        let long = if v.draft.is_some() { drawn_long.min(canvas_long) } else { drawn_long };\n'
+        '        let mut main_edge = settings.loupe_edge(long * scale, v.native_long, v.texture_side);\n'
+        '        if v.draft.is_some() {\n'
+        '            main_edge = main_edge.min(DRAFT_EDGE_MAX);\n'
+        '        }\n'
+        '        return LoupePlan { main_edge, window_edge: None };\n'
+        '    }\n'
+        '    // a user who chose a size above the preview source level (3840, 5120) means it; otherwise the\n'
+        '    // original is not decoded for the whole-frame render\n'
+        '    let source_cap = if settings.preview_limit == 0 { lightcraft_engine::SourceLevel::Preview.max_edge() } else { settings.preview_limit as usize };\n'
+        '    let edge_at = |scale: f32| settings.loupe_edge(drawn_long.min(canvas_long) * scale, v.native_long, v.texture_side).min(source_cap);\n'
+        '    let frame_edge = settings.window_frame_edge(drawn_long, v.native_long);\n'
+        '    // a user who capped the preview size has chosen speed over sharpness at fit\n'
+        '    let fit = drawn_long <= canvas_long * 1.05;\n'
+        '    // (against the undrafted whole-frame render: a drag must not switch the window off and on)\n'
+        '    let window_edge = (frame_edge as f32 > edge_at(1.0) as f32 * WINDOW_RATIO && !(fit && settings.preview_limit != 0)).then_some(frame_edge);\n'
+        '    // with a window over it, the whole-frame draft is hidden (it feeds the histogram and stands in\n'
+        '    // where the window has no pixels yet): the small draft does, and the window keeps the frame time\n'
+        '    let scale = if window_edge.is_some() && v.draft.is_some() { scale.min(CPU_DRAFT_SCALE) } else { scale };\n'
+        '    let mut main_edge = edge_at(scale);\n'
+        '    if v.draft.is_some() {\n'
+        '        main_edge = main_edge.min(DRAFT_EDGE_MAX);\n'
+        '    }\n'
+        '    LoupePlan { main_edge, window_edge }',
+    ):
+        fixed.append("crates/ui-egui/src/region.rs (clamp mobile draft to DRAFT_EDGE_MAX)")
+
+    # 2. `wait_for_draft` lockout: previous render at rest (25-50ms) made `last_main_ms * 1.5 >= budget`
+    #    fail on the first draft frame, so wait_for_draft never waited during drags. On Android, wait
+    #    when GPU is available so fast 960px drafts show in the very same frame without backlog lag.
+    if fix(
+        "crates/ui-egui/src/render.rs",
+        '    #[cfg(not(target_arch = "wasm32"))]\n'
+        '    pub fn wait_for_draft(&mut self, ctx: &egui::Context, session: &mut Session, budget: std::time::Duration) {\n'
+        '        if self.offload.is_some() || self.last_main_ms * 1.5 >= budget.as_secs_f64() * 1e3 {\n'
+        '            return;\n'
+        '        }',
+        '    #[cfg(not(target_arch = "wasm32"))]\n'
+        '    pub fn wait_for_draft(&mut self, ctx: &egui::Context, session: &mut Session, budget: std::time::Duration) {\n'
+        '        #[cfg(target_os = "android")]\n'
+        '        let skip_wait = self.offload.is_some() || (!lightcraft_engine::gpu::available() && self.last_main_ms > 80.0);\n'
+        '        #[cfg(not(target_os = "android"))]\n'
+        '        let skip_wait = self.offload.is_some() || self.last_main_ms * 1.5 >= budget.as_secs_f64() * 1e3;\n'
+        '        if skip_wait {\n'
+        '            return;\n'
+        '        }',
+    ):
+        fixed.append("crates/ui-egui/src/render.rs (wait_for_draft Android GPU support)")
+
+    # 3. Provide sufficient budget (~10ms) on Android for fast drafts to complete synchronously.
+    if fix(
+        "crates/ui-egui/src/panels/detail.rs",
+        '        #[cfg(not(target_arch = "wasm32"))]\n'
+        '        if interacting && whole_draft {\n'
+        '            let frame = ui.input(|i| i.predicted_dt).clamp(1.0 / 240.0, 1.0 / 30.0);\n'
+        '            // (a frame time that is not a number waits for nothing)\n'
+        '            let budget = std::time::Duration::try_from_secs_f32(frame * 0.4).unwrap_or_default();\n'
+        '            app.renderer.wait_for_draft(ui.ctx(), &mut app.session, budget);\n'
+        '        }',
+        '        #[cfg(not(target_arch = "wasm32"))]\n'
+        '        if interacting && whole_draft {\n'
+        '            let frame = ui.input(|i| i.predicted_dt).clamp(1.0 / 240.0, 1.0 / 30.0);\n'
+        '            // (a frame time that is not a number waits for nothing)\n'
+        '            #[cfg(target_os = "android")]\n'
+        '            let budget = std::time::Duration::try_from_secs_f32(frame.max(1.0 / 60.0) * 0.6).unwrap_or(std::time::Duration::from_millis(10));\n'
+        '            #[cfg(not(target_os = "android"))]\n'
+        '            let budget = std::time::Duration::try_from_secs_f32(frame * 0.4).unwrap_or_default();\n'
+        '            app.renderer.wait_for_draft(ui.ctx(), &mut app.session, budget);\n'
+        '        }',
+    ):
+        fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
@@ -3195,7 +3320,13 @@ icon = "@mipmap/ic_launcher"
             inner_logic = "let _ = frame;\n        self.inner.logic(ctx);"
         else:
             inner_logic = "let _ = (ctx, frame);"
-        inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
+        if app == "lightcraft":
+            inner_ui = (
+                "self.inner.perf.host_frame_ms = frame.info().cpu_usage.map(|s| f64::from(s) * 1000.0);\n"
+                "        self.inner.ui(ui);"
+            )
+        else:
+            inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if has_raw_hook:
             if re.search(r"pub\s+fn\s+raw_input_hook\s*\(\s*&mut\s+self\s*,\s*raw\s*:", ui_text):
                 inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
