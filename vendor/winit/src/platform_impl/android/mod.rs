@@ -7,8 +7,8 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use android_activity::input::{
-    Axis, Button, Classification, InputEvent, ImeOptions, InputType, KeyAction, Keycode, MotionAction, ToolType,
-    TextInputAction,
+    Axis, Button, Classification, ImeOptions, InputEvent, InputType, KeyAction, Keycode, MetaState,
+    MotionAction, TextInputAction, ToolType,
 };
 use android_activity::{
     AndroidApp, AndroidAppWaker, ConfigurationRef, InputStatus, MainEvent, Rect,
@@ -21,6 +21,7 @@ use crate::error;
 use crate::error::EventLoopError;
 use crate::event::{self, Force, Ime, InnerSizeWriter, StartCause};
 use crate::event_loop::{self, ActiveEventLoop as RootAEL, ControlFlow, DeviceEvents};
+use crate::keyboard::ModifiersState;
 use crate::platform::pump_events::PumpStatus;
 use crate::platform_impl::Fullscreen;
 use crate::window::{
@@ -258,6 +259,7 @@ pub struct EventLoop<T: 'static> {
     /// How far apart a hardware touchpad's pinch fingers were when its last event came:
     /// the pinch is reported as two pointers that move apart or together.
     pad_spread: Option<f64>,
+    modifiers_state: ModifiersState,
 }
 
 /// What a multi-finger gesture has been recognised as.
@@ -355,6 +357,7 @@ impl<T: 'static> EventLoop<T> {
             gesture_pointer: None,
             pad_position: None,
             pad_spread: None,
+            modifiers_state: ModifiersState::empty(),
         })
     }
 
@@ -408,6 +411,18 @@ impl<T: 'static> EventLoop<T> {
                         },
                         self.window_target(),
                     );
+                    if !self.modifiers_state.is_empty() {
+                        self.modifiers_state = ModifiersState::empty();
+                        callback(
+                            event::Event::WindowEvent {
+                                window_id: window::WindowId(WindowId),
+                                event: event::WindowEvent::ModifiersChanged(
+                                    self.modifiers_state.into(),
+                                ),
+                            },
+                            self.window_target(),
+                        );
+                    }
                 }
                 MainEvent::ConfigChanged { .. } => {
                     let monitor = MonitorHandle::new(self.android_app.clone());
@@ -709,6 +724,31 @@ impl<T: 'static> EventLoop<T> {
         Some(((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt())
     }
 
+    fn update_modifiers<F>(
+        &mut self,
+        meta_state: MetaState,
+        callback: &mut F,
+    ) where
+        F: FnMut(event::Event<T>, &RootAEL),
+    {
+        let mut mods = ModifiersState::empty();
+        mods.set(ModifiersState::SHIFT, meta_state.shift_on());
+        mods.set(ModifiersState::CONTROL, meta_state.ctrl_on());
+        mods.set(ModifiersState::ALT, meta_state.alt_on());
+        mods.set(ModifiersState::SUPER, meta_state.meta_on());
+
+        if mods != self.modifiers_state {
+            self.modifiers_state = mods;
+            callback(
+                event::Event::WindowEvent {
+                    window_id: window::WindowId(WindowId),
+                    event: event::WindowEvent::ModifiersChanged(self.modifiers_state.into()),
+                },
+                self.window_target(),
+            );
+        }
+    }
+
     fn handle_input_event<F>(
         &mut self,
         android_app: &AndroidApp,
@@ -721,6 +761,7 @@ impl<T: 'static> EventLoop<T> {
         let mut input_status = InputStatus::Handled;
         match event {
             InputEvent::MotionEvent(motion_event) => {
+                self.update_modifiers(motion_event.meta_state(), callback);
                 let window_id = window::WindowId(WindowId);
                 let device_id = event::DeviceId(DeviceId(motion_event.device_id()));
 
@@ -1220,6 +1261,7 @@ impl<T: 'static> EventLoop<T> {
                 }
             }
             InputEvent::KeyEvent(key) => {
+                self.update_modifiers(key.meta_state(), callback);
                 match key.key_code() {
                     // Flag keys related to volume as unhandled. While winit does not have a way for
                     // applications to configure what keys to flag as handled,

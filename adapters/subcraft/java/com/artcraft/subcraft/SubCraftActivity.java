@@ -32,7 +32,12 @@ import android.view.ActionMode;
 import android.view.DragEvent;
 import android.view.Display;
 import android.view.KeyEvent;
+import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.Selection;
+import android.text.SpannableStringBuilder;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -104,26 +109,46 @@ public final class SubCraftActivity extends NativeActivity {
     private final ConcurrentLinkedQueue<String> imeQueue = new ConcurrentLinkedQueue<>();
     private ArtCraftInputView inputView;
 
-    public void onImeCommit(String text) {
-        if (text == null || text.isEmpty()) return;
-        imeQueue.add(text);
+    private void wakeNativeLoop() {
         try {
             com.artcraft.ime.ArtCraftIme.wake();
         } catch (Throwable ignored) {}
+        Runnable r = () -> {
+            try {
+                dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+                dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+            } catch (Throwable ignored) {}
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            r.run();
+        } else {
+            runOnUiThread(r);
+        }
+    }
+
+    private static boolean isFromSoftKeyboard(KeyEvent event) {
+        if (event == null) return true;
+        if ((event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return true;
+        if (event.getDeviceId() <= 0) return true;
+        InputDevice device = event.getDevice();
+        if (device == null || device.isVirtual()) return true;
+        return (event.getSource() & InputDevice.SOURCE_KEYBOARD) != InputDevice.SOURCE_KEYBOARD;
+    }
+
+    public void onImeCommit(String text) {
+        if (text == null || text.isEmpty()) return;
+        imeQueue.add(text);
+        wakeNativeLoop();
     }
 
     public void onImeDelete() {
         imeQueue.add("\b");
-        try {
-            com.artcraft.ime.ArtCraftIme.wake();
-        } catch (Throwable ignored) {}
+        wakeNativeLoop();
     }
 
     public void onImeEnter() {
         imeQueue.add("\n");
-        try {
-            com.artcraft.ime.ArtCraftIme.wake();
-        } catch (Throwable ignored) {}
+        wakeNativeLoop();
     }
 
     public String pollIme() {
@@ -134,9 +159,13 @@ public final class SubCraftActivity extends NativeActivity {
         runOnUiThread(() -> {
             try {
                 if (inputView != null) {
+                    inputView.setVisibility(View.VISIBLE);
+                    inputView.setFocusable(true);
+                    inputView.setFocusableInTouchMode(true);
                     inputView.requestFocus();
                     InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                     if (imm != null) {
+                        imm.restartInput(inputView);
                         imm.showSoftInput(inputView, 0);
                     }
                 }
@@ -154,6 +183,29 @@ public final class SubCraftActivity extends NativeActivity {
                         imm.hideSoftInputFromWindow(decor.getWindowToken(), 0);
                     }
                 }
+                if (inputView != null) {
+                    inputView.clearEditable();
+                    inputView.clearFocus();
+                    inputView.setFocusable(false);
+                    inputView.setFocusableInTouchMode(false);
+                    inputView.setVisibility(View.GONE);
+                }
+                Window window = getWindow();
+                if (window != null) {
+                    View content = window.getDecorView().findViewById(android.R.id.content);
+                    if (content instanceof ViewGroup) {
+                        ViewGroup vg = (ViewGroup) content;
+                        for (int i = 0; i < vg.getChildCount(); i++) {
+                            View child = vg.getChildAt(i);
+                            if (child != inputView) {
+                                child.setFocusable(true);
+                                child.setFocusableInTouchMode(true);
+                                child.requestFocus();
+                                break;
+                            }
+                        }
+                    }
+                }
             } catch (Throwable ignored) {}
         });
     }
@@ -167,27 +219,84 @@ public final class SubCraftActivity extends NativeActivity {
             if (content != null && inputView == null) {
                 inputView = new ArtCraftInputView(this);
                 content.addView(inputView, new ViewGroup.LayoutParams(1, 1));
-                inputView.setFocusable(true);
-                inputView.setFocusableInTouchMode(true);
-                inputView.requestFocus();
+                inputView.setVisibility(View.GONE);
+                inputView.setFocusable(false);
+                inputView.setFocusableInTouchMode(false);
             }
         } catch (Throwable e) {
             Log.e(TAG, "Failed to install input view", e);
         }
     }
 
+    private final class ObservableEditable extends SpannableStringBuilder {
+        @Override
+        public SpannableStringBuilder replace(int start, int end, CharSequence tb, int tbstart, int tbend) {
+            if (inputView != null && !inputView.suppressingWatcher) {
+                int deleteCount = end - start;
+                if (deleteCount > 0) {
+                    for (int i = 0; i < deleteCount; i++) {
+                        onImeDelete();
+                    }
+                }
+                int insertCount = tbend - tbstart;
+                if (insertCount > 0 && tb != null) {
+                    String inserted = tb.subSequence(tbstart, tbend).toString();
+                    if (!inserted.isEmpty()) {
+                        onImeCommit(inserted);
+                    }
+                }
+            }
+            SpannableStringBuilder result = super.replace(start, end, tb, tbstart, tbend);
+            if (inputView != null && !inputView.suppressingWatcher && length() > 2000) {
+                inputView.suppressingWatcher = true;
+                try {
+                    super.delete(0, length() - 500);
+                    Selection.setSelection(this, length());
+                } finally {
+                    inputView.suppressingWatcher = false;
+                }
+            }
+            return result;
+        }
+    }
+
     private final class ArtCraftInputView extends View {
+        private final ObservableEditable editable = new ObservableEditable();
+        private boolean suppressingWatcher = false;
+
         public ArtCraftInputView(Context context) {
             super(context);
-            setFocusable(true);
-            setFocusableInTouchMode(true);
-            setVisibility(View.VISIBLE);
+            setFocusable(false);
+            setFocusableInTouchMode(false);
+            setVisibility(View.GONE);
             setWillNotDraw(true);
+        }
+
+        public void clearEditable() {
+            suppressingWatcher = true;
+            try {
+                editable.clear();
+                Selection.setSelection(editable, 0);
+            } finally {
+                suppressingWatcher = false;
+            }
+        }
+
+        public void deleteLastFromEditable() {
+            if (editable.length() == 0) return;
+            suppressingWatcher = true;
+            try {
+                int len = editable.length();
+                editable.delete(len - 1, len);
+                Selection.setSelection(editable, editable.length());
+            } finally {
+                suppressingWatcher = false;
+            }
         }
 
         @Override
         public boolean onCheckIsTextEditor() {
-            return true;
+            return isFocused() && getVisibility() == View.VISIBLE;
         }
 
         @Override
@@ -197,62 +306,33 @@ public final class SubCraftActivity extends NativeActivity {
 
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-            outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT;
             outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
-            return new BaseInputConnection(this, false) {
-                private String composingText = "";
-
+            return new BaseInputConnection(this, true) {
                 @Override
-                public boolean commitText(CharSequence text, int newCursorPosition) {
-                    if (text != null && text.length() > 0) {
-                        if (!composingText.isEmpty()) {
-                            for (int i = 0; i < composingText.length(); i++) onImeDelete();
-                            composingText = "";
-                        }
-                        onImeCommit(text.toString());
-                    }
-                    return true;
-                }
-
-                @Override
-                public boolean setComposingText(CharSequence text, int newCursorPosition) {
-                    if (text != null && text.length() > 0) {
-                        String newComp = text.toString();
-                        if (!composingText.isEmpty()) {
-                            for (int i = 0; i < composingText.length(); i++) onImeDelete();
-                        }
-                        composingText = newComp;
-                        onImeCommit(newComp);
-                    }
-                    return true;
-                }
-
-                @Override
-                public boolean finishComposingText() {
-                    composingText = "";
-                    return true;
-                }
-
-                @Override
-                public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-                    for (int i = 0; i < beforeLength; i++) onImeDelete();
-                    composingText = "";
-                    return true;
+                public Editable getEditable() {
+                    return editable;
                 }
 
                 @Override
                 public boolean sendKeyEvent(KeyEvent event) {
-                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                        if (event.getKeyCode() == KeyEvent.KEYCODE_DEL) {
-                            onImeDelete();
-                            return true;
-                        } else if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
-                            onImeEnter();
-                            return true;
-                        }
-                    } else if (event.getAction() == KeyEvent.ACTION_UP) {
-                        if (event.getKeyCode() == KeyEvent.KEYCODE_DEL || event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
-                            return true;
+                    if (event != null && !isFromSoftKeyboard(event)) {
+                        return super.sendKeyEvent(event);
+                    }
+                    if (event != null && isFromSoftKeyboard(event)) {
+                        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                            if (event.getKeyCode() == KeyEvent.KEYCODE_DEL) {
+                                deleteLastFromEditable();
+                                onImeDelete();
+                                return true;
+                            } else if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                                onImeEnter();
+                                return true;
+                            }
+                        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                            if (event.getKeyCode() == KeyEvent.KEYCODE_DEL || event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                                return true;
+                            }
                         }
                     }
                     return super.sendKeyEvent(event);
@@ -737,7 +817,7 @@ public final class SubCraftActivity extends NativeActivity {
             refreshWindowInsets();
             applyImmersiveFullscreen();
             suppressSelectionHandles();
-            if (inputView != null && !inputView.isFocused()) {
+            if (inputView != null && inputView.getVisibility() == View.VISIBLE && !inputView.isFocused()) {
                 inputView.requestFocus();
             }
             View decor = getWindow() != null ? getWindow().getDecorView() : null;

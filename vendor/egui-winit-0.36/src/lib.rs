@@ -358,14 +358,14 @@ impl State {
                         physical_key: Some(egui::Key::Backspace),
                         pressed: true,
                         repeat: false,
-                        modifiers: egui::Modifiers::NONE,
+                        modifiers: self.modifiers,
                     });
                     self.egui_input.events.push(egui::Event::Key {
                         key: egui::Key::Backspace,
                         physical_key: Some(egui::Key::Backspace),
                         pressed: false,
                         repeat: false,
-                        modifiers: egui::Modifiers::NONE,
+                        modifiers: self.modifiers,
                     });
                 } else if ev == "\n" {
                     self.egui_input.events.push(egui::Event::Key {
@@ -373,14 +373,14 @@ impl State {
                         physical_key: Some(egui::Key::Enter),
                         pressed: true,
                         repeat: false,
-                        modifiers: egui::Modifiers::NONE,
+                        modifiers: self.modifiers,
                     });
                     self.egui_input.events.push(egui::Event::Key {
                         key: egui::Key::Enter,
                         physical_key: Some(egui::Key::Enter),
                         pressed: false,
                         repeat: false,
-                        modifiers: egui::Modifiers::NONE,
+                        modifiers: self.modifiers,
                     });
                     self.egui_input.events.push(egui::Event::Text("\n".to_string()));
                 } else {
