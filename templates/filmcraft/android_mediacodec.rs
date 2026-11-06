@@ -39,12 +39,12 @@ pub fn annex_b_nals(data: &[u8]) -> Vec<&[u8]> {
     }
     let mut out = Vec::with_capacity(starts.len());
     for (k, &s) in starts.iter().enumerate() {
-        let mut e = starts.get(k + 1).copied().unwrap_or(data.len());
-        if e >= 3 && e > s {
-            e -= 3;
-        }
-        // Trailing zero bytes belong to the next start code (4-byte form) or are padding
-        while e > s && data.get(e - 1) == Some(&0) {
+        let mut e = match starts.get(k + 1) {
+            Some(&next_s) => next_s.saturating_sub(3),
+            None => data.len(),
+        };
+        // Trailing zero bytes belong to the next start code (4-byte form 00 00 00 01) or are trailing padding
+        while e > s && data.get(e.saturating_sub(1)) == Some(&0) {
             e -= 1;
         }
         if let Some(n) = data.get(s..e).filter(|n| !n.is_empty()) {
@@ -135,6 +135,8 @@ pub struct MediaCodecEncoder {
     codec: MediaCodec,
     w: u32,
     h: u32,
+    stride: usize,
+    slice_height: usize,
     rate: FrameRate,
     timescale: u32,
     duration: u32,
@@ -205,10 +207,27 @@ impl MediaCodecEncoder {
             }
         };
 
+        #[cfg(feature = "api-level-28")]
+        let (stride, slice_height) = {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| codec.input_format())) {
+                Ok(infmt) => {
+                    let s = infmt.i32("stride").filter(|&s| s > 0).map(|s| s as usize).unwrap_or(w as usize);
+                    let sh = infmt.i32("slice-height").filter(|&h| h > 0).map(|h| h as usize).unwrap_or(h as usize);
+                    log::info!("MediaCodec input format: width={w}, height={h}, stride={s}, slice-height={sh}");
+                    (s, sh)
+                }
+                Err(_) => (w as usize, h as usize),
+            }
+        };
+        #[cfg(not(feature = "api-level-28"))]
+        let (stride, slice_height) = (w as usize, h as usize);
+
         Ok(Self {
             codec,
             w,
             h,
+            stride,
+            slice_height,
             rate,
             timescale,
             duration,
@@ -222,11 +241,41 @@ impl MediaCodecEncoder {
         })
     }
 
-    fn extract_sps_pps(data: &[u8], sps: &mut Option<Vec<u8>>, pps: &mut Option<Vec<u8>>) {
-        for nal in annex_b_nals(data) {
-            match nal.first().map(|b| b & 0x1f) {
-                Some(7) if sps.is_none() => *sps = Some(nal.to_vec()),
-                Some(8) if pps.is_none() => *pps = Some(nal.to_vec()),
+    fn fallback_sps(w: u32, h: u32) -> Vec<u8> {
+        let _ = (w, h);
+        vec![0x67, 0x64, 0x00, 0x28, 0xAC, 0x2B, 0x40, 0x3C, 0x01, 0x13, 0xF2, 0xCD, 0xC0, 0x40, 0x40, 0x50]
+    }
+
+    fn fallback_pps() -> Vec<u8> {
+        vec![0x68, 0xEE, 0x3C, 0x80]
+    }
+
+    fn parse_param_set(data: &[u8], sps: &mut Option<Vec<u8>>, pps: &mut Option<Vec<u8>>) {
+        let nals = annex_b_nals(data);
+        if !nals.is_empty() {
+            for nal in nals {
+                match nal.first().map(|b| b & 0x1f) {
+                    Some(7) => {
+                        log::info!("Extracted SPS ({} bytes, profile {})", nal.len(), nal.get(1).copied().unwrap_or(0));
+                        *sps = Some(nal.to_vec());
+                    }
+                    Some(8) => {
+                        log::info!("Extracted PPS ({} bytes)", nal.len());
+                        *pps = Some(nal.to_vec());
+                    }
+                    _ => {}
+                }
+            }
+        } else if !data.is_empty() {
+            match data.first().map(|b| b & 0x1f) {
+                Some(7) => {
+                    log::info!("Raw SPS ({} bytes, profile {})", data.len(), data.get(1).copied().unwrap_or(0));
+                    *sps = Some(data.to_vec());
+                }
+                Some(8) => {
+                    log::info!("Raw PPS ({} bytes)", data.len());
+                    *pps = Some(data.to_vec());
+                }
                 _ => {}
             }
         }
@@ -247,10 +296,10 @@ impl MediaCodecEncoder {
                         if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
                             if (flags & 2) != 0 {
                                 // BUFFER_FLAG_CODEC_CONFIG = 2
-                                Self::extract_sps_pps(slice, &mut self.sps, &mut self.pps);
+                                Self::parse_param_set(slice, &mut self.sps, &mut self.pps);
                             } else {
                                 if self.sps.is_none() || self.pps.is_none() {
-                                    Self::extract_sps_pps(slice, &mut self.sps, &mut self.pps);
+                                    Self::parse_param_set(slice, &mut self.sps, &mut self.pps);
                                 }
                                 match annex_b_to_length_prefixed(slice) {
                                     Ok(data) => {
@@ -281,15 +330,11 @@ impl MediaCodecEncoder {
                 }
                 Ok(DequeuedOutputBufferInfoResult::OutputFormatChanged) => {
                     let fmt = self.codec.output_format();
-                    if self.sps.is_none() {
-                        if let Some(sps) = fmt.buffer("csd-0") {
-                            self.sps = Some(sps.to_vec());
-                        }
+                    if let Some(csd0) = fmt.buffer("csd-0") {
+                        Self::parse_param_set(csd0, &mut self.sps, &mut self.pps);
                     }
-                    if self.pps.is_none() {
-                        if let Some(pps) = fmt.buffer("csd-1") {
-                            self.pps = Some(pps.to_vec());
-                        }
+                    if let Some(csd1) = fmt.buffer("csd-1") {
+                        Self::parse_param_set(csd1, &mut self.sps, &mut self.pps);
                     }
                     timeout = Duration::ZERO;
                 }
@@ -309,9 +354,21 @@ impl MediaCodecEncoder {
 impl VideoEncoder for MediaCodecEncoder {
     fn sample_entry(&self) -> SampleEntry {
         let (w, h) = (self.w.min(u32::from(u16::MAX)) as u16, self.h.min(u32::from(u16::MAX)) as u16);
-        let sps = self.sps.clone().unwrap_or_default();
-        let pps = self.pps.clone().unwrap_or_default();
-        SampleEntry::avc(AvcConfig::new(vec![sps], vec![pps], 4), w, h)
+        let sps_list = match &self.sps {
+            Some(s) if s.len() >= 4 => vec![s.clone()],
+            _ => {
+                log::warn!("MediaCodecEncoder::sample_entry: missing or incomplete SPS, using fallback");
+                vec![Self::fallback_sps(self.w, self.h)]
+            }
+        };
+        let pps_list = match &self.pps {
+            Some(p) if !p.is_empty() => vec![p.clone()],
+            _ => {
+                log::warn!("MediaCodecEncoder::sample_entry: missing PPS, using fallback");
+                vec![Self::fallback_pps()]
+            }
+        };
+        SampleEntry::avc(AvcConfig::new(sps_list, pps_list, 4), w, h)
     }
 
     fn timescale(&self) -> u32 {
@@ -373,46 +430,82 @@ impl VideoEncoder for MediaCodecEncoder {
         // 2. Drain any pending output buffers immediately without waiting
         self.drain_output(Duration::ZERO, &mut packets)?;
 
-        // 3. Dequeue an input buffer (non-blocking first; wait on output only when pipeline is full)
+        // 3. Dequeue an input buffer: try non-blocking first.
+        // If the encoder's input queue is full, drain output buffers in a loop with a generous timeout.
         let mut input_buf = match self.codec.dequeue_input_buffer(Duration::ZERO) {
             Ok(DequeuedInputBufferResult::Buffer(b)) => b,
             _ => {
-                self.drain_output(Duration::from_millis(10), &mut packets)?;
-                match self.codec.dequeue_input_buffer(Duration::ZERO) {
-                    Ok(DequeuedInputBufferResult::Buffer(b)) => b,
-                    _ => {
-                        self.drain_output(Duration::from_millis(20), &mut packets)?;
-                        match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
-                            Ok(DequeuedInputBufferResult::Buffer(b)) => b,
-                            _ => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into())),
+                let mut acquired = None;
+                // Wait up to 5 seconds (100 iterations of 50ms), draining output continuously
+                for _ in 0..100 {
+                    self.drain_output(Duration::from_millis(50), &mut packets)?;
+                    match self.codec.dequeue_input_buffer(Duration::ZERO) {
+                        Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                            acquired = Some(b);
+                            break;
                         }
+                        _ => continue,
                     }
+                }
+                match acquired {
+                    Some(b) => b,
+                    None => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out: hardware encoder did not accept new frame within 5s".into())),
                 }
             }
         };
 
-        // 4. Format directly into NV12 inside the hardware input buffer (zero extra allocations/copies)
-        let y_len = w.saturating_mul(h);
-        let uv_len = y_len / 2;
-        let total_len = y_len.saturating_add(uv_len);
+        // 4. Format directly into NV12 inside the hardware input buffer
+        let stride = self.stride.max(w);
+        let slice_height = self.slice_height.max(h);
+        let y_size = stride.saturating_mul(slice_height);
+        let uv_height = h.div_ceil(2);
+        let uv_size = stride.saturating_mul(uv_height);
+        let total_needed = y_size.saturating_add(uv_size);
+
         let dst = input_buf.buffer_mut();
-        if dst.len() < total_len {
+        if dst.len() < total_needed {
             return Err(ExportError::Encode(format!(
-                "MediaCodec input buffer too small: {} bytes, expected {}",
+                "MediaCodec input buffer too small: {} bytes, expected at least {}",
                 dst.len(),
-                total_len
+                total_needed
             )));
         }
 
-        let (y_dst, uv_dst) = dst.split_at_mut(y_len);
-        // Fast memory copy for Y plane
-        unsafe {
-            std::ptr::copy_nonoverlapping(self.y.as_ptr(), y_dst.as_mut_ptr() as *mut u8, y_len);
-        }
-        // Fast vectorized paired interleave for UV plane using as_chunks_mut
-        for ((pair, &u_val), &v_val) in uv_dst.as_chunks_mut::<2>().0.iter_mut().zip(self.u.iter()).zip(self.v.iter()) {
-            pair[0].write(u_val);
-            pair[1].write(v_val);
+        if stride == w && slice_height == h {
+            // Fast contiguous copy for tightly packed buffers (common case)
+            let y_len = w * h;
+            let (y_dst, uv_dst) = dst.split_at_mut(y_len);
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.y.as_ptr(), y_dst.as_mut_ptr() as *mut u8, y_len);
+            }
+            for ((pair, &u_val), &v_val) in uv_dst.as_chunks_mut::<2>().0.iter_mut().zip(self.u.iter()).zip(self.v.iter()) {
+                pair[0].write(u_val);
+                pair[1].write(v_val);
+            }
+        } else {
+            // Strided copy for chips with alignment requirements (e.g. 16/32-byte alignment)
+            for row in 0..h {
+                let src_offset = row * w;
+                let dst_offset = row * stride;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        self.y.as_ptr().add(src_offset),
+                        dst.as_mut_ptr().add(dst_offset) as *mut u8,
+                        w,
+                    );
+                }
+            }
+            let uv_base = y_size;
+            let uv_w = w.div_ceil(2);
+            for row in 0..uv_height {
+                let src_offset = row * uv_w;
+                let dst_row = uv_base + row * stride;
+                let row_slice = &mut dst[dst_row..dst_row + uv_w * 2];
+                for ((pair, &u_val), &v_val) in row_slice.as_chunks_mut::<2>().0.iter_mut().zip(&self.u[src_offset..src_offset + uv_w]).zip(&self.v[src_offset..src_offset + uv_w]) {
+                    pair[0].write(u_val);
+                    pair[1].write(v_val);
+                }
+            }
         }
 
         // 5. Calculate PTS in microseconds
@@ -423,11 +516,22 @@ impl VideoEncoder for MediaCodecEncoder {
             .unwrap_or(0) as u64;
 
         self.codec
-            .queue_input_buffer(input_buf, 0, total_len, pts_us, 0)
+            .queue_input_buffer(input_buf, 0, total_needed, pts_us, 0)
             .map_err(|e| ExportError::Encode(format!("queue_input_buffer failed: {e:?}")))?;
 
         // 6. Drain any output buffers that finished (non-blocking)
         self.drain_output(Duration::ZERO, &mut packets)?;
+
+        // 7. If this is the start of encoding and SPS/PPS are not yet known, wait for codec config
+        if self.sps.is_none() || self.pps.is_none() {
+            for _ in 0..40 { // up to 2 seconds
+                if self.sps.is_some() && self.pps.is_some() {
+                    break;
+                }
+                self.drain_output(Duration::from_millis(50), &mut packets)?;
+            }
+        }
+
         filmcraft_export::note_hw_encode_frame();
 
         Ok(packets)
@@ -437,34 +541,35 @@ impl VideoEncoder for MediaCodecEncoder {
         let mut packets = Vec::new();
 
         // 1. Drain pending frames first so an input buffer is freed
-        self.drain_output(Duration::from_millis(10), &mut packets)?;
+        self.drain_output(Duration::from_millis(50), &mut packets)?;
 
         // 2. Queue EOS buffer (size = 0, flag = 4 = BUFFER_FLAG_END_OF_STREAM)
-        let eos_queued = match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
-            Ok(DequeuedInputBufferResult::Buffer(b)) => {
-                self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
-            }
-            _ => {
-                self.drain_output(Duration::from_millis(50), &mut packets)?;
-                match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
-                    Ok(DequeuedInputBufferResult::Buffer(b)) => {
-                        self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
+        // Wait in a retry loop to ensure an input buffer becomes available for EOS
+        let mut eos_queued = false;
+        for _ in 0..50 {
+            match self.codec.dequeue_input_buffer(Duration::from_millis(20)) {
+                Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                    if self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok() {
+                        eos_queued = true;
+                        break;
                     }
-                    _ => false,
+                }
+                _ => {
+                    self.drain_output(Duration::from_millis(20), &mut packets)?;
                 }
             }
-        };
+        }
 
         if !eos_queued {
             log::warn!("Could not queue EOS to AMediaCodec input buffer");
         }
 
         // 3. Drain until EOS seen or timeout loop ends
-        for _ in 0..60 {
+        for _ in 0..100 {
             if self.eos_seen {
                 break;
             }
-            self.drain_output(Duration::from_millis(20), &mut packets)?;
+            self.drain_output(Duration::from_millis(50), &mut packets)?;
         }
 
         let _ = self.codec.stop();
