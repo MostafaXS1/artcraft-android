@@ -826,6 +826,138 @@ elif app == "lightcraft":
     ):
         fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
 
+elif app == "filmcraft":
+    # 1. Fallback software encoder optimization: Preset::Speed + bframes=0 on Android.
+    if fix(
+        "crates/export/src/encoders.rs",
+        '    let mut cfg = filmcraft_h264enc::EncoderConfig::new(w, h, rate.num as u32, rate.den as u32);\n',
+        '    let mut cfg = filmcraft_h264enc::EncoderConfig::new(w, h, rate.num as u32, rate.den as u32);\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        cfg.preset = filmcraft_h264enc::Preset::Speed;\n'
+        '        cfg.bframes = 0;\n'
+        '    }\n',
+    ):
+        fixed.append("crates/export/src/encoders.rs (software export speed preset)")
+
+    # 2. Add ndk dependency to crates/platform/Cargo.toml for AMediaCodec.
+    if fix(
+        "crates/platform/Cargo.toml",
+        '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
+        '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
+        '# Android: hardware H.264 video encoding through Android\'s NDK MediaCodec API (libmediandk).\n'
+        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media"], default-features = false }\n',
+    ):
+        fixed.append("crates/platform/Cargo.toml (ndk dependency)")
+
+    # 3. Add android_mediacodec module declaration in crates/platform/src/lib.rs.
+    if fix(
+        "crates/platform/src/lib.rs",
+        'mod annexb;\n',
+        'mod annexb;\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub mod android_mediacodec;\n',
+    ):
+        fixed.append("crates/platform/src/lib.rs (android_mediacodec module)")
+
+    # 4. Register android_mediacodec factory in crates/platform/src/lib.rs.
+    if fix(
+        "crates/platform/src/lib.rs",
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]\n'
+        '    {\n'
+        '        Availability::Unavailable("no hardware video decoder for this system yet")\n'
+        '    }\n'
+        '}\n'
+        '\n'
+        '/// Whether [`register`] has put a hardware decoder factory in front of our decoders.\n'
+        'pub fn registered() -> bool {\n'
+        '    #[cfg(target_os = "macos")]\n'
+        '    {\n'
+        '        filmcraft_codecs::video_decoder_registered(videotoolbox_factory)\n'
+        '    }\n'
+        '    #[cfg(target_os = "windows")]\n'
+        '    {\n'
+        '        filmcraft_codecs::video_decoder_registered(media_foundation_factory)\n'
+        '    }\n'
+        '    #[cfg(target_os = "linux")]\n'
+        '    {\n'
+        '        #[cfg(target_pointer_width = "64")]\n'
+        '        if filmcraft_codecs::video_decoder_registered(nvdec_factory) {\n'
+        '            return true;\n'
+        '        }\n'
+        '        filmcraft_codecs::video_decoder_registered(vaapi_factory)\n'
+        '    }\n'
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]\n',
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        static ONCE: std::sync::Once = std::sync::Once::new();\n'
+        '        ONCE.call_once(|| {\n'
+        '            filmcraft_export::register_encoder(android_mediacodec::factory);\n'
+        '        });\n'
+        '        Availability::Available("MediaCodec")\n'
+        '    }\n'
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android")))]\n'
+        '    {\n'
+        '        Availability::Unavailable("no hardware video decoder for this system yet")\n'
+        '    }\n'
+        '}\n'
+        '\n'
+        '/// Whether [`register`] has put a hardware decoder factory in front of our decoders.\n'
+        'pub fn registered() -> bool {\n'
+        '    #[cfg(target_os = "macos")]\n'
+        '    {\n'
+        '        filmcraft_codecs::video_decoder_registered(videotoolbox_factory)\n'
+        '    }\n'
+        '    #[cfg(target_os = "windows")]\n'
+        '    {\n'
+        '        filmcraft_codecs::video_decoder_registered(media_foundation_factory)\n'
+        '    }\n'
+        '    #[cfg(target_os = "linux")]\n'
+        '    {\n'
+        '        #[cfg(target_pointer_width = "64")]\n'
+        '        if filmcraft_codecs::video_decoder_registered(nvdec_factory) {\n'
+        '            return true;\n'
+        '        }\n'
+        '        filmcraft_codecs::video_decoder_registered(vaapi_factory)\n'
+        '    }\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        filmcraft_export::encoder_registered(android_mediacodec::factory)\n'
+        '    }\n'
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android")))]\n',
+    ):
+        fixed.append("crates/platform/src/lib.rs (MediaCodec registration)")
+
+    # 5. Copy android_mediacodec.rs template if missing in checkout.
+    mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
+    template_file = Path.cwd() / "templates/filmcraft/android_mediacodec.rs"
+    if not mediacodec_target.exists() and template_file.exists():
+        mediacodec_target.write_text(template_file.read_text())
+        fixed.append("crates/platform/src/android_mediacodec.rs (copied from template)")
+
+    # 6. Re-export filmcraft_platform in crates/ui-egui/src/lib.rs.
+    if fix(
+        "crates/ui-egui/src/lib.rs",
+        'pub use hooks::{AudioDevices, AudioOut, ClipboardMedia, HostHooks, RelinkHint, SystemThemeFn};\n',
+        'pub use hooks::{AudioDevices, AudioOut, ClipboardMedia, HostHooks, RelinkHint, SystemThemeFn};\n'
+        'pub use filmcraft_platform;\n',
+    ):
+        fixed.append("crates/ui-egui/src/lib.rs (re-export filmcraft_platform)")
+
+    # 7. Call filmcraft_platform::register() in FilmcraftApp::new.
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        '    pub fn new(mut session: Session) -> Self {\n'
+        '        session.shortcuts.register_external(menus::external_commands());\n',
+        '    pub fn new(mut session: Session) -> Self {\n'
+        '        #[cfg(target_os = "android")]\n'
+        '        {\n'
+        '            filmcraft_platform::register();\n'
+        '        }\n'
+        '        session.shortcuts.register_external(menus::external_commands());\n',
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (register platform in FilmcraftApp::new)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
