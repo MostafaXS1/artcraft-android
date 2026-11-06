@@ -1217,6 +1217,7 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 - **Read before modifying**: Always understand existing code patterns
 - **Preserve upstream**: Don't modify upstream source in `source/`, use patches/adapters
 - **Developer Privacy & Relative Paths**: NEVER include absolute local file paths (e.g., `/home/<user>/...`, `C:\Users\<user>\...`, `/Users/<user>/...`, or machine-specific user directory paths) in markdown files, documentation, commit messages, code comments, or PR descriptions. Always use workspace-relative paths (e.g., `lib/build-common.sh`, `agents.md`, `source/<app>/`) to protect developer privacy and prevent accidental exposure of local usernames and filesystem structure.
+- **No Direct Git Push**: NEVER run `git push` to GitHub or any remote repository without explicit user approval. Agents are permitted to create local commits (`git commit`), but must NEVER push them automatically. Always provide the exact git push command for the user to run manually in their terminal.
 - **Test on device**: Use connected tablet via ADB for validation
 - **Follow patterns**: Match existing code style and architecture
 - **Be defensive**: Check for nulls, handle errors gracefully
@@ -1283,10 +1284,15 @@ SubCraft uses external app-private storage via `install_persist_env()`:
 - **Always Use Relative Paths**: Always use workspace-relative paths (e.g., `lib/build-common.sh`, `adapters/photocraft/src/lib.rs`, `agents.md`).
 - **Privacy in Error Logs & Debugging**: When quoting local debug commands, stack traces, or error logs in markdown, documentation, or issue reports, sanitize and scrub personal usernames or local filesystem hierarchies, replacing them with generic relative paths or placeholders.
 
+### 35.7 Git Push & Remote Workflow
+- **Never Push to Remote Automatically**: Agents must NEVER run `git push` or attempt to push commits to GitHub or any remote repository without explicit user approval.
+- **Local Commits Permitted**: Agents may stage and commit changes locally (`git add`, `git commit`).
+- **Instruct the User**: Once local commits are ready, present the exact command (e.g., `git push origin <branch>`) and instruct the user to execute it manually in their terminal.
+
 ---
 
-**Document Version:** 56  
-**Last Updated:** November 3, 2026  
+**Document Version:** 57  
+**Last Updated:** November 6, 2026  
 **Maintained by:** ArtCraft Android Builder Team
 
 
@@ -1863,8 +1869,8 @@ Shown in UpdateCheck, included in APK metadata.
 - Document in code comments
 - Add to appropriate patch script
 
-### 52.4 Commit Messages
-Use clear, descriptive commit messages. Follow project style. Never include local system paths, home directories, or personal usernames in commit messages, code comments, or documentation; always use workspace-relative paths.
+### 52.4 Commit Messages & Remote Git Policy
+Use clear, descriptive commit messages. Follow project style. Never include local system paths, home directories, or personal usernames in commit messages, code comments, or documentation; always use workspace-relative paths. Never execute `git push` without user approval; commit changes locally and instruct the user to run the push command.
 
 ## 53. Appendix
 
