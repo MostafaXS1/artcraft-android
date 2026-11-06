@@ -8,6 +8,8 @@
 //! (e.g. non-square pixels, odd dimensions, HDR), the factory returns `None` and FilmCraft
 //! automatically falls back to software encoding.
 
+#![allow(unsafe_code)]
+
 use std::time::Duration;
 
 use filmcraft_export::{
@@ -393,3 +395,7 @@ impl VideoEncoder for MediaCodecEncoder {
         Ok(packets)
     }
 }
+
+// SAFETY: Android AMediaCodec handle can be safely sent to another thread; MediaCodecEncoder owns the codec and accesses it exclusively via &mut self.
+unsafe impl Send for MediaCodecEncoder {}
+

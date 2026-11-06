@@ -935,29 +935,6 @@ elif app == "filmcraft":
         mediacodec_target.write_text(template_file.read_text())
         fixed.append("crates/platform/src/android_mediacodec.rs (copied from template)")
 
-    # 6. Re-export filmcraft_platform in crates/ui-egui/src/lib.rs.
-    if fix(
-        "crates/ui-egui/src/lib.rs",
-        'pub use hooks::{AudioDevices, AudioOut, ClipboardMedia, HostHooks, RelinkHint, SystemThemeFn};\n',
-        'pub use hooks::{AudioDevices, AudioOut, ClipboardMedia, HostHooks, RelinkHint, SystemThemeFn};\n'
-        'pub use filmcraft_platform;\n',
-    ):
-        fixed.append("crates/ui-egui/src/lib.rs (re-export filmcraft_platform)")
-
-    # 7. Call filmcraft_platform::register() in FilmcraftApp::new.
-    if fix(
-        "crates/ui-egui/src/app.rs",
-        '    pub fn new(mut session: Session) -> Self {\n'
-        '        session.shortcuts.register_external(menus::external_commands());\n',
-        '    pub fn new(mut session: Session) -> Self {\n'
-        '        #[cfg(target_os = "android")]\n'
-        '        {\n'
-        '            filmcraft_platform::register();\n'
-        '        }\n'
-        '        session.shortcuts.register_external(menus::external_commands());\n',
-    ):
-        fixed.append("crates/ui-egui/src/app.rs (register platform in FilmcraftApp::new)")
-
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
@@ -2217,7 +2194,7 @@ fn saf_hooks(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Hos
 ''',
         "poll": SYNC_SAF_POLL,
         "construct_expr": "FilmcraftApp::new(Session::default())",
-        "post_construct": "    inner.hooks = saf_hooks(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());\n    inner.audio = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Box::new(audio::CpalOut::new()) as Box<dyn filmcraft_ui_egui::AudioOut>)).ok();\n",
+        "post_construct": "    filmcraft_platform::register();\n    inner.hooks = saf_hooks(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());\n    inner.audio = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Box::new(audio::CpalOut::new()) as Box<dyn filmcraft_ui_egui::AudioOut>)).ok();\n",
     },
     "lightcraft": {
         "activity": "LightCraftActivity",
@@ -3274,6 +3251,8 @@ try:
     # every open failed with "file formats are not available in this build". The launcher needs the
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
+    # FilmCraft hardware encoding on Android requires filmcraft-platform in the launcher binary.
+    platform_dep = 'filmcraft-platform = { path = "../../crates/platform" }\n' if app == "filmcraft" else ''
     java_sources = 'java_sources = "java"\n' if saf else ''
     config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
     # Android open/share associations for the app's document types (the MAIN/LAUNCHER entry is always
@@ -3347,7 +3326,7 @@ egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
-{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}
+{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{platform_dep}
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", default-features = false, features = ["native-activity"] }}
 # Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
