@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use filmcraft_export::{
     BitrateMode, EncodedPacket, EncoderFrame, ExportError, ExportSettings, Format,
-    H264Profile, HardwareEncoding, PrepareAhead, Result, VideoEncoder,
+    HardwareEncoding, PrepareAhead, Result, VideoEncoder,
 };
 use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
@@ -158,63 +158,52 @@ impl MediaCodecEncoder {
             .map(|k| (f64::from(k) / fps).round().max(1.0) as i32)
             .unwrap_or(2);
 
-        let codec = MediaCodec::from_encoder_type("video/avc")
-            .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
-
-        // Inspect encoder implementation name: reject slow Google software emulation
-        #[cfg(feature = "api-level-28")]
-        if let Ok(name) = codec.name() {
-            log::info!("MediaCodec encoder: {name}");
-            let lower = name.to_ascii_lowercase();
-            if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
-                return Err(format!("Rejecting software MediaCodec implementation {name} (slower than native CPU encoder)"));
+        let make_format = |with_operating_rate: bool| {
+            let mut format = MediaFormat::new();
+            format.set_str("mime", "video/avc");
+            format.set_i32("width", w as i32);
+            format.set_i32("height", h as i32);
+            // COLOR_FormatYUV420SemiPlanar (NV12) = 21
+            format.set_i32("color-format", 21);
+            format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
+            format.set_i32("frame-rate", fps.round().max(1.0) as i32);
+            format.set_i32("i-frame-interval", key_interval_sec);
+            format.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
+            if with_operating_rate {
+                format.set_i32("priority", 0);
+                format.set_f32("operating-rate", 1000.0);
             }
-        }
-
-        let mut format = MediaFormat::new();
-        format.set_str("mime", "video/avc");
-        format.set_i32("width", w as i32);
-        format.set_i32("height", h as i32);
-        // COLOR_FormatYUV420SemiPlanar (NV12) = 21
-        format.set_i32("color-format", 21);
-        format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
-        format.set_i32("frame-rate", fps.round().max(1.0) as i32);
-        format.set_i32("i-frame-interval", key_interval_sec);
-        // BitrateMode: 1 = VBR, 2 = CBR
-        format.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
-        // Real-time = 0 for foreground offline export
-        format.set_i32("priority", 0);
-        // Uncap operating rate to encode as fast as hardware ASIC allows (not paced to 1x real-time)
-        format.set_i32("operating-rate", 10000);
-
-        // Configure profile: try requested profile first, fallback to native default profile if rejected
-        let profile = match s.h264_profile {
-            H264Profile::Baseline => 1,
-            H264Profile::Main => 2,
-            H264Profile::High => 8,
+            format
         };
-        format.set_i32("profile", profile);
-        format.set_i32("level", 4096); // Level 4.1
 
-        if let Err(e) = codec.configure(&format, None, MediaCodecDirection::Encoder) {
-            log::warn!("MediaCodec configure with profile {profile} failed ({e:?}), retrying with default profile");
-            let mut fallback_fmt = MediaFormat::new();
-            fallback_fmt.set_str("mime", "video/avc");
-            fallback_fmt.set_i32("width", w as i32);
-            fallback_fmt.set_i32("height", h as i32);
-            fallback_fmt.set_i32("color-format", 21);
-            fallback_fmt.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
-            fallback_fmt.set_i32("frame-rate", fps.round().max(1.0) as i32);
-            fallback_fmt.set_i32("i-frame-interval", key_interval_sec);
-            fallback_fmt.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
-            fallback_fmt.set_i32("priority", 0);
-            fallback_fmt.set_i32("operating-rate", 10000);
-            codec.configure(&fallback_fmt, None, MediaCodecDirection::Encoder)
-                .map_err(|e2| format!("AMediaCodec_configure failed: {e2:?}"))?;
-        }
+        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
+            let codec = MediaCodec::from_encoder_type("video/avc")
+                .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
-        codec.start()
-            .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
+            #[cfg(feature = "api-level-28")]
+            if let Ok(name) = codec.name() {
+                log::info!("MediaCodec encoder: {name}");
+                let lower = name.to_ascii_lowercase();
+                if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
+                    return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU encoder)"));
+                }
+            }
+
+            let format = make_format(with_operating_rate);
+            codec.configure(&format, None, MediaCodecDirection::Encoder)
+                .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
+            codec.start()
+                .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
+            Ok(codec)
+        };
+
+        let codec = match try_init(true) {
+            Ok(c) => c,
+            Err(e1) => {
+                log::warn!("MediaCodec fast init failed ({e1}), retrying with minimal format on fresh instance");
+                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec: {e2}"))?
+            }
+        };
 
         Ok(Self {
             codec,
@@ -416,9 +405,11 @@ impl VideoEncoder for MediaCodecEncoder {
         }
 
         let (y_dst, uv_dst) = dst.split_at_mut(y_len);
-        for (d, &s) in y_dst[..y_len].iter_mut().zip(self.y.iter()) {
-            d.write(s);
+        // Fast memory copy for Y plane
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.y.as_ptr(), y_dst.as_mut_ptr() as *mut u8, y_len);
         }
+        // Fast vectorized paired interleave for UV plane using as_chunks_mut
         for ((pair, &u_val), &v_val) in uv_dst.as_chunks_mut::<2>().0.iter_mut().zip(self.u.iter()).zip(self.v.iter()) {
             pair[0].write(u_val);
             pair[1].write(v_val);

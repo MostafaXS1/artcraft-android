@@ -827,20 +827,7 @@ elif app == "lightcraft":
         fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
 
 elif app == "filmcraft":
-    # 1. Fallback software encoder optimization: Preset::Speed + bframes=0 on Android.
-    if fix(
-        "crates/export/src/encoders.rs",
-        '    let mut cfg = filmcraft_h264enc::EncoderConfig::new(w, h, rate.num as u32, rate.den as u32);\n',
-        '    let mut cfg = filmcraft_h264enc::EncoderConfig::new(w, h, rate.num as u32, rate.den as u32);\n'
-        '    #[cfg(target_os = "android")]\n'
-        '    {\n'
-        '        cfg.preset = filmcraft_h264enc::Preset::Speed;\n'
-        '        cfg.bframes = 0;\n'
-        '    }\n',
-    ):
-        fixed.append("crates/export/src/encoders.rs (software export speed preset)")
-
-    # 2. Add ndk dependency to crates/platform/Cargo.toml for AMediaCodec.
+    # 1. Add ndk dependency to crates/platform/Cargo.toml for AMediaCodec.
     if fix(
         "crates/platform/Cargo.toml",
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
@@ -850,7 +837,7 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
-    # 3. Add android_mediacodec module declaration in crates/platform/src/lib.rs.
+    # 2. Add android_mediacodec module declaration in crates/platform/src/lib.rs.
     if fix(
         "crates/platform/src/lib.rs",
         'mod annexb;\n',
@@ -860,7 +847,7 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/src/lib.rs (android_mediacodec module)")
 
-    # 4. Register android_mediacodec factory in crates/platform/src/lib.rs.
+    # 3. Register android_mediacodec factory in crates/platform/src/lib.rs.
     if fix(
         "crates/platform/src/lib.rs",
         '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]\n'
@@ -928,7 +915,7 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/src/lib.rs (MediaCodec registration)")
 
-    # 5. Copy android_mediacodec.rs template to checkout.
+    # 4. Copy android_mediacodec.rs template to checkout.
     mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
     template_file = Path.cwd() / "templates/filmcraft/android_mediacodec.rs"
     if template_file.exists():
@@ -936,6 +923,16 @@ elif app == "filmcraft":
         if not mediacodec_target.exists() or mediacodec_target.read_text() != content:
             mediacodec_target.write_text(content)
             fixed.append("crates/platform/src/android_mediacodec.rs (updated from template)")
+
+    # 5. Show hardware encoding status in export completion message.
+    if fix(
+        "crates/export/src/job.rs",
+        '            progress.set_status(format!("Done in {secs:.1}s"));\n',
+        '            let hw = filmcraft_export::hw_encode_stats();\n'
+        '            let hw_info = if hw.frames > 0 { format!(" (HW: {}/{} frames)", hw.frames, nframes) } else if hw.declined > 0 { " (HW declined -> SW)".into() } else { " (SW)".into() };\n'
+        '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
+    ):
+        fixed.append("crates/export/src/job.rs (export status HW indicator)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
