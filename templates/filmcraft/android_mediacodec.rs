@@ -1,12 +1,12 @@
-//! Android `AMediaCodec` hardware H.264 video encoder behind `filmcraft_export::VideoEncoder`.
+//! Android `AMediaCodec` hardware H.264 / HEVC video decoder and H.264 video encoder.
 //!
-//! Uses Android's NDK `libmediandk` to encode video frames using the device's fixed-function
-//! hardware video encoder (e.g. Qualcomm Venus/Adreno, MediaTek, Exynos, Google Tensor).
+//! Uses Android's NDK `libmediandk` to decode and encode video using the device's fixed-function
+//! hardware video processing unit (Qualcomm Venus/Adreno, MediaTek, Exynos, Google Tensor).
 //!
-//! Output frames are formatted as length-prefixed NAL units (AVCC) for ISO BMFF (MP4).
-//! When the hardware encoder cannot be initialized, is a slow software emulation, or declines
+//! Output frames for export are formatted as length-prefixed NAL units (AVCC) for ISO BMFF (MP4).
+//! When the hardware encoder or decoder cannot be initialized, is a slow software emulation, or declines
 //! the requested settings (e.g. non-square pixels, odd dimensions, HDR), the factory returns `None`
-//! and FilmCraft automatically falls back to software encoding.
+//! and FilmCraft automatically falls back to software processing.
 
 #![allow(unsafe_code)]
 
@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use filmcraft_codecs::hw::{NalCodec, NalStreamInfo};
+use filmcraft_codecs::{CodecError, DecodedFrame, VideoDecoder};
 use filmcraft_export::{
     BitrateMode, EncodedPacket, EncoderFrame, ExportError, ExportSettings, Format,
     HardwareEncoding, PrepareAhead, Result, VideoEncoder,
@@ -24,6 +26,9 @@ use ndk::media::media_codec::{
     DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection,
 };
 use ndk::media::media_format::MediaFormat;
+
+use crate::biplanar;
+use crate::hybrid::HybridDecoder;
 
 /// The NAL units of an Annex B byte stream (start codes `00 00 01` / `00 00 00 01`).
 pub fn annex_b_nals(data: &[u8]) -> Vec<&[u8]> {
@@ -566,3 +571,424 @@ impl VideoEncoder for MediaCodecEncoder {
 
 // SAFETY: Android AMediaCodec handle can be safely sent to another thread; MediaCodecEncoder owns the codec and accesses it exclusively via &mut self.
 unsafe impl Send for MediaCodecEncoder {}
+
+/// Convert AVCC / HVCC length-prefixed NAL units to Annex B start codes (`00 00 00 01`).
+pub fn avcc_to_annex_b(sample: &[u8], length_size: usize, out: &mut Vec<u8>) {
+    out.clear();
+    let mut pos = 0usize;
+    while pos + length_size <= sample.len() {
+        let len = match length_size {
+            1 => sample[pos] as usize,
+            2 => u16::from_be_bytes([sample[pos], sample[pos + 1]]) as usize,
+            4 => u32::from_be_bytes([sample[pos], sample[pos + 1], sample[pos + 2], sample[pos + 3]]) as usize,
+            _ => {
+                let mut acc = 0usize;
+                for &b in &sample[pos..pos + length_size] {
+                    acc = (acc << 8) | (b as usize);
+                }
+                acc
+            }
+        };
+        pos += length_size;
+        if len == 0 || pos + len > sample.len() {
+            break;
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&sample[pos..pos + len]);
+        pos += len;
+    }
+}
+
+/// The hardware decoder factory registered in FilmCraft's codec registry.
+pub fn decoder_factory(
+    entry: &SampleEntry,
+) -> Option<filmcraft_codecs::Result<Box<dyn VideoDecoder>>> {
+    if !filmcraft_codecs::hw::hardware_decoding() {
+        return None;
+    }
+    let info = NalStreamInfo::from_entry(entry)?.ok()?;
+    match MediaCodecDecoder::new(info.clone()) {
+        Ok(dec) => Some(Ok(Box::new(HybridDecoder::new(
+            Box::new(dec),
+            entry.clone(),
+            info,
+        )))),
+        Err(why) => {
+            log::info!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
+            filmcraft_codecs::hw::note_hw_declined();
+            None
+        }
+    }
+}
+
+/// Whether MediaCodec decoder supports this stream configuration.
+pub fn decoder_for(info: &NalStreamInfo) -> bool {
+    if info.interlaced || info.bit_depth_luma != 8 || info.chroma_format_idc != 1 {
+        return false;
+    }
+    matches!(info.codec, NalCodec::H264 | NalCodec::Hevc)
+}
+
+/// Android `AMediaCodec` hardware H.264 / HEVC video decoder.
+pub struct MediaCodecDecoder {
+    codec: MediaCodec,
+    info: NalStreamInfo,
+    name: String,
+    crop: (u32, u32, u32, u32),
+    stride: usize,
+    slice_height: usize,
+    fed: u64,
+    eos_seen: bool,
+    input_annex_b: Vec<u8>,
+}
+
+impl MediaCodecDecoder {
+    pub fn new(info: NalStreamInfo) -> std::result::Result<Self, String> {
+        if info.interlaced {
+            return Err("hardware decoding declined: interlaced stream".into());
+        }
+        if info.bit_depth_luma != 8 || info.chroma_format_idc != 1 {
+            return Err(format!(
+                "hardware decoding declined: unsupported bit depth ({}) or chroma format ({})",
+                info.bit_depth_luma, info.chroma_format_idc
+            ));
+        }
+
+        let (mime, default_name) = match info.codec {
+            NalCodec::H264 => ("video/avc", "MediaCodec H.264"),
+            NalCodec::Hevc => ("video/hevc", "MediaCodec HEVC"),
+        };
+
+        let (w, h) = info.coded;
+
+        let make_format = |with_operating_rate: bool| {
+            let mut format = MediaFormat::new();
+            format.set_str("mime", mime);
+            format.set_i32("width", w as i32);
+            format.set_i32("height", h as i32);
+            // COLOR_FormatYUV420SemiPlanar (NV12) = 21
+            format.set_i32("color-format", 21);
+            if with_operating_rate {
+                format.set_i32("priority", 0);
+                format.set_f32("operating-rate", 1000.0);
+            }
+
+            match info.codec {
+                NalCodec::H264 => {
+                    let mut csd0 = Vec::new();
+                    let mut csd1 = Vec::new();
+                    for nal in &info.parameter_sets {
+                        if let Some(&hdr) = nal.first() {
+                            let nal_type = hdr & 0x1f;
+                            if nal_type == 7 {
+                                csd0.extend_from_slice(&[0, 0, 0, 1]);
+                                csd0.extend_from_slice(nal);
+                            } else if nal_type == 8 {
+                                csd1.extend_from_slice(&[0, 0, 0, 1]);
+                                csd1.extend_from_slice(nal);
+                            }
+                        }
+                    }
+                    if !csd0.is_empty() {
+                        format.set_buffer("csd-0", &csd0);
+                    }
+                    if !csd1.is_empty() {
+                        format.set_buffer("csd-1", &csd1);
+                    }
+                }
+                NalCodec::Hevc => {
+                    let mut csd0 = Vec::new();
+                    for nal in &info.parameter_sets {
+                        csd0.extend_from_slice(&[0, 0, 0, 1]);
+                        csd0.extend_from_slice(nal);
+                    }
+                    if !csd0.is_empty() {
+                        format.set_buffer("csd-0", &csd0);
+                    }
+                }
+            }
+
+            format
+        };
+
+        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
+            let codec = MediaCodec::from_decoder_type(mime)
+                .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
+
+            if let Ok(name) = codec.name() {
+                log::info!("MediaCodec decoder candidate: {name}");
+                let lower = name.to_ascii_lowercase();
+                if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
+                    return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU decoder)"));
+                }
+            }
+
+            let format = make_format(with_operating_rate);
+            codec.configure(&format, None, MediaCodecDirection::Decoder)
+                .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
+            codec.start()
+                .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
+            Ok(codec)
+        };
+
+        let codec = match try_init(true) {
+            Ok(c) => c,
+            Err(e1) => {
+                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying with minimal format");
+                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec decoder: {e2}"))?
+            }
+        };
+
+        let name = codec.name().unwrap_or_else(|_| default_name.to_string());
+        let stride = w as usize;
+        let slice_height = h as usize;
+        let crop = info.crop;
+
+        let mut dec = Self {
+            codec,
+            info,
+            name,
+            crop,
+            stride,
+            slice_height,
+            fed: 0,
+            eos_seen: false,
+            input_annex_b: Vec::new(),
+        };
+
+        let out_fmt = dec.codec.output_format();
+        dec.update_format(&out_fmt);
+
+        Ok(dec)
+    }
+
+    fn update_format(&mut self, fmt: &MediaFormat) {
+        if let Some(s) = fmt.i32("stride").filter(|&s| s > 0) {
+            self.stride = s as usize;
+        } else if let Some(w) = fmt.i32("width").filter(|&w| w > 0) {
+            self.stride = self.stride.max(w as usize);
+        }
+        if let Some(sh) = fmt.i32("slice-height").filter(|&h| h > 0) {
+            self.slice_height = sh as usize;
+        } else if let Some(h) = fmt.i32("height").filter(|&h| h > 0) {
+            self.slice_height = self.slice_height.max(h as usize);
+        }
+
+        if let (Some(l), Some(t), Some(r), Some(b)) = (
+            fmt.i32("crop-left"),
+            fmt.i32("crop-top"),
+            fmt.i32("crop-right"),
+            fmt.i32("crop-bottom"),
+        ) {
+            if r >= l && b >= t {
+                let cw = (r - l + 1) as u32;
+                let ch = (b - t + 1) as u32;
+                self.crop = (l as u32, t as u32, cw, ch);
+            }
+        }
+    }
+
+    fn drain_output(&mut self, mut timeout: Duration, frames: &mut Vec<DecodedFrame>) -> filmcraft_codecs::Result<()> {
+        for _ in 0..100 {
+            match self.codec.dequeue_output_buffer(timeout) {
+                Ok(DequeuedOutputBufferInfoResult::Buffer(output_buffer)) => {
+                    let info = output_buffer.info();
+                    let flags = info.flags();
+                    let pts = info.presentation_time_us();
+
+                    if (flags & 2) == 0 && info.size() > 0 {
+                        let buf_data = output_buffer.buffer();
+                        let offset = info.offset() as usize;
+                        let size = info.size() as usize;
+                        if let Some(slice) = buf_data.get(offset..offset.saturating_add(size)) {
+                            let stride = self.stride.max(self.info.coded.0 as usize);
+                            let slice_height = self.slice_height.max(self.info.coded.1 as usize);
+                            let luma_size = stride.saturating_mul(slice_height);
+                            let total_size = luma_size.saturating_add(stride.saturating_mul(slice_height.div_ceil(2)));
+
+                            let (luma, chroma, rows) = if slice.len() >= total_size {
+                                (&slice[..luma_size], &slice[luma_size..], slice_height)
+                            } else {
+                                let actual_rows = if stride > 0 {
+                                    (slice.len() * 2) / (stride * 3)
+                                } else {
+                                    self.info.coded.1 as usize
+                                };
+                                let luma_bytes = stride.saturating_mul(actual_rows);
+                                if slice.len() >= luma_bytes {
+                                    (&slice[..luma_bytes], &slice[luma_bytes..], actual_rows)
+                                } else {
+                                    let half = slice.len() * 2 / 3;
+                                    (&slice[..half], &slice[half..], actual_rows)
+                                }
+                            };
+
+                            let biplanar = biplanar::Biplanar {
+                                luma,
+                                chroma,
+                                stride,
+                                rows,
+                            };
+                            let geometry = biplanar::Geometry {
+                                crop: self.crop,
+                                bits: 8,
+                                color: self.info.color,
+                                par: self.info.par,
+                            };
+
+                            match biplanar::to_frame(&biplanar, &geometry) {
+                                Ok(frame) => {
+                                    frames.push(DecodedFrame {
+                                        pts,
+                                        frame,
+                                        draft: false,
+                                    });
+                                }
+                                Err(e) => {
+                                    log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
+                                }
+                            }
+                        }
+                    }
+
+                    let _ = self.codec.release_output_buffer(output_buffer, false);
+                    if (flags & 4) != 0 {
+                        self.eos_seen = true;
+                        break;
+                    }
+                    timeout = Duration::ZERO;
+                }
+                Ok(DequeuedOutputBufferInfoResult::OutputFormatChanged) => {
+                    let fmt = self.codec.output_format();
+                    self.update_format(&fmt);
+                    timeout = Duration::ZERO;
+                }
+                Ok(DequeuedOutputBufferInfoResult::TryAgainLater)
+                | Ok(DequeuedOutputBufferInfoResult::OutputBuffersChanged) => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(CodecError::Decode(format!("dequeue_output_buffer error: {e:?}")));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl VideoDecoder for MediaCodecDecoder {
+    fn decode(&mut self, sample: &[u8], pts: i64) -> filmcraft_codecs::Result<Vec<DecodedFrame>> {
+        self.fed += 1;
+        let mut frames = Vec::new();
+
+        // 1. Convert AVCC / HVCC sample to Annex B
+        avcc_to_annex_b(sample, self.info.length_size, &mut self.input_annex_b);
+        if self.input_annex_b.is_empty() {
+            return Ok(frames);
+        }
+
+        // 2. Dequeue input buffer with backoff
+        let mut input_buf = 'outer: loop {
+            for _ in 0..100 {
+                match self.codec.dequeue_input_buffer(Duration::ZERO) {
+                    Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
+                    _ => {
+                        self.drain_output(Duration::from_millis(20), &mut frames)?;
+                    }
+                }
+            }
+            return Err(CodecError::Decode(
+                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 2s".into(),
+            ));
+        };
+
+        // 3. Copy Annex-B data into input buffer
+        let total_bytes = self.input_annex_b.len();
+        let dst = input_buf.buffer_mut();
+        if total_bytes > dst.len() {
+            return Err(CodecError::Decode(format!(
+                "input sample ({} bytes) exceeds MediaCodec input buffer capacity ({} bytes)",
+                total_bytes,
+                dst.len()
+            )));
+        }
+        // SAFETY: dst is valid for total_bytes bytes, non-null, and does not overlap with self.input_annex_b.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.input_annex_b.as_ptr(),
+                dst.as_mut_ptr() as *mut u8,
+                total_bytes,
+            );
+        }
+
+        // 4. Queue input buffer with pts
+        self.codec
+            .queue_input_buffer(input_buf, 0, total_bytes, pts as u64, 0)
+            .map_err(|e| CodecError::Decode(format!("queue_input_buffer failed: {e:?}")))?;
+
+        // 5. Drain any ready output frames non-blocking
+        self.drain_output(Duration::ZERO, &mut frames)?;
+
+        Ok(frames)
+    }
+
+    fn flush(&mut self) -> Vec<DecodedFrame> {
+        let mut frames = Vec::new();
+
+        // 1. Drain pending frames first
+        let _ = self.drain_output(Duration::from_millis(20), &mut frames);
+
+        // 2. Queue EOS buffer (flags = 4)
+        let mut eos_queued = false;
+        for _ in 0..50 {
+            match self.codec.dequeue_input_buffer(Duration::from_millis(10)) {
+                Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                    if self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok() {
+                        eos_queued = true;
+                        break;
+                    }
+                }
+                _ => {
+                    let _ = self.drain_output(Duration::from_millis(10), &mut frames);
+                }
+            }
+        }
+
+        if !eos_queued {
+            log::warn!("Could not queue EOS to AMediaCodec decoder input buffer");
+        }
+
+        // 3. Drain until EOS seen or timeout
+        for _ in 0..50 {
+            if self.eos_seen {
+                break;
+            }
+            let _ = self.drain_output(Duration::from_millis(20), &mut frames);
+        }
+
+        self.eos_seen = false;
+        frames
+    }
+
+    fn reset(&mut self) {
+        if let Err(e) = self.codec.flush() {
+            log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
+        }
+        self.eos_seen = false;
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn is_random_access(&self, sample: &[u8]) -> Option<bool> {
+        self.info.is_random_access(sample)
+    }
+
+    fn is_disposable(&self, sample: &[u8]) -> bool {
+        self.info.is_disposable(sample)
+    }
+}
+
+// SAFETY: Android AMediaCodec handle can be safely sent to another thread; MediaCodecDecoder owns the codec and accesses it exclusively via &mut self.
+unsafe impl Send for MediaCodecDecoder {}

@@ -879,7 +879,9 @@ elif app == "filmcraft":
         '    {\n'
         '        static ONCE: std::sync::Once = std::sync::Once::new();\n'
         '        ONCE.call_once(|| {\n'
+        '            filmcraft_codecs::register_video_decoder(android_mediacodec::decoder_factory);\n'
         '            filmcraft_export::register_encoder(android_mediacodec::factory);\n'
+        '            filmcraft_codecs::hw::set_hw_backend("MediaCodec");\n'
         '        });\n'
         '        Availability::Available("MediaCodec")\n'
         '    }\n'
@@ -909,11 +911,36 @@ elif app == "filmcraft":
         '    }\n'
         '    #[cfg(target_os = "android")]\n'
         '    {\n'
-        '        filmcraft_export::encoder_registered(android_mediacodec::factory)\n'
+        '        filmcraft_codecs::video_decoder_registered(android_mediacodec::decoder_factory)\n'
+        '            && filmcraft_export::encoder_registered(android_mediacodec::factory)\n'
         '    }\n'
         '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android")))]\n',
     ):
         fixed.append("crates/platform/src/lib.rs (MediaCodec registration)")
+
+    # 3b. Support hardware_decoder_for on Android in crates/platform/src/lib.rs.
+    if fix(
+        "crates/platform/src/lib.rs",
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]\n'
+        '    {\n'
+        '        let _ = entry;\n'
+        '        false\n'
+        '    }\n'
+        '}\n',
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        filmcraft_codecs::hw::NalStreamInfo::from_entry(entry).and_then(|r| r.ok()).is_some_and(|info| {\n'
+        '            android_mediacodec::decoder_for(&info)\n'
+        '        })\n'
+        '    }\n'
+        '    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android")))]\n'
+        '    {\n'
+        '        let _ = entry;\n'
+        '        false\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/platform/src/lib.rs (MediaCodec decoder_for)")
 
     # 4. Copy android_mediacodec.rs template to checkout.
     mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
