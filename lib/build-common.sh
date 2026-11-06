@@ -955,8 +955,10 @@ elif app == "filmcraft":
     if fix(
         "crates/export/src/job.rs",
         '            progress.set_status(format!("Done in {secs:.1}s"));\n',
-        '            let hw = crate::hw_encode_stats();\n'
-        '            let hw_info = if hw.frames > 0 { format!(" (HW: {}/{} frames)", hw.frames, nframes) } else if hw.declined > 0 { " (HW declined -> SW)".into() } else { " (SW)".into() };\n'
+        '            let enc = crate::hw_encode_stats();\n'
+        '            let dec = filmcraft_codecs::hw::hw_stats();\n'
+        '            let gpu = crate::gpu_render_stats();\n'
+        '            let hw_info = format!(" (Dec: {} HW, GPU: {}, Enc: {} HW)", dec.frames, gpu.frames, enc.frames);\n'
         '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
     ):
         fixed.append("crates/export/src/job.rs (export status HW indicator)")
@@ -2164,6 +2166,21 @@ fn saf_hooks(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Hoo
         "imports": "use filmcraft_ui_egui::HostHooks;\nmod audio;\n" + SYNC_SAF_IMPORTS,
         "state": SYNC_SAF_STATE,
         "services": '''
+struct GpuFrameRenderer(filmcraft_gpu::ExportRenderer);
+
+impl filmcraft_export::FrameRenderer for GpuFrameRenderer {
+    fn render(
+        &mut self,
+        project: &filmcraft_project::Project,
+        seq: filmcraft_project::ItemId,
+        t: filmcraft_time::Tick,
+        opts: filmcraft_render::RenderOptions,
+        sources: &dyn filmcraft_render::SourceProvider,
+    ) -> Option<filmcraft_render::Image> {
+        self.0.render(project, seq, t, opts, sources)
+    }
+}
+
 /// Show a native file dialog without blocking the frame loop: the app gets the receiver, keeps
 /// running its frames and runs the continuation once this worker thread answers. Blocking on the
 /// frame thread instead stalls `AndroidApp::poll_events`, which Android's lifecycle callbacks wait
@@ -2220,7 +2237,14 @@ fn saf_hooks(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Hos
 ''',
         "poll": SYNC_SAF_POLL,
         "construct_expr": "FilmcraftApp::new(Session::default())",
-        "post_construct": "    filmcraft_platform::register();\n    inner.hooks = saf_hooks(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());\n    inner.audio = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Box::new(audio::CpalOut::new()) as Box<dyn filmcraft_ui_egui::AudioOut>)).ok();\n",
+        "post_construct": (
+            "    filmcraft_platform::register();\n"
+            "    filmcraft_export::register_frame_renderer(|| {\n"
+            "        filmcraft_gpu::ExportRenderer::new().map(|r| Box::new(GpuFrameRenderer(r)) as Box<dyn filmcraft_export::FrameRenderer>)\n"
+            "    });\n"
+            "    inner.hooks = saf_hooks(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());\n"
+            "    inner.audio = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Box::new(audio::CpalOut::new()) as Box<dyn filmcraft_ui_egui::AudioOut>)).ok();\n"
+        ),
     },
     "lightcraft": {
         "activity": "LightCraftActivity",
@@ -3277,8 +3301,17 @@ try:
     # every open failed with "file formats are not available in this build". The launcher needs the
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
-    # FilmCraft hardware encoding on Android requires filmcraft-platform in the launcher binary.
-    platform_dep = 'filmcraft-platform = { path = "../../crates/platform" }\n' if app == "filmcraft" else ''
+    # FilmCraft hardware encoding and GPU export compositing on Android require platform, gpu, export, render, project, and time crates.
+    platform_dep = (
+        'filmcraft-platform = { path = "../../crates/platform" }\n'
+        'filmcraft-gpu = { path = "../../crates/gpu" }\n'
+        'filmcraft-export = { path = "../../crates/export" }\n'
+        'filmcraft-render = { path = "../../crates/render" }\n'
+        'filmcraft-project = { path = "../../crates/project" }\n'
+        'filmcraft-time = { path = "../../crates/time" }\n'
+        if app == "filmcraft"
+        else ''
+    )
     java_sources = 'java_sources = "java"\n' if saf else ''
     config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
     # Android open/share associations for the app's document types (the MAIN/LAUNCHER entry is always

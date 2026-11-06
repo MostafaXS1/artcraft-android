@@ -575,6 +575,11 @@ unsafe impl Send for MediaCodecEncoder {}
 /// Convert AVCC / HVCC length-prefixed NAL units to Annex B start codes (`00 00 00 01`).
 pub fn avcc_to_annex_b(sample: &[u8], length_size: usize, out: &mut Vec<u8>) {
     out.clear();
+    avcc_to_annex_b_append(sample, length_size, out);
+}
+
+/// Append AVCC / HVCC length-prefixed NAL units as Annex B start codes (`00 00 00 01`) into `out`.
+pub fn avcc_to_annex_b_append(sample: &[u8], length_size: usize, out: &mut Vec<u8>) {
     let mut pos = 0usize;
     while pos + length_size <= sample.len() {
         let len = match length_size {
@@ -604,15 +609,19 @@ pub fn decoder_factory(
     entry: &SampleEntry,
 ) -> Option<filmcraft_codecs::Result<Box<dyn VideoDecoder>>> {
     if !filmcraft_codecs::hw::hardware_decoding() {
+        log::info!("MediaCodec hardware decoding skipped: disabled in settings");
         return None;
     }
     let info = NalStreamInfo::from_entry(entry)?.ok()?;
     match MediaCodecDecoder::new(info.clone()) {
-        Ok(dec) => Some(Ok(Box::new(HybridDecoder::new(
-            Box::new(dec),
-            entry.clone(),
-            info,
-        )))),
+        Ok(dec) => {
+            log::info!("MediaCodec hardware decoder activated for {} video", entry.codec.name());
+            Some(Ok(Box::new(HybridDecoder::new(
+                Box::new(dec),
+                entry.clone(),
+                info,
+            ))))
+        }
         Err(why) => {
             log::info!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
             filmcraft_codecs::hw::note_hw_declined();
@@ -637,8 +646,10 @@ pub struct MediaCodecDecoder {
     crop: (u32, u32, u32, u32),
     stride: usize,
     slice_height: usize,
+    color_format: i32,
     fed: u64,
     eos_seen: bool,
+    need_param_sets: bool,
     input_annex_b: Vec<u8>,
 }
 
@@ -661,49 +672,53 @@ impl MediaCodecDecoder {
 
         let (w, h) = info.coded;
 
-        let make_format = |with_operating_rate: bool| {
+        let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
             format.set_str("mime", mime);
             format.set_i32("width", w as i32);
             format.set_i32("height", h as i32);
-            // COLOR_FormatYUV420SemiPlanar (NV12) = 21
-            format.set_i32("color-format", 21);
+            if with_color_format {
+                // COLOR_FormatYUV420SemiPlanar (NV12) = 21
+                format.set_i32("color-format", 21);
+            }
             if with_operating_rate {
                 format.set_i32("priority", 0);
                 format.set_f32("operating-rate", 1000.0);
             }
 
-            match info.codec {
-                NalCodec::H264 => {
-                    let mut csd0 = Vec::new();
-                    let mut csd1 = Vec::new();
-                    for nal in &info.parameter_sets {
-                        if let Some(&hdr) = nal.first() {
-                            let nal_type = hdr & 0x1f;
-                            if nal_type == 7 {
-                                csd0.extend_from_slice(&[0, 0, 0, 1]);
-                                csd0.extend_from_slice(nal);
-                            } else if nal_type == 8 {
-                                csd1.extend_from_slice(&[0, 0, 0, 1]);
-                                csd1.extend_from_slice(nal);
+            if with_csd {
+                match info.codec {
+                    NalCodec::H264 => {
+                        let mut csd0 = Vec::new();
+                        let mut csd1 = Vec::new();
+                        for nal in &info.parameter_sets {
+                            if let Some(&hdr) = nal.first() {
+                                let nal_type = hdr & 0x1f;
+                                if nal_type == 7 {
+                                    csd0.extend_from_slice(&[0, 0, 0, 1]);
+                                    csd0.extend_from_slice(nal);
+                                } else if nal_type == 8 {
+                                    csd1.extend_from_slice(&[0, 0, 0, 1]);
+                                    csd1.extend_from_slice(nal);
+                                }
                             }
                         }
+                        if !csd0.is_empty() {
+                            format.set_buffer("csd-0", &csd0);
+                        }
+                        if !csd1.is_empty() {
+                            format.set_buffer("csd-1", &csd1);
+                        }
                     }
-                    if !csd0.is_empty() {
-                        format.set_buffer("csd-0", &csd0);
-                    }
-                    if !csd1.is_empty() {
-                        format.set_buffer("csd-1", &csd1);
-                    }
-                }
-                NalCodec::Hevc => {
-                    let mut csd0 = Vec::new();
-                    for nal in &info.parameter_sets {
-                        csd0.extend_from_slice(&[0, 0, 0, 1]);
-                        csd0.extend_from_slice(nal);
-                    }
-                    if !csd0.is_empty() {
-                        format.set_buffer("csd-0", &csd0);
+                    NalCodec::Hevc => {
+                        let mut csd0 = Vec::new();
+                        for nal in &info.parameter_sets {
+                            csd0.extend_from_slice(&[0, 0, 0, 1]);
+                            csd0.extend_from_slice(nal);
+                        }
+                        if !csd0.is_empty() {
+                            format.set_buffer("csd-0", &csd0);
+                        }
                     }
                 }
             }
@@ -711,7 +726,7 @@ impl MediaCodecDecoder {
             format
         };
 
-        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
+        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_decoder_type(mime)
                 .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
 
@@ -723,7 +738,7 @@ impl MediaCodecDecoder {
                 }
             }
 
-            let format = make_format(with_operating_rate);
+            let format = make_format(with_operating_rate, with_color_format, with_csd);
             codec.configure(&format, None, MediaCodecDirection::Decoder)
                 .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
             codec.start()
@@ -731,15 +746,23 @@ impl MediaCodecDecoder {
             Ok(codec)
         };
 
-        let codec = match try_init(true) {
-            Ok(c) => c,
-            Err(e1) => {
-                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying with minimal format");
-                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec decoder: {e2}"))?
-            }
-        };
+        let codec = try_init(true, true, true)
+            .or_else(|e1| {
+                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                try_init(false, true, true)
+            })
+            .or_else(|e2| {
+                log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                try_init(false, false, true)
+            })
+            .or_else(|e3| {
+                log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                try_init(false, false, false)
+            })
+            .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
 
         let name = codec.name().unwrap_or_else(|_| default_name.to_string());
+        log::info!("MediaCodec decoder initialized successfully: {name}");
         let stride = w as usize;
         let slice_height = h as usize;
         let crop = info.crop;
@@ -751,8 +774,10 @@ impl MediaCodecDecoder {
             crop,
             stride,
             slice_height,
+            color_format: 21,
             fed: 0,
             eos_seen: false,
+            need_param_sets: true,
             input_annex_b: Vec::new(),
         };
 
@@ -763,6 +788,9 @@ impl MediaCodecDecoder {
     }
 
     fn update_format(&mut self, fmt: &MediaFormat) {
+        if let Some(cf) = fmt.i32("color-format") {
+            self.color_format = cf;
+        }
         if let Some(s) = fmt.i32("stride").filter(|&s| s > 0) {
             self.stride = s as usize;
         } else if let Some(w) = fmt.i32("width").filter(|&w| w > 0) {
@@ -783,9 +811,18 @@ impl MediaCodecDecoder {
             if r >= l && b >= t {
                 let cw = (r - l + 1) as u32;
                 let ch = (b - t + 1) as u32;
-                self.crop = (l as u32, t as u32, cw, ch);
+                if cw > 0 && ch > 0 {
+                    self.crop = (l as u32, t as u32, cw, ch);
+                }
             }
         }
+        log::info!(
+            "MediaCodecDecoder format updated: color_format={}, stride={}, slice_height={}, crop={:?}",
+            self.color_format,
+            self.stride,
+            self.slice_height,
+            self.crop
+        );
     }
 
     fn drain_output(&mut self, mut timeout: Duration, frames: &mut Vec<DecodedFrame>) -> filmcraft_codecs::Result<()> {
@@ -803,49 +840,101 @@ impl MediaCodecDecoder {
                         if let Some(slice) = buf_data.get(offset..offset.saturating_add(size)) {
                             let stride = self.stride.max(self.info.coded.0 as usize);
                             let slice_height = self.slice_height.max(self.info.coded.1 as usize);
-                            let luma_size = stride.saturating_mul(slice_height);
-                            let total_size = luma_size.saturating_add(stride.saturating_mul(slice_height.div_ceil(2)));
 
-                            let (luma, chroma, rows) = if slice.len() >= total_size {
-                                (&slice[..luma_size], &slice[luma_size..], slice_height)
-                            } else {
-                                let actual_rows = if stride > 0 {
-                                    (slice.len() * 2) / (stride * 3)
-                                } else {
-                                    self.info.coded.1 as usize
-                                };
-                                let luma_bytes = stride.saturating_mul(actual_rows);
-                                if slice.len() >= luma_bytes {
-                                    (&slice[..luma_bytes], &slice[luma_bytes..], actual_rows)
-                                } else {
-                                    let half = slice.len() * 2 / 3;
-                                    (&slice[..half], &slice[half..], actual_rows)
-                                }
-                            };
-
-                            let biplanar = biplanar::Biplanar {
-                                luma,
-                                chroma,
-                                stride,
-                                rows,
-                            };
-                            let geometry = biplanar::Geometry {
-                                crop: self.crop,
-                                bits: 8,
-                                color: self.info.color,
-                                par: self.info.par,
-                            };
-
-                            match biplanar::to_frame(&biplanar, &geometry) {
-                                Ok(frame) => {
+                            if self.color_format == 19 {
+                                // COLOR_FormatYUV420Planar (I420)
+                                let y_size = stride * slice_height;
+                                let uv_stride = stride / 2;
+                                let uv_rows = slice_height / 2;
+                                let u_size = uv_stride * uv_rows;
+                                if slice.len() >= y_size + u_size * 2 {
+                                    let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
+                                    let mut y_plane = filmcraft_frame::pool::take_u8(cw * ch);
+                                    for r in 0..ch {
+                                        let src_start = (oy + r) * stride + ox;
+                                        if let Some(row) = slice.get(src_start..src_start + cw) {
+                                            y_plane.extend_from_slice(row);
+                                        }
+                                    }
+                                    let u_start = y_size;
+                                    let v_start = y_size + u_size;
+                                    let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
+                                    let mut u_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                    let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                    for r in 0..cuh {
+                                        let u_row = u_start + (coy + r) * uv_stride + cox;
+                                        let v_row = v_start + (coy + r) * uv_stride + cox;
+                                        if let Some(urow) = slice.get(u_row..u_row + cuw) {
+                                            u_plane.extend_from_slice(urow);
+                                        }
+                                        if let Some(vrow) = slice.get(v_row..v_row + cuw) {
+                                            v_plane.extend_from_slice(vrow);
+                                        }
+                                    }
+                                    let data = filmcraft_frame::PixelData::Yuv8 {
+                                        planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
+                                        chroma: filmcraft_frame::Chroma::C420,
+                                        alpha: None,
+                                    };
                                     frames.push(DecodedFrame {
                                         pts,
-                                        frame,
+                                        frame: filmcraft_frame::VideoFrame {
+                                            width: self.crop.2,
+                                            height: self.crop.3,
+                                            data,
+                                            color: self.info.color,
+                                            par: self.info.par,
+                                            pts: filmcraft_time::Tick::ZERO,
+                                        },
                                         draft: false,
                                     });
                                 }
-                                Err(e) => {
-                                    log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
+                            } else {
+                                // Default: COLOR_FormatYUV420SemiPlanar (NV12)
+                                let luma_size = stride.saturating_mul(slice_height);
+                                let total_size = luma_size.saturating_add(stride.saturating_mul(slice_height.div_ceil(2)));
+
+                                let (luma, chroma, rows) = if slice.len() >= total_size {
+                                    (&slice[..luma_size], &slice[luma_size..], slice_height)
+                                } else {
+                                    let actual_rows = if stride > 0 {
+                                        (slice.len() * 2) / (stride * 3)
+                                    } else {
+                                        self.info.coded.1 as usize
+                                    };
+                                    let luma_bytes = stride.saturating_mul(actual_rows);
+                                    if slice.len() >= luma_bytes {
+                                        (&slice[..luma_bytes], &slice[luma_bytes..], actual_rows)
+                                    } else {
+                                        let half = slice.len() * 2 / 3;
+                                        (&slice[..half], &slice[half..], actual_rows)
+                                    }
+                                };
+
+                                let biplanar = biplanar::Biplanar {
+                                    luma,
+                                    chroma,
+                                    stride,
+                                    rows,
+                                };
+                                let geometry = biplanar::Geometry {
+                                    crop: self.crop,
+                                    bits: 8,
+                                    color: self.info.color,
+                                    par: self.info.par,
+                                };
+
+                                match biplanar::to_frame(&biplanar, &geometry) {
+                                    Ok(frame) => {
+                                        frames.push(DecodedFrame {
+                                            pts,
+                                            frame,
+                                            draft: false,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
+                                    }
                                 }
                             }
                         }
@@ -881,24 +970,32 @@ impl VideoDecoder for MediaCodecDecoder {
         self.fed += 1;
         let mut frames = Vec::new();
 
-        // 1. Convert AVCC / HVCC sample to Annex B
-        avcc_to_annex_b(sample, self.info.length_size, &mut self.input_annex_b);
+        // 1. Convert AVCC / HVCC sample to Annex B, prepending parameter sets on first frame or seek
+        self.input_annex_b.clear();
+        if self.need_param_sets {
+            for nal in &self.info.parameter_sets {
+                self.input_annex_b.extend_from_slice(&[0, 0, 0, 1]);
+                self.input_annex_b.extend_from_slice(nal);
+            }
+            self.need_param_sets = false;
+        }
+        avcc_to_annex_b_append(sample, self.info.length_size, &mut self.input_annex_b);
         if self.input_annex_b.is_empty() {
             return Ok(frames);
         }
 
         // 2. Dequeue input buffer with backoff
         let mut input_buf = 'outer: loop {
-            for _ in 0..100 {
-                match self.codec.dequeue_input_buffer(Duration::ZERO) {
+            for _ in 0..150 {
+                match self.codec.dequeue_input_buffer(Duration::from_millis(5)) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
                     _ => {
-                        self.drain_output(Duration::from_millis(20), &mut frames)?;
+                        self.drain_output(Duration::from_millis(10), &mut frames)?;
                     }
                 }
             }
             return Err(CodecError::Decode(
-                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 2s".into(),
+                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 1.5s".into(),
             ));
         };
 
@@ -975,6 +1072,7 @@ impl VideoDecoder for MediaCodecDecoder {
             log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
         }
         self.eos_seen = false;
+        self.need_param_sets = true;
     }
 
     fn name(&self) -> &str {
