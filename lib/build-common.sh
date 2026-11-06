@@ -846,7 +846,7 @@ elif app == "filmcraft":
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
         '# Android: hardware H.264 video encoding through Android\'s NDK MediaCodec API (libmediandk).\n'
-        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media"], default-features = false }\n',
+        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "api-level-28"], default-features = false }\n',
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 

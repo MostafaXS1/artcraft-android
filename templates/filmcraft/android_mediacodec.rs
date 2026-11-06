@@ -4,17 +4,19 @@
 //! hardware video encoder (e.g. Qualcomm Venus/Adreno, MediaTek, Exynos, Google Tensor).
 //!
 //! Output frames are formatted as length-prefixed NAL units (AVCC) for ISO BMFF (MP4).
-//! When the hardware encoder cannot be initialized or declines the requested settings
-//! (e.g. non-square pixels, odd dimensions, HDR), the factory returns `None` and FilmCraft
-//! automatically falls back to software encoding.
+//! When the hardware encoder cannot be initialized, is a slow software emulation, or declines
+//! the requested settings (e.g. non-square pixels, odd dimensions, HDR), the factory returns `None`
+//! and FilmCraft automatically falls back to software encoding.
 
 #![allow(unsafe_code)]
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use filmcraft_export::{
     BitrateMode, EncodedPacket, EncoderFrame, ExportError, ExportSettings, Format,
-    H264Profile, HardwareEncoding, Result, VideoEncoder,
+    H264Profile, HardwareEncoding, PrepareAhead, Result, VideoEncoder,
 };
 use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
@@ -115,16 +117,19 @@ pub fn factory(
 
     match MediaCodecEncoder::new(w, h, rate, s) {
         Ok(enc) => {
+            log::info!("MediaCodec hardware encoding session started for {w}x{h}");
             filmcraft_export::note_hw_encode_session();
             Some(Ok(Box::new(enc)))
         }
         Err(why) => {
-            log::info!("MediaCodec hardware encoding declined: {why}");
+            log::warn!("MediaCodec hardware encoding declined: {why}");
             filmcraft_export::note_hw_encode_declined();
             None
         }
     }
 }
+
+type YuvPlanes = (Vec<u8>, Vec<u8>, Vec<u8>);
 
 pub struct MediaCodecEncoder {
     codec: MediaCodec,
@@ -136,10 +141,10 @@ pub struct MediaCodecEncoder {
     y: Vec<u8>,
     u: Vec<u8>,
     v: Vec<u8>,
-    nv12: Vec<u8>,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
     eos_seen: bool,
+    ready: Arc<Mutex<HashMap<u64, YuvPlanes>>>,
 }
 
 impl MediaCodecEncoder {
@@ -156,6 +161,16 @@ impl MediaCodecEncoder {
         let codec = MediaCodec::from_encoder_type("video/avc")
             .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
+        // Inspect encoder implementation name: reject slow Google software emulation
+        #[cfg(feature = "api-level-28")]
+        if let Ok(name) = codec.name() {
+            log::info!("MediaCodec encoder: {name}");
+            let lower = name.to_ascii_lowercase();
+            if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
+                return Err(format!("Rejecting software MediaCodec implementation {name} (slower than native CPU encoder)"));
+            }
+        }
+
         let mut format = MediaFormat::new();
         format.set_str("mime", "video/avc");
         format.set_i32("width", w as i32);
@@ -167,20 +182,39 @@ impl MediaCodecEncoder {
         format.set_i32("i-frame-interval", key_interval_sec);
         // BitrateMode: 1 = VBR, 2 = CBR
         format.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
-        // AVC Profile: Baseline = 1, Main = 2, High = 8
+        // Real-time = 0 for foreground offline export
+        format.set_i32("priority", 0);
+        // Uncap operating rate to encode as fast as hardware ASIC allows (not paced to 1x real-time)
+        format.set_i32("operating-rate", 10000);
+
+        // Configure profile: try requested profile first, fallback to native default profile if rejected
         let profile = match s.h264_profile {
             H264Profile::Baseline => 1,
             H264Profile::Main => 2,
             H264Profile::High => 8,
         };
         format.set_i32("profile", profile);
+        format.set_i32("level", 4096); // Level 4.1
 
-        codec.configure(&format, None, MediaCodecDirection::Encoder)
-            .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
+        if let Err(e) = codec.configure(&format, None, MediaCodecDirection::Encoder) {
+            log::warn!("MediaCodec configure with profile {profile} failed ({e:?}), retrying with default profile");
+            let mut fallback_fmt = MediaFormat::new();
+            fallback_fmt.set_str("mime", "video/avc");
+            fallback_fmt.set_i32("width", w as i32);
+            fallback_fmt.set_i32("height", h as i32);
+            fallback_fmt.set_i32("color-format", 21);
+            fallback_fmt.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
+            fallback_fmt.set_i32("frame-rate", fps.round().max(1.0) as i32);
+            fallback_fmt.set_i32("i-frame-interval", key_interval_sec);
+            fallback_fmt.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
+            fallback_fmt.set_i32("priority", 0);
+            fallback_fmt.set_i32("operating-rate", 10000);
+            codec.configure(&fallback_fmt, None, MediaCodecDirection::Encoder)
+                .map_err(|e2| format!("AMediaCodec_configure failed: {e2:?}"))?;
+        }
+
         codec.start()
             .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
-
-        let total_yuv = (w as usize).saturating_mul(h as usize).saturating_mul(3) / 2;
 
         Ok(Self {
             codec,
@@ -192,10 +226,10 @@ impl MediaCodecEncoder {
             y: Vec::new(),
             u: Vec::new(),
             v: Vec::new(),
-            nv12: vec![0u8; total_yuv],
             sps: None,
             pps: None,
             eos_seen: false,
+            ready: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -209,7 +243,8 @@ impl MediaCodecEncoder {
         }
     }
 
-    fn drain_output(&mut self, timeout: Duration, packets: &mut Vec<EncodedPacket>) -> Result<()> {
+    fn drain_output(&mut self, initial_timeout: Duration, packets: &mut Vec<EncodedPacket>) -> Result<()> {
+        let mut timeout = initial_timeout;
         loop {
             match self.codec.dequeue_output_buffer(timeout) {
                 Ok(DequeuedOutputBufferInfoResult::Buffer(output_buffer)) => {
@@ -252,6 +287,8 @@ impl MediaCodecEncoder {
                         self.eos_seen = true;
                         break;
                     }
+                    // For subsequent buffers in this drain, do NOT wait: only take what is already ready!
+                    timeout = Duration::ZERO;
                 }
                 Ok(DequeuedOutputBufferInfoResult::OutputFormatChanged) => {
                     let fmt = self.codec.output_format();
@@ -265,6 +302,7 @@ impl MediaCodecEncoder {
                             self.pps = Some(pps.to_vec());
                         }
                     }
+                    timeout = Duration::ZERO;
                 }
                 Ok(DequeuedOutputBufferInfoResult::TryAgainLater)
                 | Ok(DequeuedOutputBufferInfoResult::OutputBuffersChanged) => {
@@ -291,6 +329,20 @@ impl VideoEncoder for MediaCodecEncoder {
         self.timescale
     }
 
+    fn prepare_ahead(&self) -> Option<PrepareAhead> {
+        let ready = self.ready.clone();
+        Some(Arc::new(move |f: &EncoderFrame| {
+            let (w, h) = (f.width as usize, f.height as usize);
+            let mut y = Vec::new();
+            let mut u = Vec::new();
+            let mut v = Vec::new();
+            filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
+                filmcraft_export::rgba_to_yuv420_8(f.rgba, w, h, &mut y, &mut u, &mut v);
+            });
+            ready.lock().unwrap_or_else(PoisonError::into_inner).insert(f.index, (y, u, v));
+        }))
+    }
+
     fn encode(&mut self, f: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
         if f.hdr.is_some() {
             return Err(ExportError::Unsupported("hardware encoding does not take HDR pictures".into()));
@@ -306,51 +358,73 @@ impl VideoEncoder for MediaCodecEncoder {
             return Err(ExportError::Encode("the RGBA picture is smaller than its size".into()));
         }
 
-        // 1. Color conversion: RGBA -> Planar YUV420
-        filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
-            filmcraft_export::rgba_to_yuv420_8(f.rgba, w, h, &mut self.y, &mut self.u, &mut self.v);
-        });
-
-        // 2. Interleave Planar YUV420 into NV12 (Y plane, then interleaved UV)
-        let y_len = w.saturating_mul(h);
-        let uv_len = y_len / 2;
-        let total_len = y_len.saturating_add(uv_len);
-        if self.nv12.len() != total_len {
-            self.nv12.resize(total_len, 0);
-        }
-        self.nv12[..y_len].copy_from_slice(&self.y);
-        let uv_dst = &mut self.nv12[y_len..];
-        for (i, (&u_val, &v_val)) in self.u.iter().zip(self.v.iter()).enumerate() {
-            if let Some(pair) = uv_dst.get_mut(i * 2..i * 2 + 2) {
-                pair[0] = u_val;
-                pair[1] = v_val;
+        // 1. Color conversion: retrieve pre-converted YUV planes or convert if missing
+        let ready_planes = {
+            let mut ready = self.ready.lock().unwrap_or_else(PoisonError::into_inner);
+            let mine = ready.remove(&f.index);
+            ready.retain(|&i, _| i > f.index);
+            mine
+        };
+        let chroma = w.div_ceil(2) * h.div_ceil(2);
+        match ready_planes.filter(|(y, u, v)| y.len() == w * h && u.len() == chroma && v.len() == chroma) {
+            Some((y, u, v)) => {
+                self.y = y;
+                self.u = u;
+                self.v = v;
+            }
+            None => {
+                filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
+                    filmcraft_export::rgba_to_yuv420_8(f.rgba, w, h, &mut self.y, &mut self.u, &mut self.v);
+                });
             }
         }
 
         let mut packets = Vec::new();
 
-        // 3. Drain any pending output buffers without waiting
+        // 2. Drain any pending output buffers immediately without waiting
         self.drain_output(Duration::ZERO, &mut packets)?;
 
-        // 4. Dequeue an input buffer (with short retry if needed)
-        let mut input_buf = match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
+        // 3. Dequeue an input buffer (non-blocking first; wait on output only when pipeline is full)
+        let mut input_buf = match self.codec.dequeue_input_buffer(Duration::ZERO) {
             Ok(DequeuedInputBufferResult::Buffer(b)) => b,
             _ => {
-                self.drain_output(Duration::from_millis(50), &mut packets)?;
-                match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
+                self.drain_output(Duration::from_millis(10), &mut packets)?;
+                match self.codec.dequeue_input_buffer(Duration::ZERO) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => b,
-                    _ => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into())),
+                    _ => {
+                        self.drain_output(Duration::from_millis(20), &mut packets)?;
+                        match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
+                            Ok(DequeuedInputBufferResult::Buffer(b)) => b,
+                            _ => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into())),
+                        }
+                    }
                 }
             }
         };
 
-        // 5. Copy NV12 bytes into the input buffer safely
+        // 4. Format directly into NV12 inside the hardware input buffer (zero extra allocations/copies)
+        let y_len = w.saturating_mul(h);
+        let uv_len = y_len / 2;
+        let total_len = y_len.saturating_add(uv_len);
         let dst = input_buf.buffer_mut();
-        for (d, s) in dst.iter_mut().zip(self.nv12.iter()) {
-            d.write(*s);
+        if dst.len() < total_len {
+            return Err(ExportError::Encode(format!(
+                "MediaCodec input buffer too small: {} bytes, expected {}",
+                dst.len(),
+                total_len
+            )));
         }
 
-        // 6. Calculate PTS in microseconds
+        let (y_dst, uv_dst) = dst.split_at_mut(y_len);
+        for (d, &s) in y_dst[..y_len].iter_mut().zip(self.y.iter()) {
+            d.write(s);
+        }
+        for ((pair, &u_val), &v_val) in uv_dst.as_chunks_mut::<2>().0.iter_mut().zip(self.u.iter()).zip(self.v.iter()) {
+            pair[0].write(u_val);
+            pair[1].write(v_val);
+        }
+
+        // 5. Calculate PTS in microseconds
         let pts_us = (f.index as u128)
             .saturating_mul(1_000_000)
             .saturating_mul(self.rate.den as u128)
@@ -361,7 +435,7 @@ impl VideoEncoder for MediaCodecEncoder {
             .queue_input_buffer(input_buf, 0, total_len, pts_us, 0)
             .map_err(|e| ExportError::Encode(format!("queue_input_buffer failed: {e:?}")))?;
 
-        // 7. Drain output buffers ready from this or previous frames
+        // 6. Drain any output buffers that finished (non-blocking)
         self.drain_output(Duration::ZERO, &mut packets)?;
         filmcraft_export::note_hw_encode_frame();
 
@@ -372,17 +446,16 @@ impl VideoEncoder for MediaCodecEncoder {
         let mut packets = Vec::new();
 
         // 1. Drain pending frames first so an input buffer is freed
-        self.drain_output(Duration::ZERO, &mut packets)?;
+        self.drain_output(Duration::from_millis(10), &mut packets)?;
 
         // 2. Queue EOS buffer (size = 0, flag = 4 = BUFFER_FLAG_END_OF_STREAM)
-        let eos_queued = match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
+        let eos_queued = match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
             Ok(DequeuedInputBufferResult::Buffer(b)) => {
                 self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
             }
             _ => {
-                // Drain and retry
-                self.drain_output(Duration::from_millis(100), &mut packets)?;
-                match self.codec.dequeue_input_buffer(Duration::from_millis(200)) {
+                self.drain_output(Duration::from_millis(50), &mut packets)?;
+                match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => {
                         self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
                     }
@@ -395,12 +468,12 @@ impl VideoEncoder for MediaCodecEncoder {
             log::warn!("Could not queue EOS to AMediaCodec input buffer");
         }
 
-        // 3. Drain until EOS seen or timeout loop ends (50 * 50ms = 2.5s maximum drain window)
-        for _ in 0..50 {
+        // 3. Drain until EOS seen or timeout loop ends
+        for _ in 0..60 {
             if self.eos_seen {
                 break;
             }
-            self.drain_output(Duration::from_millis(50), &mut packets)?;
+            self.drain_output(Duration::from_millis(20), &mut packets)?;
         }
 
         let _ = self.codec.stop();
@@ -411,4 +484,3 @@ impl VideoEncoder for MediaCodecEncoder {
 
 // SAFETY: Android AMediaCodec handle can be safely sent to another thread; MediaCodecEncoder owns the codec and accesses it exclusively via &mut self.
 unsafe impl Send for MediaCodecEncoder {}
-
