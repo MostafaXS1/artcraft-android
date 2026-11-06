@@ -959,9 +959,30 @@ elif app == "filmcraft":
         '            let dec = filmcraft_codecs::hw::hw_stats();\n'
         '            let gpu = crate::gpu_render_stats();\n'
         '            let hw_info = format!(" (Dec: {} HW, GPU: {}, Enc: {} HW)", dec.frames, gpu.frames, enc.frames);\n'
-        '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
+        '            let msg = format!("Done in {secs:.1}s{hw_info}");\n'
+        '            log::info!("Export complete: {msg}");\n'
+        '            progress.set_status(msg);\n',
     ):
         fixed.append("crates/export/src/job.rs (export status HW indicator)")
+
+    # 6. Display export status on the on-screen status bar when complete.
+    if fix(
+        "crates/ui-egui/src/app/frame.rs",
+        '        let job = running?;\n',
+        '        for j in self.session.jobs.iter().rev() {\n'
+        '            if j.progress.finished.load(Ordering::Relaxed) {\n'
+        '                let st = j.progress.status.lock().unwrap_or_else(|e| e.into_inner()).clone();\n'
+        '                if (st.starts_with("Done in ") || st.starts_with("Export failed")) && self.status_seen.0 != st {\n'
+        '                    self.ui.status = st.clone();\n'
+        '                    self.status_seen = (st, ctx.input(|i| i.time));\n'
+        '                    ctx.request_repaint();\n'
+        '                }\n'
+        '                break;\n'
+        '            }\n'
+        '        }\n'
+        '        let job = running?;\n',
+    ):
+        fixed.append("crates/ui-egui/src/app/frame.rs (export completion status in UI)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
@@ -2236,12 +2257,14 @@ fn saf_hooks(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Hos
 }
 ''',
         "poll": SYNC_SAF_POLL,
-        "construct_expr": "FilmcraftApp::new(Session::default())",
-        "post_construct": (
+        "setup": (
             "    filmcraft_platform::register();\n"
             "    filmcraft_export::register_frame_renderer(|| {\n"
             "        filmcraft_gpu::ExportRenderer::new().map(|r| Box::new(GpuFrameRenderer(r)) as Box<dyn filmcraft_export::FrameRenderer>)\n"
             "    });\n"
+        ),
+        "construct_expr": "FilmcraftApp::new(Session::default())",
+        "post_construct": (
             "    inner.hooks = saf_hooks(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());\n"
             "    inner.audio = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Box::new(audio::CpalOut::new()) as Box<dyn filmcraft_ui_egui::AudioOut>)).ok();\n"
         ),

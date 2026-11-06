@@ -608,14 +608,25 @@ pub fn avcc_to_annex_b_append(sample: &[u8], length_size: usize, out: &mut Vec<u
 pub fn decoder_factory(
     entry: &SampleEntry,
 ) -> Option<filmcraft_codecs::Result<Box<dyn VideoDecoder>>> {
+    log::info!("MediaCodec decoder_factory evaluating codec: {}", entry.codec.name());
     if !filmcraft_codecs::hw::hardware_decoding() {
         log::info!("MediaCodec hardware decoding skipped: disabled in settings");
         return None;
     }
-    let info = NalStreamInfo::from_entry(entry)?.ok()?;
+    let info = match NalStreamInfo::from_entry(entry) {
+        Some(Ok(info)) => info,
+        Some(Err(why)) => {
+            log::warn!("MediaCodec decoder_factory: NalStreamInfo parse error for {}: {why}", entry.codec.name());
+            return None;
+        }
+        None => {
+            log::info!("MediaCodec decoder_factory: stream is not NAL-based (codec {})", entry.codec.name());
+            return None;
+        }
+    };
     match MediaCodecDecoder::new(info.clone()) {
         Ok(dec) => {
-            log::info!("MediaCodec hardware decoder activated for {} video", entry.codec.name());
+            log::info!("MediaCodec hardware decoder activated for {} video ({})", entry.codec.name(), dec.name());
             Some(Ok(Box::new(HybridDecoder::new(
                 Box::new(dec),
                 entry.clone(),
@@ -623,7 +634,7 @@ pub fn decoder_factory(
             ))))
         }
         Err(why) => {
-            log::info!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
+            log::warn!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
             filmcraft_codecs::hw::note_hw_declined();
             None
         }
