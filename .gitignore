@@ -3,7 +3,7 @@ build
 build/
 output/
 logs/
-keys/
+# keys/ is deliberately tracked to preserve signing identity and Android App UID across updates
 .cargo-home/
 
 # Source checkouts (cloned during build)
@@ -31,3 +31,5 @@ Thumbs.db
 
 # Local reversible snapshots (not part of the project)
 .backups/
+keys/*.jks
+keys/.keystore-password

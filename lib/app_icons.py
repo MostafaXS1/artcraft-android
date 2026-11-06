@@ -87,21 +87,25 @@ def pick_source(src: Path, app: str, explicit: Path = None) -> Path:
         src / "assets" / "app-icon",
         src / "assets" / "icons" / "app",
         src / "assets" / "icons",
+        src / "assets" / "icon",
+        src / "assets" / "brand",
+        src / "native" / "assets",
+        src / "assets",
     ]
     for icon_dir in icon_dirs:
         if not icon_dir.is_dir():
             continue
-        # Prefer the app's own high-res PNG (master 1024x1024 or 512x512). These are
+        # Prefer the app's own high-res PNG (master 1024x1024, 512x512, 256x256). These are
         # pristine renders produced for distribution. Using them directly avoids
         # ImageMagick MSVG clipPath bugs and huge memory allocation.
-        pngs = [p for p in icon_dir.rglob("*.png") if app in p.name.lower()]
-        high_res = [p for p in pngs if "1024" in p.name or "512" in p.name or "1024" in str(p) or "512" in str(p)]
+        pngs = [p for p in icon_dir.rglob("*.png") if app in p.name.lower() or "icon" in p.name.lower() or "logo" in p.name.lower()]
+        high_res = [p for p in pngs if "1024" in p.name or "512" in p.name or "256" in p.name or "1024" in str(p) or "512" in str(p) or "256" in str(p)]
         if high_res:
             return max(high_res, key=lambda p: p.stat().st_size)
         # Vector sources if no high-res PNG is available
         svgs = [icon_dir / f"{app}.svg", icon_dir / "icon.svg"]
         svgs += sorted(p for p in icon_dir.glob("*.svg") if "-small" not in p.stem)
-        svgs += sorted(p for p in icon_dir.rglob("*.svg") if app in p.name.lower() and "-small" not in p.stem)
+        svgs += sorted(p for p in icon_dir.rglob("*.svg") if (app in p.name.lower() or "icon" in p.name.lower()) and "-small" not in p.stem)
         rasterizer = _rsvg() or _magick()
         if rasterizer:
             for svg in svgs:
@@ -324,7 +328,9 @@ def generate(src: Path, app: str, res_dir: Path, explicit: Path = None) -> Path:
     work = _raster(source)
     color = _background_color(Image, work)
     pristine = work.copy()
-    if app == "solidcraft":
+    if app == "notecraft":
+        color = "#884acb"
+    elif app == "solidcraft":
         color = "#000000"
         bg = Image.new("RGBA", pristine.size, (0, 0, 0, 255))
         bg.alpha_composite(pristine)

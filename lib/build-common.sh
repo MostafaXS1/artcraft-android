@@ -30,6 +30,8 @@ App names:
   photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
+  notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite
+  capsulecraft humanmotioncraft
 
 Examples:
   bash build.sh -photocraft
@@ -145,14 +147,21 @@ case "$APP" in
     solidcraft) TITLE="SolidCraft" ;;
     materialcraft) TITLE="MaterialCraft" ;;
     texturecraft) TITLE="TextureCraft" ;;
+    notecraft) TITLE="NoteCraft" ;;
+    diagramcraft) TITLE="DiagramCraft" ;;
+    paintcraft) TITLE="PaintCraft" ;;
+    bimcraft) TITLE="BIMCraft" ;;
+    tracedraw) TITLE="TraceDraw" ;;
+    picassosuite) TITLE="PicassoSuite" ;;
+    capsulecraft) TITLE="CapsuleCraft" ;;
+    humanmotioncraft) TITLE="HumanMotionCraft" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
 
 SRC="source/$APP"
 REPO="https://github.com/storytold/$APP.git"
-# SubCraft and SolidCraft are not part of the `storytold` craft family: they are community apps
-# that happen to be built on the same egui/eframe stack, so they live at different origins.
+# SubCraft, SolidCraft and the newly added apps are community apps that live at different origins.
 APP_ORIGIN="https://github.com/storytold/$APP"
 if [[ "$APP" == "subcraft" ]]; then
     REPO="https://github.com/Aalzard/subcraft.git"
@@ -160,6 +169,30 @@ if [[ "$APP" == "subcraft" ]]; then
 elif [[ "$APP" == "solidcraft" ]]; then
     REPO="https://github.com/tangency-labs/solidcraft.git"
     APP_ORIGIN="https://github.com/tangency-labs/solidcraft"
+elif [[ "$APP" == "notecraft" ]]; then
+    REPO="https://github.com/AlienTechSoftware/notecraft.git"
+    APP_ORIGIN="https://github.com/AlienTechSoftware/notecraft"
+elif [[ "$APP" == "diagramcraft" ]]; then
+    REPO="https://github.com/artcraft-candidates/DiagramCraft.git"
+    APP_ORIGIN="https://github.com/artcraft-candidates/DiagramCraft"
+elif [[ "$APP" == "paintcraft" ]]; then
+    REPO="https://github.com/replicraft/PaintCraft.git"
+    APP_ORIGIN="https://github.com/replicraft/PaintCraft"
+elif [[ "$APP" == "bimcraft" ]]; then
+    REPO="https://github.com/IPedrax/BIMCraft.git"
+    APP_ORIGIN="https://github.com/IPedrax/BIMCraft"
+elif [[ "$APP" == "tracedraw" ]]; then
+    REPO="https://github.com/tracedraw/tracedraw.git"
+    APP_ORIGIN="https://github.com/tracedraw/tracedraw"
+elif [[ "$APP" == "picassosuite" ]]; then
+    REPO="https://github.com/fabox-os/Picasso-Suite.git"
+    APP_ORIGIN="https://github.com/fabox-os/Picasso-Suite"
+elif [[ "$APP" == "capsulecraft" ]]; then
+    REPO="https://github.com/kostyk348/CapsuleCraft.git"
+    APP_ORIGIN="https://github.com/kostyk348/CapsuleCraft"
+elif [[ "$APP" == "humanmotioncraft" ]]; then
+    REPO="https://github.com/YalKouassi/HumanMotionCraft.git"
+    APP_ORIGIN="https://github.com/YalKouassi/HumanMotionCraft"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -215,7 +248,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -237,6 +270,7 @@ if ! cargo ndk --help >/dev/null 2>&1; then
     cargo install cargo-ndk --locked || fail "Could not install cargo-ndk. Install it manually with: cargo install cargo-ndk --locked"
 fi
 cargo ndk -V >/dev/null 2>&1 || fail "cargo-ndk is required but not working. Install it with: cargo install cargo-ndk --locked"
+export PERL5LIB="$ROOT/lib/perl5:${PERL5LIB:-}"
 
 # Gradle 8.11.1 with AGP 8.7.3 (see lib/android_project.py) cannot run on the newest JDKs —
 # Java 25 dies in the Groovy build scripts with "Unsupported class file major version 69" —
@@ -693,6 +727,15 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/window_ui.rs (swap_fields pattern)")
 
+    # Ensure system_font_dirs discovers Android system fonts, shared storage Fonts folder,
+    # and app-private fonts folders.
+    if fix(
+        "crates/fonts/src/fontdb/names.rs",
+        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy"].map(Into::into));',
+        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy", "/system/fonts", "/product/fonts", "/storage/emulated/0/Fonts", "/sdcard/Fonts"].map(Into::into));\n        if let Some(base) = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from) {\n            dirs.push(base.join("fonts"));\n        }\n        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from) {\n            dirs.push(cfg.join("wordcraft/fonts"));\n            dirs.push(cfg.join("fonts"));\n        }',
+    ):
+        fixed.append("crates/fonts/src/fontdb/names.rs (system and user font directories)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
@@ -729,7 +772,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "71"
+GENERATOR_VERSION = "72"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -1687,6 +1730,8 @@ fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
     "wordcraft": {
         "activity": "WordCraftActivity",
         "imports": "use std::sync::atomic::{AtomicU64, Ordering};\nuse std::sync::Arc;",
+        "post_construct": """    load_wordcraft_user_fonts(&android_app);
+""",
         "state": '''
 pub type SafInbox = wordcraft_ui_egui::Inbox;
 
@@ -1694,6 +1739,81 @@ pub type SafInbox = wordcraft_ui_egui::Inbox;
 pub struct SafState {
     next_id: AtomicU64,
     mirror: saf::SaveMirror,
+}
+
+static LAST_LOADED_FONT_STATE: std::sync::Mutex<Option<Vec<(std::path::PathBuf, u64, u64)>>> = std::sync::Mutex::new(None);
+
+pub fn load_wordcraft_user_fonts(app: &AndroidApp) {
+    let mut candidate_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    // 1. Shared storage fonts folders
+    for shared in ["/storage/emulated/0/Fonts", "/sdcard/Fonts"] {
+        let p = std::path::PathBuf::from(shared);
+        if p.is_dir() && !candidate_dirs.contains(&p) {
+            candidate_dirs.push(p);
+        }
+    }
+
+    // 2. App-private external data fonts folder (/storage/emulated/0/Android/data/com.artcraft.wordcraft/files/fonts)
+    if let Some(base) = app_data_dir(app) {
+        let p = base.join("fonts");
+        let _ = std::fs::create_dir_all(&p);
+        if !candidate_dirs.contains(&p) {
+            candidate_dirs.push(p);
+        }
+    }
+
+    // 3. Settings dir fonts folder (e.g. config/wordcraft/fonts)
+    let settings_font_dir = wordcraft_control_key::settings_dir().map(|d| d.join("fonts"));
+    if let Some(ref dir) = settings_font_dir {
+        let _ = std::fs::create_dir_all(dir);
+        if !candidate_dirs.contains(dir) {
+            candidate_dirs.push(dir.clone());
+        }
+    }
+
+    // Fingerprint candidate folders to avoid redundant reloads
+    let current_state: Vec<(std::path::PathBuf, u64, u64)> = candidate_dirs
+        .iter()
+        .map(|d| {
+            let entries = std::fs::read_dir(d).map(|rd| rd.flatten().count() as u64).unwrap_or(0);
+            let modified = std::fs::metadata(d)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|s| s.as_nanos() as u64)
+                .unwrap_or(0);
+            (d.clone(), entries, modified)
+        })
+        .collect();
+
+    {
+        let mut guard = LAST_LOADED_FONT_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.as_ref() == Some(&current_state) {
+            return;
+        }
+        *guard = Some(current_state);
+    }
+
+    let db = wordcraft_fonts::FontDb::global();
+    for dir in &candidate_dirs {
+        if dir.is_dir() {
+            let (loaded, skipped) = db.load_user_fonts(dir);
+            if !loaded.is_empty() || !skipped.is_empty() {
+                log::info!("WordCraft user fonts: {} loaded, {} skipped from {}", loaded.len(), skipped.len(), dir.display());
+            }
+        }
+    }
+
+    // Direct user_font_dir to the persistent writable folder so font.add saves there
+    if let Some(ref dir) = settings_font_dir {
+        db.load_user_fonts(dir);
+    } else if let Some(base) = app_data_dir(app) {
+        db.load_user_fonts(&base.join("fonts"));
+    }
+
+    let _ = db.load_system_fonts();
+    wordcraft_engine::packs::use_font_store(true);
 }
 
 /// Show WordCraft's native file dialog without blocking the frame loop (#94, #511). WordCraft has
@@ -1809,6 +1929,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             let _ = tx.send(receipt);
             rx
         })),
+        templates_dir: wordcraft_control_key::settings_dir().map(|d| d.join("Templates")),
         inbox: Some(inbox),
         ..Services::default()
     }
@@ -2892,6 +3013,11 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
     persist_methods = PERSIST_METHODS
     persist_logic = "        self.persist_tick();\n"
     persist_hook = PERSIST_HOOK
+    if app == "wordcraft":
+        persist_hook += """        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(true))) {
+            load_wordcraft_user_fonts(&self.app);
+        }
+"""
     persist_on_exit = PERSIST_ON_EXIT
     persist_env_call = "    install_persist_env(&android_app);\n"
 else:
@@ -3009,6 +3135,7 @@ try:
     # every open failed with "file formats are not available in this build". The launcher needs the
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
+    wordcraft_dep = 'wordcraft-fonts = { workspace = true }\nwordcraft-control-key = { workspace = true }\n' if app == "wordcraft" else ''
     java_sources = 'java_sources = "java"\n' if saf else ''
     config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
     # Android open/share associations for the app's document types (the MAIN/LAUNCHER entry is always
@@ -3082,7 +3209,7 @@ egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
-{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}
+{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", default-features = false, features = ["native-activity"] }}
 # Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
@@ -4230,7 +4357,7 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-if [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "solidcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
 else
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
@@ -4268,25 +4395,29 @@ PY
 # `aarch64-linux-android`. Vendor the builder's Android-compatible copy (a stub backend that
 # resolves dialogs to "cancelled") and patch it into the workspace so the launcher builds. Real
 # open/save on Android needs a platform adapter (see adapters/README.md).
-if grep -rqE '\brfd::' "$SRC"/crates/*/src 2>/dev/null || grep -qE '^\s*rfd\s*=' "$SRC/Cargo.toml" 2>/dev/null; then
+if grep -rqE '\brfd::' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null || grep -qE '^\s*rfd\s*=' "$SRC/Cargo.toml" 2>/dev/null || grep -rqE '\brfd\b' "$ROOT/adapters/$APP" 2>/dev/null; then
     echo "Vendoring an Android-compatible rfd for $TITLE (native file dialogs become no-ops)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/rfd"
     cp -a "$ROOT/vendor/rfd" "$SRC/vendor/rfd"
     python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'rfd = { path = "vendor/rfd" }'
-import re
-s = re.sub(r'^\s*rfd\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*rfd\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
 PY
 fi
 
@@ -4295,7 +4426,7 @@ fi
 # cannot compile for `aarch64-linux-android`. Vendor the builder's Android-compatible stub (a
 # no-op clipboard) and patch it in. If crates use `arboard = { workspace = true }`, we must
 # replace the workspace dependency; otherwise we add it via `[patch.crates-io]`.
-if grep -rqE '\barboard\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null; then
+if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null; then
     echo "Vendoring an Android-compatible arboard for $TITLE (clipboard access becomes a no-op)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/arboard"
@@ -4578,7 +4709,7 @@ if "dropping the lost surface" not in text:
         winit_rs.write_text(text)
         print("  Patched existing vendored egui-wgpu on_surface_lost for Android surface handling")
 PY
-elif [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+elif [[ "$APP" == "subcraft" || "$APP" == "solidcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
@@ -4635,6 +4766,34 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
+
+# sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
+# Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).
+if grep -rqE '\bsys_locale\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null || grep -qE '^\s*sys-locale\s*=' "$SRC/Cargo.toml" 2>/dev/null; then
+    echo "Vendoring an Android SELinux-safe sys-locale for $TITLE..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/sys-locale"
+    cp -a "$ROOT/vendor/sys-locale" "$SRC/vendor/sys-locale"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'sys-locale = { path = "vendor/sys-locale" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*sys-locale\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
+fi
 
 # A `target/` directory left behind by running cargo inside a vendored crate must never be
 # copied into the app tree: it is hundreds of megabytes and cargo ignores nested target dirs
@@ -4817,6 +4976,30 @@ if [[ -f "$CRAFT_FONTS_DIR/fonts/manifest.txt" ]]; then
     echo "  -> embedding the craft-fonts faces ($(grep -cve '^#' -e '^$' "$CRAFT_FONTS_DIR/fonts/manifest.txt") of them)"
 fi
 
+# The shared craft-i18n translations (https://github.com/storytold/craft-i18n) are embedded
+# at compile time by apps like WordCraft and PdfCraft via CRAFT_I18N_DIR.
+CRAFT_I18N_DIR="$ROOT/source/craft-i18n"
+if [[ -d "$CRAFT_I18N_DIR/locales" ]]; then
+    echo "Reusing the craft-i18n checkout in $CRAFT_I18N_DIR"
+elif [[ -e "$CRAFT_I18N_DIR" ]]; then
+    if [[ -d "$CRAFT_I18N_DIR" && -z "$(ls -A "$CRAFT_I18N_DIR" 2>/dev/null)" ]]; then
+        rmdir "$CRAFT_I18N_DIR" 2>/dev/null || true
+    fi
+    if [[ -e "$CRAFT_I18N_DIR" ]]; then
+        echo "The craft-i18n checkout at $CRAFT_I18N_DIR has no locales/; leaving it alone." >&2
+    fi
+fi
+if [[ ! -e "$CRAFT_I18N_DIR" ]]; then
+    echo "Fetching craft-i18n (the shared translations the apps embed)..."
+    git clone --depth 1 https://github.com/storytold/craft-i18n.git "$CRAFT_I18N_DIR" || {
+        echo "Could not fetch craft-i18n; the apps will build without the shared translations." >&2
+    }
+fi
+if [[ -d "$CRAFT_I18N_DIR/locales" ]]; then
+    export CRAFT_I18N_DIR
+    echo "  -> embedding the craft-i18n catalogs"
+fi
+
 if [[ "$APP" == "pdfcraft" ]]; then
     MODELS_DIR="$ROOT/$SRC/assets/models"
     if [[ ! -f "$MODELS_DIR/text-detection.onnx" || ! -f "$MODELS_DIR/text-recognition.onnx" ]]; then
@@ -4853,6 +5036,16 @@ else
     else
         status=$?
         fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+    fi
+fi
+
+# If any built .so in jniLibs needs libc++_shared.so, bundle it from the NDK toolchain
+if find "$ANDROID_DIR/jniLibs" -name "*.so" -exec readelf -d {} + 2>/dev/null | grep -q 'Shared library: \[libc++_shared\.so\]'; then
+    echo "  -> bundling libc++_shared.so from NDK..."
+    LIBCXX="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+    if [[ -f "$LIBCXX" ]]; then
+        mkdir -p "$ANDROID_DIR/jniLibs/arm64-v8a"
+        cp -f "$LIBCXX" "$ANDROID_DIR/jniLibs/arm64-v8a/libc++_shared.so"
     fi
 fi
 

@@ -1,0 +1,67 @@
+[package]
+name = "notecraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+notecraft-engine = { path = "../../crates/engine" }
+notecraft-store = { path = "../../crates/store" }
+notecraft-ui-egui = { path = "../../crates/ui-egui" }
+eframe = { workspace = true, features = ["wgpu", "persistence"] }
+egui = { workspace = true }
+egui-winit = { workspace = true }
+rfd = "0.17"
+log = { workspace = true }
+serde_json = { workspace = true }
+jni = "0.22"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+android_logger = "0.15"
+
+[package.metadata.android]
+package = "com.artcraft.notecraft"
+apk_name = "notecraft"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "NoteCraft"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".NoteCraftActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+label = "NoteCraft"
+launch_mode = "singleTask"
+orientation = "sensor"
+exported = true
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "notecraft_android"

@@ -182,6 +182,42 @@ EXT_MIME = {
     "tcraft": ("application/x-texturecraft",),
     "texturecraft": ("application/x-texturecraft",),
     "spp": ("application/octet-stream",),
+    # NoteCraft
+    "notecraft": ("application/x-notecraft",),
+    "note": ("application/x-notecraft",),
+    "onetoc2": ("application/onenote",),
+    "one": ("application/onenote",),
+    # DiagramCraft (Visio)
+    "vsdx": ("application/vnd.ms-visio.drawing.main+xml", "application/vnd.visio"),
+    "vssx": ("application/vnd.ms-visio.stencil.main+xml",),
+    "vstx": ("application/vnd.ms-visio.template.main+xml",),
+    "vsdm": ("application/vnd.ms-visio.drawing.macroenabled.main+xml",),
+    "vssm": ("application/vnd.ms-visio.stencil.macroenabled.main+xml",),
+    "vstm": ("application/vnd.ms-visio.template.macroenabled.main+xml",),
+    "vsd": ("application/vnd.visio",),
+    # PaintCraft
+    "paintcraft": ("application/x-paintcraft",),
+    "paint": ("application/x-paintcraft",),
+    # BIMCraft (IFC, Revit, BIMCraft projects)
+    "bimcraft": ("application/x-bimcraft",),
+    "ifc": ("application/x-step", "model/ifc", "application/ifc"),
+    "rvt": ("application/octet-stream", "application/x-revit"),
+    "rfa": ("application/octet-stream", "application/x-revit"),
+    # TraceDraw
+    "tdraw": ("application/x-tracedraw",),
+    "cdr": ("application/vnd.corel-draw", "application/x-cdr"),
+    "cmx": ("image/x-cmx",),
+    # PicassoSuite
+    "drp": ("application/x-picasso-project", "application/x-davinci-resolve-project"),
+    "aaf": ("application/x-aaf",),
+    # CapsuleCraft
+    "eml": ("message/rfc822",),
+    "capsule": ("application/x-capsulecraft",),
+    "ics": ("text/calendar",),
+    # HumanMotionCraft
+    "motion": ("application/x-humanmotioncraft",),
+    "bvh": ("application/x-bvh",),
+    "acproj": ("application/x-artcraft-project",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -224,6 +260,14 @@ ASSOCIATIONS = {
     "solidcraft": ["sc", "solidcraft", "step", "stp", "stl", "3mf", "dxf", "obj"],
     "materialcraft": ["mcraft", "materialcraft", "sbs", "mcmat"],
     "texturecraft": ["tcraft", "texturecraft", "spp", "obj", "gltf", "glb", "fbx"],
+    "notecraft": ["notecraft", "note", "onetoc2", "one", "md", "txt"],
+    "diagramcraft": ["vsdx", "vssx", "vstx", "vsdm", "vssm", "vstm"],
+    "paintcraft": ["paintcraft", "pdn", "paint", "png", "jpg", "jpeg", "bmp", "gif", "webp", "tga", "tiff", "ora", "psd"],
+    "bimcraft": ["bimcraft", "ifc", "rvt", "rfa", "dwg", "dxf"],
+    "tracedraw": ["tdraw", "cdr", "cmx", "svg", "pdf", "ai", "eps"],
+    "picassosuite": ["drp", "aaf", "mp4", "mov", "mkv", "wav", "mp3"],
+    "capsulecraft": ["eml", "capsule", "txt", "md", "ics"],
+    "humanmotioncraft": ["motion", "bvh", "fbx", "acproj"],
 }
 
 MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }'

@@ -1,0 +1,69 @@
+[package]
+name = "diagramcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+diagramcraft-vsdx = { path = "../../crates/vsdx" }
+diagramcraft-model = { path = "../../crates/model" }
+diagramcraft-render = { path = "../../crates/render" }
+eframe = { version = "0.37", features = ["wgpu", "persistence"] }
+egui = "0.37"
+egui-winit = "0.37"
+image = "0.25"
+log = "0.4"
+rfd = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jni = "0.22"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+android_logger = "0.15"
+
+[package.metadata.android]
+package = "com.artcraft.diagramcraft"
+apk_name = "diagramcraft"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "DiagramCraft"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".DiagramCraftActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+label = "DiagramCraft"
+launch_mode = "singleTask"
+orientation = "sensor"
+exported = true
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "diagramcraft_android"

@@ -46,6 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         app:
+          - subcraft
           - photocraft
           - vectorcraft
           - filmcraft
@@ -59,10 +60,17 @@ jobs:
           - deckcraft
           - cadcraft
           - gridcraft
-          - subcraft
           - solidcraft
           - materialcraft
           - texturecraft
+          - notecraft
+          - diagramcraft
+          - paintcraft
+          - bimcraft
+          - tracedraw
+          - picassosuite
+          - capsulecraft
+          - humanmotioncraft
 
     steps:
       - name: Checkout repository

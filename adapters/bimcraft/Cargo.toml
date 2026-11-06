@@ -1,0 +1,76 @@
+[package]
+name = "bimcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bimcraft-core = { workspace = true }
+bimcraft-ui-egui = { workspace = true }
+bimcraft-rvt = { workspace = true, optional = true }
+bimcraft-dwg = { workspace = true, optional = true }
+bimcraft-i18n = { workspace = true }
+eframe = { workspace = true, features = ["wgpu", "persistence"] }
+egui = { workspace = true }
+egui-winit = "0.36"
+rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+jni = "0.22"
+
+[features]
+default = ["rvt", "dwg"]
+rvt = ["dep:bimcraft-rvt"]
+dwg = ["dep:bimcraft-dwg"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+android_logger = "0.15"
+
+[package.metadata.android]
+package = "com.artcraft.bimcraft"
+apk_name = "bimcraft"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "BIMCraft"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".BIMCraftActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+window_soft_input_mode = "stateAlwaysHidden|adjustResize"
+label = "BIMCraft"
+launch_mode = "singleTask"
+orientation = "sensor"
+exported = true
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "bimcraft_android"
