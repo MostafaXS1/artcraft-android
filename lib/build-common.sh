@@ -959,9 +959,7 @@ elif app == "filmcraft":
         '            let dec = filmcraft_codecs::hw::hw_stats();\n'
         '            let gpu = crate::gpu_render_stats();\n'
         '            let hw_info = format!(" (Dec: {} HW, GPU: {}, Enc: {} HW)", dec.frames, gpu.frames, enc.frames);\n'
-        '            let msg = format!("Done in {secs:.1}s{hw_info}");\n'
-        '            log::info!("Export complete: {msg}");\n'
-        '            progress.set_status(msg);\n',
+        '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
     ):
         fixed.append("crates/export/src/job.rs (export status HW indicator)")
 
@@ -973,6 +971,7 @@ elif app == "filmcraft":
         '            if j.progress.finished.load(Ordering::Relaxed) {\n'
         '                let st = j.progress.status.lock().unwrap_or_else(|e| e.into_inner()).clone();\n'
         '                if (st.starts_with("Done in ") || st.starts_with("Export failed")) && self.status_seen.0 != st {\n'
+        '                    log::info!("Export complete: {st}");\n'
         '                    self.ui.status = st.clone();\n'
         '                    self.status_seen = (st, ctx.input(|i| i.time));\n'
         '                    ctx.request_repaint();\n'
