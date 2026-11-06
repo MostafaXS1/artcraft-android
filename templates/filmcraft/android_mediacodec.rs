@@ -182,7 +182,6 @@ impl MediaCodecEncoder {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
-            #[cfg(feature = "api-level-28")]
             if let Ok(name) = codec.name() {
                 log::info!("MediaCodec encoder: {name}");
                 let lower = name.to_ascii_lowercase();
@@ -207,7 +206,6 @@ impl MediaCodecEncoder {
             }
         };
 
-        #[cfg(feature = "api-level-28")]
         let (stride, slice_height) = {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| codec.input_format())) {
                 Ok(infmt) => {
@@ -219,8 +217,6 @@ impl MediaCodecEncoder {
                 Err(_) => (w as usize, h as usize),
             }
         };
-        #[cfg(not(feature = "api-level-28"))]
-        let (stride, slice_height) = (w as usize, h as usize);
 
         Ok(Self {
             codec,
@@ -432,26 +428,16 @@ impl VideoEncoder for MediaCodecEncoder {
 
         // 3. Dequeue an input buffer: try non-blocking first.
         // If the encoder's input queue is full, drain output buffers in a loop with a generous timeout.
-        let mut input_buf = match self.codec.dequeue_input_buffer(Duration::ZERO) {
-            Ok(DequeuedInputBufferResult::Buffer(b)) => b,
-            _ => {
-                let mut acquired = None;
-                // Wait up to 5 seconds (100 iterations of 50ms), draining output continuously
-                for _ in 0..100 {
-                    self.drain_output(Duration::from_millis(50), &mut packets)?;
-                    match self.codec.dequeue_input_buffer(Duration::ZERO) {
-                        Ok(DequeuedInputBufferResult::Buffer(b)) => {
-                            acquired = Some(b);
-                            break;
-                        }
-                        _ => continue,
+        let mut input_buf = 'outer: loop {
+            for _ in 0..100 {
+                match self.codec.dequeue_input_buffer(Duration::ZERO) {
+                    Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
+                    _ => {
+                        self.drain_output(Duration::from_millis(50), &mut packets)?;
                     }
                 }
-                match acquired {
-                    Some(b) => b,
-                    None => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out: hardware encoder did not accept new frame within 5s".into())),
-                }
             }
+            return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out: hardware encoder did not accept new frame within 5s".into()));
         };
 
         // 4. Format directly into NV12 inside the hardware input buffer
