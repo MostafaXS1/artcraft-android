@@ -199,11 +199,11 @@ impl MediaCodecEncoder {
         })
     }
 
-    fn extract_sps_pps(&mut self, data: &[u8]) {
+    fn extract_sps_pps(data: &[u8], sps: &mut Option<Vec<u8>>, pps: &mut Option<Vec<u8>>) {
         for nal in annex_b_nals(data) {
             match nal.first().map(|b| b & 0x1f) {
-                Some(7) if self.sps.is_none() => self.sps = Some(nal.to_vec()),
-                Some(8) if self.pps.is_none() => self.pps = Some(nal.to_vec()),
+                Some(7) if sps.is_none() => *sps = Some(nal.to_vec()),
+                Some(8) if pps.is_none() => *pps = Some(nal.to_vec()),
                 _ => {}
             }
         }
@@ -214,43 +214,39 @@ impl MediaCodecEncoder {
             match self.codec.dequeue_output_buffer(timeout) {
                 Ok(DequeuedOutputBufferInfoResult::Buffer(output_buffer)) => {
                     let info = *output_buffer.info();
-                    let idx = output_buffer.index;
-                    drop(output_buffer);
-
                     let flags = info.flags();
                     let offset = info.offset().max(0) as usize;
                     let size = info.size().max(0) as usize;
 
                     if size > 0 {
-                        if let Some(raw) = self.codec.output_buffer(idx) {
-                            if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
-                                if (flags & 2) != 0 {
-                                    // BUFFER_FLAG_CODEC_CONFIG = 2
-                                    self.extract_sps_pps(slice);
-                                } else {
-                                    if self.sps.is_none() || self.pps.is_none() {
-                                        self.extract_sps_pps(slice);
+                        let raw = output_buffer.buffer();
+                        if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
+                            if (flags & 2) != 0 {
+                                // BUFFER_FLAG_CODEC_CONFIG = 2
+                                Self::extract_sps_pps(slice, &mut self.sps, &mut self.pps);
+                            } else {
+                                if self.sps.is_none() || self.pps.is_none() {
+                                    Self::extract_sps_pps(slice, &mut self.sps, &mut self.pps);
+                                }
+                                match annex_b_to_length_prefixed(slice) {
+                                    Ok(data) => {
+                                        let key = (flags & 1) != 0;
+                                        packets.push(EncodedPacket {
+                                            data,
+                                            key,
+                                            duration: self.duration,
+                                            composition_offset: 0,
+                                        });
                                     }
-                                    match annex_b_to_length_prefixed(slice) {
-                                        Ok(data) => {
-                                            let key = (flags & 1) != 0;
-                                            packets.push(EncodedPacket {
-                                                data,
-                                                key,
-                                                duration: self.duration,
-                                                composition_offset: 0,
-                                            });
-                                        }
-                                        Err(e) => {
-                                            log::debug!("skipping packet: {e}");
-                                        }
+                                    Err(e) => {
+                                        log::debug!("skipping packet: {e}");
                                     }
                                 }
                             }
                         }
                     }
 
-                    let _ = self.codec.release_output_buffer_by_index(idx, false);
+                    let _ = self.codec.release_output_buffer(output_buffer, false);
                     if (flags & 4) != 0 {
                         // BUFFER_FLAG_END_OF_STREAM = 4
                         self.eos_seen = true;
@@ -337,24 +333,21 @@ impl VideoEncoder for MediaCodecEncoder {
         self.drain_output(Duration::ZERO, &mut packets)?;
 
         // 4. Dequeue an input buffer (with short retry if needed)
-        let buf_idx = match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
-            Ok(DequeuedInputBufferResult::Buffer(b)) => b.index,
+        let mut input_buf = match self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
+            Ok(DequeuedInputBufferResult::Buffer(b)) => b,
             _ => {
                 self.drain_output(Duration::from_millis(50), &mut packets)?;
                 match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
-                    Ok(DequeuedInputBufferResult::Buffer(b)) => b.index,
+                    Ok(DequeuedInputBufferResult::Buffer(b)) => b,
                     _ => return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into())),
                 }
             }
         };
 
         // 5. Copy NV12 bytes into the input buffer safely
-        if let Some(dst) = self.codec.input_buffer(buf_idx) {
-            for (d, s) in dst.iter_mut().zip(self.nv12.iter()) {
-                d.write(*s);
-            }
-        } else {
-            return Err(ExportError::Encode("MediaCodec input_buffer returned NULL".into()));
+        let dst = input_buf.buffer_mut();
+        for (d, s) in dst.iter_mut().zip(self.nv12.iter()) {
+            d.write(*s);
         }
 
         // 6. Calculate PTS in microseconds
@@ -365,7 +358,7 @@ impl VideoEncoder for MediaCodecEncoder {
             .unwrap_or(0) as u64;
 
         self.codec
-            .queue_input_buffer_by_index(buf_idx, 0, total_len, pts_us, 0)
+            .queue_input_buffer(input_buf, 0, total_len, pts_us, 0)
             .map_err(|e| ExportError::Encode(format!("queue_input_buffer failed: {e:?}")))?;
 
         // 7. Drain output buffers ready from this or previous frames
@@ -378,19 +371,39 @@ impl VideoEncoder for MediaCodecEncoder {
     fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
         let mut packets = Vec::new();
 
-        // Queue EOS buffer (size = 0, flag = 4)
-        if let Ok(DequeuedInputBufferResult::Buffer(b)) = self.codec.dequeue_input_buffer(Duration::from_millis(50)) {
-            let idx = b.index;
-            let _ = self.codec.queue_input_buffer_by_index(idx, 0, 0, 0, 4);
+        // 1. Drain pending frames first so an input buffer is freed
+        self.drain_output(Duration::ZERO, &mut packets)?;
+
+        // 2. Queue EOS buffer (size = 0, flag = 4 = BUFFER_FLAG_END_OF_STREAM)
+        let eos_queued = match self.codec.dequeue_input_buffer(Duration::from_millis(100)) {
+            Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
+            }
+            _ => {
+                // Drain and retry
+                self.drain_output(Duration::from_millis(100), &mut packets)?;
+                match self.codec.dequeue_input_buffer(Duration::from_millis(200)) {
+                    Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                        self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok()
+                    }
+                    _ => false,
+                }
+            }
+        };
+
+        if !eos_queued {
+            log::warn!("Could not queue EOS to AMediaCodec input buffer");
         }
 
-        // Drain until EOS seen or timeout loop ends (50 * 50ms = 2.5s maximum drain window)
+        // 3. Drain until EOS seen or timeout loop ends (50 * 50ms = 2.5s maximum drain window)
         for _ in 0..50 {
             if self.eos_seen {
                 break;
             }
             self.drain_output(Duration::from_millis(50), &mut packets)?;
         }
+
+        let _ = self.codec.stop();
 
         Ok(packets)
     }

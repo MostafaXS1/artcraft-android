@@ -928,12 +928,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/src/lib.rs (MediaCodec registration)")
 
-    # 5. Copy android_mediacodec.rs template if missing in checkout.
+    # 5. Copy android_mediacodec.rs template to checkout.
     mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
     template_file = Path.cwd() / "templates/filmcraft/android_mediacodec.rs"
-    if not mediacodec_target.exists() and template_file.exists():
-        mediacodec_target.write_text(template_file.read_text())
-        fixed.append("crates/platform/src/android_mediacodec.rs (copied from template)")
+    if template_file.exists():
+        content = template_file.read_text()
+        if not mediacodec_target.exists() or mediacodec_target.read_text() != content:
+            mediacodec_target.write_text(content)
+            fixed.append("crates/platform/src/android_mediacodec.rs (updated from template)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
