@@ -928,7 +928,7 @@ elif app == "filmcraft":
     if fix(
         "crates/export/src/job.rs",
         '            progress.set_status(format!("Done in {secs:.1}s"));\n',
-        '            let hw = filmcraft_export::hw_encode_stats();\n'
+        '            let hw = crate::hw_encode_stats();\n'
         '            let hw_info = if hw.frames > 0 { format!(" (HW: {}/{} frames)", hw.frames, nframes) } else if hw.declined > 0 { " (HW declined -> SW)".into() } else { " (SW)".into() };\n'
         '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
     ):
