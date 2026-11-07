@@ -3710,9 +3710,9 @@ fn install_cadcraft_io() {
         intent_init = ""
 
     mcp_start = (
-        "        if let Some(dir) = app.internal_data_path() {\\n"
-        "            figcraft_control_bridge::start_mcp_if_enabled(&dir);\\n"
-        "        }\\n"
+        "        if let Some(dir) = app.internal_data_path() {\n"
+        "            figcraft_control_bridge::start_mcp_if_enabled(&dir);\n"
+        "        }\n"
         if app == "figcraft" else ""
     )
 
