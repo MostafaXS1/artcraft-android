@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: MCP Android bridge and settings have been device-tested by the user. Gemini request UI/client implementation is not present in the checked bridge source; do not describe it as shipped. The role-and-outcome prompt contract below defines the required product behavior. Gemini client, role/outcome UI, secure credential storage, action planning, canvas grounding, preview/apply/undo, compilation and APK verification remain outstanding.
+Status: The Android MCP bridge has been device-tested by the user. A first text-only Gemini Copilot UI/client is now implemented in the Android bridge template and committed, but compilation and on-device verification are pending. The API key is session-memory-only (not persisted); Android Keystore storage, live canvas grounding, structured action planning, validation, preview/apply/undo remain outstanding. Do not describe canvas editing as implemented.
 
 ## Role-and-outcome prompt contract
 
@@ -140,10 +140,10 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 
 ## Implementation sequence
 
-- [ ] Add Android Keystore-backed key storage and a settings entry point.
-- [ ] Add a Gemini client with configurable model, timeout, cancellation, and structured response parsing.
+- [ ] Replace session-only API key handling with Android Keystore-backed credential storage. Current UI intentionally loses the key when the app closes.
+- [x] Add a first Gemini text client using generateContent, a fixed Gemini 2.5 Flash model, network timeouts, and response parsing. Cancellation and model selection remain pending.
 - [ ] Add a Rust-side action-plan schema and registry-based validation.
-- [ ] Add a compact egui Copilot panel with prompt, response, preview, Apply, and Cancel.
+- [x] Add a compact egui Copilot panel with required role and deliverable fields, optional context, prompt, response, and copy action. Preview/Apply/Cancel for canvas actions remain pending.
 - [ ] Add tests for malformed plans, unknown commands/parameters, invalid IDs, partial failures, and undo.
 - [ ] Build the FigCraft Android debug APK and verify on-device that read-only MCP requests inspect the visible document.
 
