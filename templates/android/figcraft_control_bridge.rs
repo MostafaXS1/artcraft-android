@@ -692,7 +692,7 @@ fn mcp_settings_ui(ctx: &Context) {
             }
             ui.label(format!("Status: {}", if MCP_RUNNING.load(Ordering::SeqCst) { "Running" } else if enabled { "Starting / unavailable" } else { "Disabled" }));
             ui.monospace(format!("http://127.0.0.1:{MCP_PORT}/mcp"));
-            if ui.button_enabled(!MCP_TEST_RUNNING.load(Ordering::SeqCst), "Test MCP Connection").clicked() {
+            if ui.add_enabled(!MCP_TEST_RUNNING.load(Ordering::SeqCst), egui::Button::new("Test MCP Connection")).clicked() {
                 *MCP_TEST_RESULT.get_or_init(|| Mutex::new(String::new())).lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = "Testing MCP handshake and live canvas access…".into();
                 run_mcp_connection_test();
