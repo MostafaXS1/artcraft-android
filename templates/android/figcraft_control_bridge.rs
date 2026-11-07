@@ -621,9 +621,7 @@ fn load_or_create_token(path: &Path) -> std::io::Result<String> {
         }
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "existing token file is malformed; remove it to rotate the token"));
     }
-    let mut bytes = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let token = random_hex_token()?;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     let mut file = options.open(path)?;
