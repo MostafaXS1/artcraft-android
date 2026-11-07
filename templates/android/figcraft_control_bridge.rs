@@ -285,7 +285,7 @@ fn read_http_header_line(
 ) -> std::io::Result<Option<String>> {
     let mut bytes = Vec::new();
     let limit = (MAX_HTTP_HEADER_BYTES + 1) as u64;
-    let read = (&mut *reader).take(limit).read_until(b'\\n', &mut bytes)?;
+    let read = (&mut *reader).take(limit).read_until(b'\n', &mut bytes)?;
     if read == 0 {
         return Ok(None);
     }
@@ -315,7 +315,7 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
             Ok(None) => return Ok(()),
             Err(_) => return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large"),
         };
-        if line == "\\r\\n" || line == "\\n" { break; }
+        if line == "\r\n" || line == "\n" { break; }
         let Some((name, value)) = line.split_once(':') else {
             return write_http(stream, "400 Bad Request", "text/plain", b"malformed HTTP header");
         };
