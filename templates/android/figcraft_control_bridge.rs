@@ -81,8 +81,17 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct LiveBackend;
 
+fn is_read_only_method(method: &str) -> bool {
+    matches!(method,
+        "engine.commands" | "document.inspect" | "node.get" | "ui.inspect" |
+        "ui.render" | "ui.screenshot" | "window.list" | "comment.list")
+}
+
 impl Backend for LiveBackend {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        if !is_read_only_method(method) {
+            return Err(format!("MCP mutation is disabled until Android approval UI exists: {method}"));
+        }
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         let id = Value::from(NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed));
         let state = RequestGate::new();
@@ -166,7 +175,7 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
     let content_type_ok = headers.get("content-type")
         .is_some_and(|v| v.to_ascii_lowercase().starts_with("application/json"));
     let accept_ok = headers.get("accept").is_some_and(|v| {
-        v.contains("application/json") || v.contains("text/event-stream") || v.trim() == "*/*"
+        v.contains("application/json") || v.trim() == "*/*"
     });
     if !content_type_ok || !accept_ok {
         return write_http(stream, "415 Unsupported Media Type", "text/plain", b"expected JSON MCP request and JSON/SSE accept");
@@ -268,5 +277,20 @@ mod http_tests {
         assert!(constant_time_eq(b"abcdef", b"abcdef"));
         assert!(!constant_time_eq(b"abcdef", b"abcdeg"));
         assert!(!constant_time_eq(b"abc", b"abcdef"));
+    }
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::*;
+
+    #[test]
+    fn backend_allows_only_read_only_control_methods() {
+        assert!(is_read_only_method("document.inspect"));
+        assert!(is_read_only_method("engine.commands"));
+        assert!(is_read_only_method("ui.screenshot"));
+        assert!(!is_read_only_method("engine.execute"));
+        assert!(!is_read_only_method("ui.pointer"));
+        assert!(!is_read_only_method("file.open"));
     }
 }
