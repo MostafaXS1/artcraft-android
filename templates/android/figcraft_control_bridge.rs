@@ -279,31 +279,58 @@ fn write_http(stream: &mut TcpStream, status: &str, content_type: &str, body: &[
     stream.flush()
 }
 
+fn read_http_header_line(
+    reader: &mut BufReader<TcpStream>,
+    total_bytes: &mut usize,
+) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    let limit = (MAX_HTTP_HEADER_BYTES + 1) as u64;
+    let read = (&mut *reader).take(limit).read_until(b'\\n', &mut bytes)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    *total_bytes += read;
+    if *total_bytes > MAX_HTTP_HEADER_BYTES {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "HTTP headers too large"));
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
 fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(130)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line)? == 0 { return Ok(()); }
+    let mut header_bytes = 0;
+    let request_line = match read_http_header_line(&mut reader, &mut header_bytes) {
+        Ok(Some(line)) => line,
+        Ok(None) => return Ok(()),
+        Err(_) => return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large"),
+    };
     let mut headers = std::collections::HashMap::<String, String>::new();
-    let mut header_bytes = request_line.len();
     loop {
-        let mut line = String::new();
-        let n = reader.read_line(&mut line)?;
-        if n == 0 { return Ok(()); }
-        header_bytes += n;
-        if header_bytes > MAX_HTTP_HEADER_BYTES {
-            return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large");
-        }
-        if line == "\r\n" || line == "\n" { break; }
-        if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
+        let line = match read_http_header_line(&mut reader, &mut header_bytes) {
+            Ok(Some(line)) => line,
+            Ok(None) => return Ok(()),
+            Err(_) => return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large"),
+        };
+        if line == "\\r\\n" || line == "\\n" { break; }
+        let Some((name, value)) = line.split_once(':') else {
+            return write_http(stream, "400 Bad Request", "text/plain", b"malformed HTTP header");
+        };
+        if headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned()).is_some() {
+            return write_http(stream, "400 Bad Request", "text/plain", b"duplicate HTTP header");
         }
     }
 
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let path = parts.next().unwrap_or("");
+    let version = parts.next().unwrap_or("");
+    if version != "HTTP/1.1" && version != "HTTP/1.0" {
+        return write_http(stream, "400 Bad Request", "text/plain", b"invalid HTTP request line");
+    }
     if method != "POST" || path != "/mcp" {
         return write_http(stream, "405 Method Not Allowed", "text/plain", b"POST /mcp only");
     }
@@ -324,6 +351,12 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
     if headers.contains_key("transfer-encoding") {
         return write_http(stream, "400 Bad Request", "text/plain", b"chunked transfer encoding is not supported");
     }
+    let length = headers.get("content-length")
+        .and_then(|v| v.parse::<usize>().ok())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing or invalid content-length"))?;
+    if length == 0 || length > MAX_HTTP_BODY_BYTES {
+        return write_http(stream, "413 Content Too Large", "text/plain", b"request body size is invalid");
+    }
     if let Some(version) = headers.get("mcp-protocol-version") {
         if !figcraft_mcp::SUPPORTED_VERSIONS.contains(&version.as_str()) {
             return write_http(stream, "400 Bad Request", "text/plain", b"unsupported MCP protocol version");
@@ -331,16 +364,10 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
     } else if server.is_initialized() {
         return write_http(stream, "400 Bad Request", "text/plain", b"MCP-Protocol-Version header required after initialization");
     }
-    let length = headers.get("content-length")
-        .and_then(|v| v.parse::<usize>().ok())
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing content-length"))?;
-    if length == 0 || length > MAX_HTTP_BODY_BYTES {
-        return write_http(stream, "413 Content Too Large", "text/plain", b"request body size is invalid");
-    }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
     let body_text = std::str::from_utf8(&body)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     match server.handle_line(body_text) {
         Some(response) => write_http(stream, "200 OK", "application/json", response.as_bytes()),
         None => write_http(stream, "202 Accepted", "text/plain", b""),
