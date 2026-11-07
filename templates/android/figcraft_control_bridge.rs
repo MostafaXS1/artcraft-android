@@ -106,7 +106,7 @@ struct LiveBackend;
 fn is_read_only_method(method: &str) -> bool {
     matches!(method,
         "engine.commands" | "document.inspect" | "node.get" | "ui.inspect" |
-        "ui.render" | "ui.screenshot" | "window.list" | "comment.list" | "events.poll")
+        "ui.render" | "ui.screenshot" | "window.list" | "comment.list")
 }
 
 struct ApprovalRequest {
@@ -317,7 +317,7 @@ fn filter_tool_list(response: &str) -> String {
         tools.retain(|tool| {
             !matches!(
                 tool.get("name").and_then(Value::as_str).unwrap_or(""),
-                "open_file" | "save_file" | "pointer" | "key" | "type_text"
+                "open_file" | "save_file" | "pointer" | "key" | "type_text" | "wait_for_changes"
             )
         });
     }
