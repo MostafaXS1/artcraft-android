@@ -3715,6 +3715,7 @@ fn install_cadcraft_io() {
         "        }\n"
         if app == "figcraft" else ""
     )
+    mcp_drop = "        figcraft_control_bridge::stop_mcp_server();\n" if app == "figcraft" else ""
 
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
@@ -3891,7 +3892,7 @@ impl Drop for AndroidShell {{
     fn drop(&mut self) {{
         // The Activity is about to go: stop the watcher before the native thread returns.
         ALIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    }}
+{mcp_drop}    }}
 }}
 
 impl eframe::App for AndroidShell {{
