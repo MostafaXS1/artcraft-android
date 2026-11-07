@@ -453,16 +453,23 @@ fn handle_http(
     if headers.contains_key("transfer-encoding") {
         return write_http(stream, "400 Bad Request", "text/plain", b"chunked transfer encoding is not supported");
     }
-    let length = headers.get("content-length")
-        .and_then(|value| value.parse::<usize>().ok())
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing or invalid content-length"))?;
+    let Some(raw_length) = headers.get("content-length") else {
+        return write_http(stream, "411 Length Required", "text/plain", b"content-length is required");
+    };
+    let Ok(length) = raw_length.parse::<usize>() else {
+        return write_http(stream, "400 Bad Request", "text/plain", b"invalid content-length");
+    };
     if length == 0 || length > MAX_HTTP_BODY_BYTES {
         return write_http(stream, "413 Content Too Large", "text/plain", b"request body size is invalid");
     }
     let mut body = vec![0; length];
-    reader.read_exact(&mut body)?;
-    let body_text = std::str::from_utf8(&body)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    if reader.read_exact(&mut body).is_err() {
+        return write_http(stream, "400 Bad Request", "text/plain", b"request body is incomplete");
+    }
+    let body_text = match std::str::from_utf8(&body) {
+        Ok(text) => text,
+        Err(_) => return write_http(stream, "400 Bad Request", "text/plain", b"request body must be UTF-8"),
+    };
     let request: Value = match serde_json::from_str(body_text) {
         Ok(request) => request,
         Err(_) => return write_http(stream, "400 Bad Request", "text/plain", b"invalid JSON-RPC request"),
