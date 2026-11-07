@@ -106,7 +106,7 @@ struct LiveBackend;
 fn is_read_only_method(method: &str) -> bool {
     matches!(method,
         "engine.commands" | "document.inspect" | "node.get" | "ui.inspect" |
-        "ui.render" | "ui.screenshot" | "window.list" | "comment.list")
+        "ui.render" | "ui.screenshot" | "window.list" | "comment.list" | "events.poll")
 }
 
 struct ApprovalRequest {
@@ -130,8 +130,18 @@ fn approvals() -> &'static Mutex<ApprovalState> {
 
 static NEXT_APPROVAL_ID: AtomicU64 = AtomicU64::new(1);
 const MAX_PENDING_APPROVALS: usize = 8;
+const MAX_APPROVAL_PARAMS_BYTES: usize = 64 * 1024;
 
 fn request_mutation_approval(command: &str, params: Value) -> Result<(), String> {
+    if command.is_empty() || command.len() > 128 {
+        return Err("MCP command name is empty or exceeds 128 bytes".into());
+    }
+    if !params.is_object() && !params.is_null() {
+        return Err("MCP command parameters must be a JSON object or null".into());
+    }
+    if params.to_string().len() > MAX_APPROVAL_PARAMS_BYTES {
+        return Err("MCP command parameters exceed the 64 KiB approval preview limit".into());
+    }
     let (decision_tx, decision_rx) = std::sync::mpsc::channel();
     let mut state = approvals()
         .lock()
