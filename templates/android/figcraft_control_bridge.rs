@@ -616,6 +616,13 @@ fn mcp_settings_ui(ctx: &Context) {
     let token_path = private_dir.join("mcp-server.token");
     let mut enabled = marker.is_file();
     let mut open = MCP_SETTINGS_OPEN.load(Ordering::Relaxed);
+    egui::Area::new(egui::Id::new("figcraft_mcp_settings_launcher"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
+        .show(ctx, |ui| {
+            if ui.button(if open { "Close MCP" } else { "MCP Settings" }).clicked() {
+                open = !open;
+            }
+        });
     egui::Window::new("MCP Server Settings")
         .open(&mut open)
         .default_width(360.0)
@@ -639,7 +646,7 @@ fn mcp_settings_ui(ctx: &Context) {
             ui.monospace(format!("http://127.0.0.1:{MCP_PORT}/mcp"));
             if let Ok(token) = std::fs::read_to_string(&token_path) {
                 ui.label("Bearer token (private to this device):");
-                ui.add(egui::TextEdit::singleline(&mut token.clone()).password(true).desired_width(f32::INFINITY));
+                ui.label("•••••••••••••••• (hidden)");
                 if ui.button("Copy token").clicked() { ctx.copy_text(token.trim().to_owned()); }
                 if ui.button("Rotate token").clicked() {
                     stop_mcp_server();
