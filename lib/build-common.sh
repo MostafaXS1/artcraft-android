@@ -1026,6 +1026,58 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/lib.rs (make_video_decoder diagnostic logging)")
 
+    # 8. Single GPU frame renderer on Android to conserve unified memory and avoid TBDR context contention.
+    if fix(
+        "crates/export/src/pipeline.rs",
+        '            let count = rayon::current_num_threads().clamp(2, 4);\n',
+        '            let count = if cfg!(target_os = "android") { 1 } else { rayon::current_num_threads().clamp(2, 4) };\n',
+    ):
+        fixed.append("crates/export/src/pipeline.rs (bound GPU renderers on Android)")
+
+    # 9. Bound GPU texture upload cache on Android (4 frames instead of 24) to avoid multi-gigabyte texture hoarding.
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '        if self.uploads.len() > 24 {\n'
+        '            let mut v: Vec<(u64, (usize, u32, u32))> = self.uploads.iter().map(|(k, u)| (u.last_used, *k)).collect();\n'
+        '            v.sort_unstable();\n'
+        '            for (_, k) in v.into_iter().take(self.uploads.len() - 24) {\n'
+        '                self.uploads.remove(&k);\n'
+        '            }\n'
+        '        }\n',
+        '        let max_uploads = if cfg!(target_os = "android") { 4 } else { 24 };\n'
+        '        if self.uploads.len() > max_uploads {\n'
+        '            let mut v: Vec<(u64, (usize, u32, u32))> = self.uploads.iter().map(|(k, u)| (u.last_used, *k)).collect();\n'
+        '            v.sort_unstable();\n'
+        '            for (_, k) in v.into_iter().take(self.uploads.len() - max_uploads) {\n'
+        '                self.uploads.remove(&k);\n'
+        '            }\n'
+        '        }\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (bound texture upload cache on Android)")
+
+    # 10. Bound in-flight export memory budget and batch size on Android to prevent OOM/LMK during 4K exports.
+    if fix(
+        "crates/export/src/job.rs",
+        'pub const IN_FLIGHT_BUDGET: u64 = 1 << 29;\n',
+        'pub const IN_FLIGHT_BUDGET: u64 = if cfg!(target_os = "android") { 1 << 26 } else { 1 << 29 };\n',
+    ):
+        fixed.append("crates/export/src/job.rs (bound in-flight memory budget on Android)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        '            batch: rayon::current_num_threads().clamp(2, 16) as i64,\n',
+        '            batch: if cfg!(target_os = "android") { 2 } else { rayon::current_num_threads().clamp(2, 16) as i64 },\n',
+    ):
+        fixed.append("crates/export/src/job.rs (bound default batch size on Android)")
+
+    # 11. Bound GOP decoded frame cache ceiling on Android (96 MiB instead of 384 MiB).
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'const FRAME_CACHE_CEILING: usize = 384 << 20;\n',
+        'const FRAME_CACHE_CEILING: usize = if cfg!(target_os = "android") { 96 << 20 } else { 384 << 20 };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
