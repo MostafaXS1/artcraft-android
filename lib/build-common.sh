@@ -1230,55 +1230,25 @@ elif app == "filmcraft":
     if fix(
         "crates/gpu/src/export_renderer.rs",
         '        static SHARED: std::sync::OnceLock<Option<(wgpu::Instance, wgpu::Device, wgpu::Queue)>> = std::sync::OnceLock::new();\n'
-        '        let (instance, device, queue) = SHARED\n'
-        '            .get_or_init(|| {\n'
-        '                // A build without a wgpu backend for this platform (`cargo build -p filmcraft-cli`\n'
-        '                // alone: this crate asks for none) has no GPU to offer, and `Instance::default()`\n'
-        '                // panics there.\n'
-        '                if wgpu::Instance::enabled_backend_features().is_empty() {\n'
-        '                    return None;\n'
-        '                }\n'
-        '                let instance = crate::adapter::native_instance();\n'
-        '                let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;\n'
-        '                let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;\n'
-        '                // wgpu\'s default handler panics on a validation or out-of-memory error; log it and\n'
-        '                // send the remaining frames to the CPU instead.\n'
-        '                device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| mark_device_failed(&format!("GPU error: {e}"))));\n'
-        '                device.set_device_lost_callback(|reason, msg| mark_device_failed(&format!("GPU device lost ({reason:?}): {msg}")));\n'
+        '        let (instance, device, queue) = SHARED\n',
+        '        static SHARED: std::sync::OnceLock<Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)>> = std::sync::OnceLock::new();\n'
+        '        let (instance, adapter, device, queue) = SHARED\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer shared adapter)")
+
+    if fix(
+        "crates/gpu/src/export_renderer.rs",
         '                Some((instance, device, queue))\n'
-        '            })\n'
-        '            .as_ref()?\n'
-        '            .clone();\n'
-        '        if device_failed() {\n'
-        '            return None;\n'
-        '        }\n'
-        '        let compositor = GpuCompositor::new(&device, &queue);\n'
+        '            })\n',
+        '                Some((instance, adapter, device, queue))\n'
+        '            })\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer shared return adapter)")
+
+    if fix(
+        "crates/gpu/src/export_renderer.rs",
         '        Some(Self { _instance: instance, device, queue, compositor })\n'
         '    }\n',
-        '        static SHARED: std::sync::OnceLock<Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)>> = std::sync::OnceLock::new();\n'
-        '        let (instance, adapter, device, queue) = SHARED\n'
-        '            .get_or_init(|| {\n'
-        '                // A build without a wgpu backend for this platform (`cargo build -p filmcraft-cli`\n'
-        '                // alone: this crate asks for none) has no GPU to offer, and `Instance::default()`\n'
-        '                // panics there.\n'
-        '                if wgpu::Instance::enabled_backend_features().is_empty() {\n'
-        '                    return None;\n'
-        '                }\n'
-        '                let instance = crate::adapter::native_instance();\n'
-        '                let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;\n'
-        '                let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;\n'
-        '                // wgpu\'s default handler panics on a validation or out-of-memory error; log it and\n'
-        '                // send the remaining frames to the CPU instead.\n'
-        '                device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| mark_device_failed(&format!("GPU error: {e}"))));\n'
-        '                device.set_device_lost_callback(|reason, msg| mark_device_failed(&format!("GPU device lost ({reason:?}): {msg}")));\n'
-        '                Some((instance, adapter, device, queue))\n'
-        '            })\n'
-        '            .as_ref()?\n'
-        '            .clone();\n'
-        '        if device_failed() {\n'
-        '            return None;\n'
-        '        }\n'
-        '        let compositor = GpuCompositor::new(&device, &queue);\n'
         '        Some(Self { instance, adapter, device, queue, compositor, surface: None })\n'
         '    }\n',
     ):
