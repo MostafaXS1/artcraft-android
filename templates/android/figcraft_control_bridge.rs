@@ -89,7 +89,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use figcraft_mcp::{Backend, Server};
 use serde_json::Value;
@@ -108,10 +108,130 @@ fn is_read_only_method(method: &str) -> bool {
         "ui.render" | "ui.screenshot" | "window.list" | "comment.list")
 }
 
+struct ApprovalRequest {
+    id: u64,
+    command: String,
+    params: Value,
+    deadline: Instant,
+    decision: std::sync::mpsc::Sender<bool>,
+}
+
+#[derive(Default)]
+struct ApprovalState {
+    queued: VecDeque<ApprovalRequest>,
+    active: Option<ApprovalRequest>,
+}
+
+fn approvals() -> &'static Mutex<ApprovalState> {
+    static APPROVALS: OnceLock<Mutex<ApprovalState>> = OnceLock::new();
+    APPROVALS.get_or_init(|| Mutex::new(ApprovalState::default()))
+}
+
+static NEXT_APPROVAL_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_PENDING_APPROVALS: usize = 8;
+
+fn request_mutation_approval(command: &str, params: Value) -> Result<(), String> {
+    let (decision_tx, decision_rx) = std::sync::mpsc::channel();
+    let mut state = approvals()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state.queued.len() + usize::from(state.active.is_some()) >= MAX_PENDING_APPROVALS {
+        return Err("too many pending MCP approvals; retry after resolving the current requests".into());
+    }
+    state.queued.push_back(ApprovalRequest {
+        id: NEXT_APPROVAL_ID.fetch_add(1, Ordering::Relaxed),
+        command: command.to_owned(),
+        params,
+        deadline: Instant::now() + REQUEST_TIMEOUT,
+        decision: decision_tx,
+    });
+    drop(state);
+    if let Some(ctx) = ui_context()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        ctx.request_repaint();
+    }
+    match decision_rx.recv_timeout(REQUEST_TIMEOUT) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("the user rejected this MCP command".into()),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err("MCP command approval timed out".into()),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err("MCP approval UI was closed".into()),
+    }
+}
+
+/// Draws a blocking approval sheet over the live canvas. A mutation is not enqueued
+/// into FigCraft's control queue until the user explicitly approves it.
+pub fn approval_ui(ctx: &Context) {
+    let view = {
+        let mut state = approvals()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.active.is_none() {
+            state.active = state.queued.pop_front();
+        }
+        state.active.as_ref().map(|request| (
+            request.id,
+            request.command.clone(),
+            request.params.to_string(),
+            request.deadline,
+        ))
+    };
+    let Some((id, command, params, deadline)) = view else { return; };
+    if Instant::now() >= deadline {
+        let mut state = approvals()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.active.as_ref().is_some_and(|request| request.id == id) {
+            if let Some(request) = state.active.take() {
+                let _ = request.decision.send(false);
+            }
+        }
+        return;
+    }
+
+    let mut decision = None;
+    egui::Window::new("MCP command approval")
+        .collapsible(false)
+        .resizable(true)
+        .default_width(420.0)
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .show(ctx, |ui| {
+            ui.label("An external MCP client wants to change this document.");
+            ui.separator();
+            ui.label(format!("Command: {command}"));
+            egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                ui.monospace(params.chars().take(6000).collect::<String>());
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Reject").clicked() { decision = Some(false); }
+                if ui.button("Approve and run").clicked() { decision = Some(true); }
+            });
+        });
+
+    if let Some(approved) = decision {
+        let mut state = approvals()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.active.as_ref().is_some_and(|request| request.id == id) {
+            if let Some(request) = state.active.take() {
+                let _ = request.decision.send(approved);
+            }
+        }
+    }
+}
+
 impl Backend for LiveBackend {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        if !is_read_only_method(method) {
-            return Err(format!("MCP mutation is disabled until Android approval UI exists: {method}"));
+        if method == "engine.execute" {
+            let command = params.get("command").and_then(Value::as_str)
+                .ok_or("MCP engine.execute is missing a command name")?;
+            let command_params = params.get("params").cloned().unwrap_or(Value::Null);
+            request_mutation_approval(command, command_params)?;
+        } else if !is_read_only_method(method) {
+            return Err(format!("MCP method is not permitted by the Android bridge: {method}"));
         }
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         let id = Value::from(NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed));
