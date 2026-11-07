@@ -100,3 +100,23 @@ The upstream implementation is reusable at the protocol/tool layer, but it is **
 6. Add protocol tests for initialize, notifications/initialized, tools/list, tools/call, invalid sessions, oversized bodies, timeout/cancellation, and app shutdown during an outstanding request.
 
 This keeps the MCP feature grounded in the actual FigCraft session and avoids the misleading shortcut of launching a second, invisible document.
+
+
+### Confirmed Android UI-thread bridge hook
+
+A closer read of the current builder generator and FigCraft UI lifecycle found a clean integration seam:
+
+- The builder generates an `AndroidShell` wrapper around `FigApp`; for FigCraft, the wrapper's UI callback calls `self.inner.ui(ui)`.
+- `FigApp::ui` itself calls `control::drain(self, &ctx)`, which processes `FigApp.control_queue` on the UI thread.
+- Therefore the Android wrapper can safely extend `self.inner.control_queue` from a bounded, thread-safe queue immediately before calling `self.inner.ui(ui)`. This avoids modifying FigCraft's document engine and preserves its existing command validation, undo, and screenshot behavior.
+- The desktop app's `apps/figcraft/src/control_server.rs` already implements the bounded localhost JSON-lines transport and request timeout/cancellation gates. It can serve as the reference for a builder-owned Android control bridge, but it cannot simply be imported because the Android launcher is a separate crate.
+
+The remaining implementation work is now sharply scoped:
+
+1. Add a builder-owned Android control module with the existing request limits, timeout gates, and a bounded queue.
+2. Add a supported MCP Streamable HTTP endpoint in front of `figcraft_mcp::Server`, using an attached backend that talks only to the loopback control bridge.
+3. Add an explicit in-app enable/disable control and display the endpoint credentials only inside the app. Until that UI exists, the endpoint must remain disabled by default.
+4. Add a build-time source patch in `lib/build-common.sh` that injects the bridge into the generated FigCraft Android wrapper. Keep it FigCraft-only and fail the build if expected generator anchors are absent; never silently produce a partially wired APK.
+5. Verify the Android build and exercise initialize, tools/list, read-only tools/call, approval-gated mutation, and Undo on a real device.
+
+This is a more direct route than adding a separate backend to the engine: the existing `FigApp::ui → control::drain → Session` path already does the important UI-thread and history work.
