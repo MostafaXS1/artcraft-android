@@ -26,6 +26,7 @@ use ndk::media::media_codec::{
     DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection,
 };
 use ndk::media::media_format::MediaFormat;
+use ndk::native_window::NativeWindow;
 
 use crate::biplanar;
 use crate::hybrid::HybridDecoder;
@@ -229,6 +230,7 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
 
 pub struct MediaCodecEncoder {
     codec: MediaCodec,
+    surface: Option<NativeWindow>,
     w: u32,
     h: u32,
     stride: usize,
@@ -254,13 +256,14 @@ impl MediaCodecEncoder {
             .map(|k| (f64::from(k) / fps).round().max(1.0) as i32)
             .unwrap_or(2);
 
-        let make_format = |with_operating_rate: bool| {
+        let make_format = |surface_mode: bool, with_operating_rate: bool| {
             let mut format = MediaFormat::new();
             format.set_str("mime", "video/avc");
             format.set_i32("width", w as i32);
             format.set_i32("height", h as i32);
-            // COLOR_FormatYUV420SemiPlanar (NV12) = 21
-            format.set_i32("color-format", 21);
+            // COLOR_FormatSurface = 0x7F000789 (2130708361) or COLOR_FormatYUV420SemiPlanar = 21
+            let color_fmt = if surface_mode { 0x7F000789 } else { 21 };
+            format.set_i32("color-format", color_fmt);
             format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
@@ -272,31 +275,60 @@ impl MediaCodecEncoder {
             format
         };
 
-        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
+        let try_init = |surface_mode: bool, with_operating_rate: bool| -> std::result::Result<(MediaCodec, Option<NativeWindow>), String> {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec encoder: {name}");
+                log::info!("MediaCodec encoder: {name} (surface_mode={surface_mode})");
                 let lower = name.to_ascii_lowercase();
                 if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
                     return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU encoder)"));
                 }
             }
 
-            let format = make_format(with_operating_rate);
+            let format = make_format(surface_mode, with_operating_rate);
             codec.configure(&format, None, MediaCodecDirection::Encoder)
                 .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
+
+            let native_win = if surface_mode {
+                let win = codec.create_input_surface()
+                    .map_err(|e| format!("AMediaCodec_createInputSurface failed: {e:?}"))?;
+                let _ = win.set_buffers_geometry(w as i32, h as i32, None);
+                Some(win)
+            } else {
+                None
+            };
+
             codec.start()
                 .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
-            Ok(codec)
+            Ok((codec, native_win))
         };
 
-        let codec = match try_init(true) {
-            Ok(c) => c,
+        // Try surface mode first for zero-copy GPU encoding, falling back to buffer mode if needed
+        let (codec, surface) = match try_init(true, true) {
+            Ok(res) => {
+                log::info!("MediaCodec initialized in zero-copy surface mode with operating rate");
+                res
+            }
             Err(e1) => {
-                log::warn!("MediaCodec fast init failed ({e1}), retrying with minimal format on fresh instance");
-                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec: {e2}"))?
+                log::warn!("MediaCodec surface mode fast init failed ({e1}), retrying with minimal format");
+                match try_init(true, false) {
+                    Ok(res) => {
+                        log::info!("MediaCodec initialized in zero-copy surface mode (minimal format)");
+                        res
+                    }
+                    Err(e2) => {
+                        log::warn!("MediaCodec surface mode failed ({e2}), falling back to buffer mode");
+                        match try_init(false, true) {
+                            Ok(res) => res,
+                            Err(e3) => {
+                                log::warn!("MediaCodec buffer fast init failed ({e3}), retrying minimal format");
+                                try_init(false, false).map_err(|e4| format!("Failed to initialize MediaCodec: {e4}"))?
+                            }
+                        }
+                    }
+                }
             }
         };
 
@@ -314,6 +346,7 @@ impl MediaCodecEncoder {
 
         Ok(Self {
             codec,
+            surface,
             w,
             h,
             stride,
@@ -440,6 +473,10 @@ impl MediaCodecEncoder {
 }
 
 impl VideoEncoder for MediaCodecEncoder {
+    fn input_surface(&self) -> Option<*mut std::ffi::c_void> {
+        self.surface.as_ref().map(|w| w.ptr().as_ptr() as *mut std::ffi::c_void)
+    }
+
     fn sample_entry(&self) -> SampleEntry {
         let (w, h) = (self.w.min(u32::from(u16::MAX)) as u16, self.h.min(u32::from(u16::MAX)) as u16);
         let sps_list = match &self.sps {
@@ -464,6 +501,10 @@ impl VideoEncoder for MediaCodecEncoder {
     }
 
     fn prepare_ahead(&self) -> Option<PrepareAhead> {
+        if self.surface.is_some() {
+            // In zero-copy surface mode, GPU renders directly into the hardware surface.
+            return None;
+        }
         let ready = self.ready.clone();
         Some(Arc::new(move |f: &EncoderFrame| {
             let (w, h) = (f.width as usize, f.height as usize);
@@ -476,6 +517,24 @@ impl VideoEncoder for MediaCodecEncoder {
     }
 
     fn encode(&mut self, f: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
+        // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
+        if self.surface.is_some() && f.rgba.is_empty() {
+            let mut packets = Vec::new();
+            self.drain_output(Duration::ZERO, &mut packets)?;
+
+            if self.sps.is_none() || self.pps.is_none() {
+                for _ in 0..40 {
+                    if self.sps.is_some() && self.pps.is_some() {
+                        break;
+                    }
+                    self.drain_output(Duration::from_millis(20), &mut packets)?;
+                }
+            }
+
+            filmcraft_export::note_hw_encode_frame();
+            return Ok(packets);
+        }
+
         if f.hdr.is_some() {
             return Err(ExportError::Unsupported("hardware encoding does not take HDR pictures".into()));
         }
@@ -615,7 +674,22 @@ impl VideoEncoder for MediaCodecEncoder {
     fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
         let mut packets = Vec::new();
 
-        // 1. Drain pending frames first so an input buffer is freed
+        if self.surface.is_some() {
+            // Surface mode: signal EOS via AMediaCodec_signalEndOfInputStream
+            if let Err(e) = self.codec.set_signal_end_of_input_stream() {
+                log::warn!("AMediaCodec_signalEndOfInputStream failed: {e:?}");
+            }
+            for _ in 0..100 {
+                if self.eos_seen {
+                    break;
+                }
+                self.drain_output(Duration::from_millis(30), &mut packets)?;
+            }
+            let _ = self.codec.stop();
+            return Ok(packets);
+        }
+
+        // Buffer mode: drain and queue EOS buffer
         self.drain_output(Duration::from_millis(50), &mut packets)?;
 
         // 2. Queue EOS buffer (size = 0, flag = 4 = BUFFER_FLAG_END_OF_STREAM)

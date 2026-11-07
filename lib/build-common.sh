@@ -833,7 +833,7 @@ elif app == "filmcraft":
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
         '# Android: hardware H.264 video encoding through Android\'s NDK MediaCodec API (libmediandk).\n'
-        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "api-level-28"], default-features = false }\n',
+        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "nativewindow", "api-level-28", "rwh_06"], default-features = false }\n',
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
@@ -1012,7 +1012,7 @@ elif app == "filmcraft":
         '        let total = job.progress.total.load(Ordering::Relaxed);\n'
         '        if total > 0 && !job.progress.finished.load(Ordering::Relaxed) {\n'
         '            let pct = (done as f32 / total as f32 * 100.0).clamp(0.0, 100.0);\n'
-        '            self.ui.status = format!("Exporting: {done}/{total} frames ({pct:.0}%) [GPU+HW Enc]");\n'
+        '            self.ui.status = format!("Exporting: {done}/{total} frames ({pct:.0}%) [GPU Zero-Copy Enc]");\n'
         '        }\n',
     ):
         fixed.append("crates/ui-egui/src/app/frame.rs (export completion status and progress in UI)")
@@ -1101,6 +1101,350 @@ elif app == "filmcraft":
         '        }\n',
     ):
         fixed.append("crates/platform/src/biplanar.rs (fast contiguous luma copy)")
+
+    # 13. Support input_surface and surface rendering in VideoEncoder and FrameRenderer.
+    if fix(
+        "crates/export/src/registry.rs",
+        '    fn prepare_ahead(&self) -> Option<PrepareAhead> {\n'
+        '        None\n'
+        '    }\n'
+        '}\n',
+        '    fn prepare_ahead(&self) -> Option<PrepareAhead> {\n'
+        '        None\n'
+        '    }\n'
+        '    /// On platforms supporting direct GPU-to-hardware-encoder surface rendering (Android AMediaCodec),\n'
+        '    /// returns the native window pointer (*mut std::ffi::c_void) of the input surface.\n'
+        '    fn input_surface(&self) -> Option<*mut std::ffi::c_void> {\n'
+        '        None\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/export/src/registry.rs (VideoEncoder input_surface)")
+
+    if fix(
+        "crates/export/src/registry.rs",
+        '    fn caps(&self) -> filmcraft_render::plan::DeviceCaps;\n'
+        '}\n',
+        '    fn caps(&self) -> filmcraft_render::plan::DeviceCaps;\n'
+        '    fn bind_surface(&mut self, _window: *mut std::ffi::c_void, _w: u32, _h: u32) -> bool {\n'
+        '        false\n'
+        '    }\n'
+        '    fn render_to_surface(\n'
+        '        &mut self,\n'
+        '        _project: &Project,\n'
+        '        _seq: ItemId,\n'
+        '        _t: Tick,\n'
+        '        _opts: filmcraft_render::RenderOptions,\n'
+        '        _sources: &dyn SourceProvider,\n'
+        '    ) -> Option<bool> {\n'
+        '        None\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/export/src/registry.rs (FrameRenderer surface methods)")
+
+    # 14. Add render_to_view on GpuCompositor for direct rendering into surface texture view.
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {\n',
+        '    /// Direct GPU render into a target view (surface texture) using final_pipeline (with sRGB fs_full).\n'
+        '    pub fn render_to_view(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, target_view: &wgpu::TextureView) -> Option<()> {\n'
+        '        let t = std::time::Instant::now();\n'
+        '        let (accum_view, _) = self.render_plan(plan, prep, true, false);\n'
+        '        let final_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {\n'
+        '            label: Some("final-to-view"),\n'
+        '            layout: &self.final_bgl,\n'
+        '            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&accum_view) }],\n'
+        '        });\n'
+        '        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("filmcraft-composite-to-view") });\n'
+        '        {\n'
+        '            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {\n'
+        '                label: Some("resolve-to-view"),\n'
+        '                color_attachments: &[Some(wgpu::RenderPassColorAttachment {\n'
+        '                    view: target_view,\n'
+        '                    depth_slice: None,\n'
+        '                    resolve_target: None,\n'
+        '                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },\n'
+        '                })],\n'
+        '                depth_stencil_attachment: None,\n'
+        '                timestamp_writes: None,\n'
+        '                occlusion_query_set: None,\n'
+        '                multiview_mask: None,\n'
+        '            });\n'
+        '            pass.set_pipeline(&self.final_pipeline);\n'
+        '            pass.set_bind_group(0, &final_bg, &[]);\n'
+        '            pass.draw(0..3, 0..1);\n'
+        '        }\n'
+        '        self.queue.submit([enc.finish()]);\n'
+        '        export_renderer::timing::add_submit(t.elapsed());\n'
+        '        Some(())\n'
+        '    }\n\n'
+        '    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor render_to_view)")
+
+    # 15. Add hardware surface binding and direct surface rendering on ExportRenderer.
+    if fix(
+        "crates/gpu/src/export_renderer.rs",
+        'pub struct ExportRenderer {\n'
+        '    _instance: wgpu::Instance,\n'
+        '    #[expect(dead_code, reason = "kept for future frame-accuracy flows (readback fences)")]\n'
+        '    device: wgpu::Device,\n'
+        '    #[expect(dead_code, reason = "kept for future frame-accuracy flows (readback fences)")]\n'
+        '    queue: wgpu::Queue,\n'
+        '    compositor: GpuCompositor,\n'
+        '}\n',
+        'pub struct ExportRenderer {\n'
+        '    instance: wgpu::Instance,\n'
+        '    #[expect(dead_code, reason = "kept for future frame-accuracy flows (readback fences)")]\n'
+        '    device: wgpu::Device,\n'
+        '    #[expect(dead_code, reason = "kept for future frame-accuracy flows (readback fences)")]\n'
+        '    queue: wgpu::Queue,\n'
+        '    compositor: GpuCompositor,\n'
+        '    surface: Option<wgpu::Surface<\'static>>,\n'
+        '}\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer surface field)")
+
+    if fix(
+        "crates/gpu/src/export_renderer.rs",
+        '        Some(Self { _instance: instance, device, queue, compositor })\n'
+        '    }\n',
+        '        Some(Self { instance, device, queue, compositor, surface: None })\n'
+        '    }\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer new with surface)")
+
+    if fix(
+        "crates/gpu/src/export_renderer.rs",
+        '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
+        '    pub fn bind_surface(&mut self, window_ptr: *mut std::ffi::c_void, w: u32, h: u32) -> bool {\n'
+        '        if window_ptr.is_null() {\n'
+        '            return false;\n'
+        '        }\n'
+        '        let non_null = match std::ptr::NonNull::new(window_ptr) {\n'
+        '            Some(p) => p,\n'
+        '            None => return false,\n'
+        '        };\n'
+        '        let handle = wgpu::rwh::AndroidNdkWindowHandle::new(non_null);\n'
+        '        let target = wgpu::SurfaceTargetUnsafe::RawHandle {\n'
+        '            raw_display_handle: None,\n'
+        '            raw_window_handle: wgpu::rwh::RawWindowHandle::AndroidNdk(handle),\n'
+        '        };\n'
+        '        let surface: wgpu::Surface<\'static> = match unsafe { self.instance.create_surface_unsafe(target) } {\n'
+        '            Ok(s) => s,\n'
+        '            Err(e) => {\n'
+        '                log::warn!("Failed to create wgpu::Surface on native window: {e:?}");\n'
+        '                return false;\n'
+        '            }\n'
+        '        };\n'
+        '        let config = wgpu::SurfaceConfiguration {\n'
+        '            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,\n'
+        '            format: crate::OUTPUT_FORMAT,\n'
+        '            color_space: wgpu::SurfaceColorSpace::Auto,\n'
+        '            width: w,\n'
+        '            height: h,\n'
+        '            present_mode: wgpu::PresentMode::AutoNoVsync,\n'
+        '            desired_maximum_frame_latency: 2,\n'
+        '            alpha_mode: wgpu::CompositeAlphaMode::Auto,\n'
+        '            view_formats: vec![],\n'
+        '        };\n'
+        '        surface.configure(&self.device, &config);\n'
+        '        log::info!("ExportRenderer bound hardware surface: {w}x{h}");\n'
+        '        self.surface = Some(surface);\n'
+        '        true\n'
+        '    }\n\n'
+        '    pub fn render_to_surface(\n'
+        '        &mut self,\n'
+        '        project: &Project,\n'
+        '        seq: ItemId,\n'
+        '        t: Tick,\n'
+        '        opts: RenderOptions,\n'
+        '        sources: &dyn SourceProvider,\n'
+        '    ) -> Option<bool> {\n'
+        '        let surface = self.surface.as_ref()?;\n'
+        '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
+        '        match &plan {\n'
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(&plan);\n'
+        '                let surface_tex = match surface.get_current_texture() {\n'
+        '                    Ok(tex) => tex,\n'
+        '                    Err(e) => {\n'
+        '                        log::warn!("Surface get_current_texture failed: {e:?}");\n'
+        '                        return None;\n'
+        '                    }\n'
+        '                };\n'
+        '                let view = surface_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());\n'
+        '                self.compositor.render_to_view(&plan, Some(&prep), &view)?;\n'
+        '                surface_tex.present();\n'
+        '                timing::add_frame();\n'
+        '                Some(true)\n'
+        '            }\n'
+        '            FramePlan::Image(_) => None,\n'
+        '        }\n'
+        '    }\n\n'
+        '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer bind_surface and render_to_surface)")
+
+    # 16. Support surface rendering in Pipeline.
+    if fix(
+        "crates/export/src/pipeline.rs",
+        '    /// Free the pool\'s float images when the export ends: a standalone export, not one part of a\n'
+        '    /// batch (`ExportSettings::part_of_batch`).\n'
+        '    trim_pool: bool,\n'
+        '}\n',
+        '    /// Free the pool\'s float images when the export ends: a standalone export, not one part of a\n'
+        '    /// batch (`ExportSettings::part_of_batch`).\n'
+        '    trim_pool: bool,\n'
+        '    surface_bound: std::sync::atomic::AtomicBool,\n'
+        '}\n',
+    ):
+        fixed.append("crates/export/src/pipeline.rs (Pipeline surface_bound field)")
+
+    if fix(
+        "crates/export/src/pipeline.rs",
+        '            trim_pool: !settings.part_of_batch,\n'
+        '            project: project.clone(),\n',
+        '            trim_pool: !settings.part_of_batch,\n'
+        '            surface_bound: std::sync::atomic::AtomicBool::new(false),\n'
+        '            project: project.clone(),\n',
+    ):
+        fixed.append("crates/export/src/pipeline.rs (Pipeline init surface_bound)")
+
+    if fix(
+        "crates/export/src/pipeline.rs",
+        '    /// Output frame `f` as straight sRGB RGBA8 at the output size, or for HDR exports the encoded\n'
+        '    /// R\'G\'B\' floats (3 per pixel).\n'
+        '    pub fn frame(&self, f: i64, sources: &dyn SourceProvider) -> (Vec<u8>, Vec<f32>) {\n',
+        '    pub fn bind_surface(&self, window_ptr: *mut std::ffi::c_void) -> bool {\n'
+        '        if let Some(pool) = &self.renderer {\n'
+        '            let (w, h) = (self.w, self.h);\n'
+        '            let ok = pool.with(|r| r.bind_surface(window_ptr, w, h)).unwrap_or(false);\n'
+        '            if ok {\n'
+        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '            }\n'
+        '            ok\n'
+        '        } else {\n'
+        '            false\n'
+        '        }\n'
+        '    }\n\n'
+        '    pub fn has_surface(&self) -> bool {\n'
+        '        self.surface_bound.load(std::sync::atomic::Ordering::Relaxed)\n'
+        '    }\n\n'
+        '    pub fn can_surface_render(&self) -> bool {\n'
+        '        !self.hdr_out\n'
+        '            && self.geom.content.is_none()\n'
+        '            && self.geom.offset == (0, 0)\n'
+        '            && !self.effects.image_overlay.enabled\n'
+        '            && !self.effects.name_overlay.enabled\n'
+        '            && !self.effects.timecode_overlay.enabled\n'
+        '            && !self.effects.video_limiter.enabled\n'
+        '    }\n\n'
+        '    pub fn render_to_surface(&self, t: filmcraft_time::Tick, sources: &dyn SourceProvider) -> Option<bool> {\n'
+        '        let pool = self.renderer.as_ref().filter(|pool| !filmcraft_render::plan::is_cpu_frame(&self.project, self.seq, t, self.opts, pool.caps))?;\n'
+        '        pool.with(|r| r.render_to_surface(&self.project, self.seq, t, self.opts, sources)).flatten()\n'
+        '    }\n\n'
+        '    /// Output frame `f` as straight sRGB RGBA8 at the output size, or for HDR exports the encoded\n'
+        '    /// R\'G\'B\' floats (3 per pixel).\n'
+        '    pub fn frame(&self, f: i64, sources: &dyn SourceProvider) -> (Vec<u8>, Vec<f32>) {\n',
+    ):
+        fixed.append("crates/export/src/pipeline.rs (Pipeline bind_surface and render_to_surface)")
+
+    # 17. Bind surface in Exporter::set_up and use step_surface_batch for zero-copy hardware encoding.
+    if fix(
+        "crates/export/src/job.rs",
+        '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
+        '        Ok(Self {\n',
+        '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
+        '        if pipe.can_surface_render() {\n'
+        '            if let Some(surface_ptr) = venc.input_surface() {\n'
+        '                if pipe.bind_surface(surface_ptr) {\n'
+        '                    log::info!("Exporter enabled zero-copy hardware surface pipeline for {}x{}", pipe.w, pipe.h);\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '        Ok(Self {\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter bind_surface in set_up)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        '        if self.next < self.f1 {\n'
+        '            return self.step_batch(sources, progress);\n'
+        '        }\n',
+        '        if self.next < self.f1 {\n'
+        '            if self.pipe.has_surface() && self.venc.input_surface().is_some() {\n'
+        '                return self.step_surface_batch(sources, progress);\n'
+        '            }\n'
+        '            return self.step_batch(sources, progress);\n'
+        '        }\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter step_surface_batch dispatch)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        '    /// Encode (and mux) the batch starting at `self.next`, rendering the one after it meanwhile.\n'
+        '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
+        '    fn step_surface_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n'
+        '        let f = self.next;\n'
+        '        let end = self.next.saturating_add(self.batch_len()).min(self.f1);\n'
+        '        if end <= f {\n'
+        '            return Err(ExportError::Encode("internal: an empty batch was rendered".into()));\n'
+        '        }\n'
+        '        let cuts: Vec<i64> = (f + 1..=end).filter(|&g| (g - self.f0) % INTERLEAVE == 0).collect();\n'
+        '        let mut mixed = Vec::with_capacity(cuts.len());\n'
+        '        if let Some(sr) = self.audio.as_ref().map(|a| a.sr) {\n'
+        '            let t = web_time::Instant::now();\n'
+        '            for &g in &cuts {\n'
+        '                let until = self.sample_at_frame(g, sr);\n'
+        '                mixed.push(self.audio.as_mut().and_then(|a| a.pull(until, sources)));\n'
+        '            }\n'
+        '            note_stage(Stage::Audio, t.elapsed());\n'
+        '        }\n'
+        '        if filmcraft_media::pending::take() {\n'
+        '            return Ok(Step::Pending);\n'
+        '        }\n'
+        '        let mut mixed = mixed.into_iter();\n'
+        '        for fi in f..end {\n'
+        '            let t = self.pipe.rate.tick_of(fi);\n'
+        '            let rendered = timed(Stage::Render, || self.pipe.render_to_surface(t, sources));\n'
+        '            if rendered != Some(true) {\n'
+        '                log::warn!("Hardware surface render fallback at frame {fi}; switching to buffer batch");\n'
+        '                return self.step_batch(sources, progress);\n'
+        '            }\n'
+        '            let fr = EncoderFrame {\n'
+        '                width: self.pipe.w,\n'
+        '                height: self.pipe.h,\n'
+        '                rgba: &[],\n'
+        '                hdr: None,\n'
+        '                index: (fi - self.f0) as u64,\n'
+        '            };\n'
+        '            let packets = timed(Stage::Encode, || self.venc.encode(&fr))?;\n'
+        '            self.queued.extend(packets);\n'
+        '            if cuts.contains(&(fi + 1)) {\n'
+        '                timed(Stage::Mux, || -> Result<()> {\n'
+        '                    if self.mux.is_none() && self.mxf.is_none() {\n'
+        '                        self.open_mux()?;\n'
+        '                    }\n'
+        '                    let packets = std::mem::take(&mut self.queued);\n'
+        '                    self.write_video(packets)\n'
+        '                })?;\n'
+        '                let pcm = mixed.next().flatten();\n'
+        '                timed(Stage::Audio, || self.write_audio(pcm))?;\n'
+        '            }\n'
+        '        }\n'
+        '        progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);\n'
+        '        self.next = end;\n'
+        '        Ok(Step::Progress)\n'
+        '    }\n\n'
+        '    /// Encode (and mux) the batch starting at `self.next`, rendering the one after it meanwhile.\n'
+        '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter step_surface_batch implementation)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
@@ -2321,6 +2665,21 @@ impl filmcraft_export::FrameRenderer for GpuFrameRenderer {
 
     fn caps(&self) -> filmcraft_render::plan::DeviceCaps {
         self.0.caps()
+    }
+
+    fn bind_surface(&mut self, window: *mut std::ffi::c_void, w: u32, h: u32) -> bool {
+        self.0.bind_surface(window, w, h)
+    }
+
+    fn render_to_surface(
+        &mut self,
+        project: &filmcraft_project::Project,
+        seq: filmcraft_project::ItemId,
+        t: filmcraft_time::Tick,
+        opts: filmcraft_render::RenderOptions,
+        sources: &dyn filmcraft_render::SourceProvider,
+    ) -> Option<bool> {
+        self.0.render_to_surface(project, seq, t, opts, sources)
     }
 }
 
