@@ -837,6 +837,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
+    # 1b. Add log dependency to crates/export/Cargo.toml for export logging.
+    if fix(
+        "crates/export/Cargo.toml",
+        'rayon = { workspace = true }\n',
+        'rayon = { workspace = true }\nlog = { workspace = true }\n',
+    ):
+        fixed.append("crates/export/Cargo.toml (log dependency)")
+
     # 2. Add android_mediacodec module declaration in crates/platform/src/lib.rs.
     if fix(
         "crates/platform/src/lib.rs",
