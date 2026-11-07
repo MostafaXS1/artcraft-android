@@ -1421,7 +1421,7 @@ elif app == "filmcraft":
         '        #[cfg(target_os = "android")]\n'
         '        {\n'
         '            #[link(name = "android")]\n'
-        '            extern "C" {\n'
+        '            unsafe extern "C" {\n'
         '                fn ANativeWindow_setBuffersGeometry(window: *mut std::ffi::c_void, width: i32, height: i32, format: i32) -> i32;\n'
         '            }\n'
         '            unsafe {\n'
