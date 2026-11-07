@@ -3197,7 +3197,7 @@ icon = "@mipmap/ic_launcher"
             inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if app == "figcraft":
-            inner_ui = "let _ = frame;\\n        figcraft_control_bridge::drain(&mut self.inner);\\n        self.inner.ui(ui);"
+            inner_ui = "let _ = frame;\n        figcraft_control_bridge::drain(&mut self.inner);\n        self.inner.ui(ui);"
         if has_raw_hook:
             if re.search(r"pub\s+fn\s+raw_input_hook\s*\(\s*&mut\s+self\s*,\s*raw\s*:", ui_text):
                 inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
@@ -4167,7 +4167,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         # Drain background requests immediately before FigApp::ui on the UI thread.
         if "figcraft_control_bridge::drain(&mut self.inner);" not in entry:
             raise SystemExit("FigCraft Android bridge hook was not generated; refusing a partial launcher")
-        entry = entry.replace("mod system_fonts;", "mod system_fonts;\\nmod figcraft_control_bridge;", 1)
+        entry = entry.replace("mod system_fonts;", "mod system_fonts;\nmod figcraft_control_bridge;", 1)
         if "mod figcraft_control_bridge;" not in entry:
             raise SystemExit("Could not install FigCraft Android bridge module")
         shutil.copy2(root / "templates" / "android" / "figcraft_control_bridge.rs", staging_dir / "src" / "figcraft_control_bridge.rs")
