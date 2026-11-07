@@ -909,7 +909,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
                 "generationConfig": { "temperature": 0.7, "maxOutputTokens": 4096 }
             });
-            let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+            let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", api_key)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .json(&body)
@@ -920,12 +920,20 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 })?;
             let status = response.status();
             if !status.is_success() {
-                return Err(match status.as_u16() {
-                    400 => "Gemini rejected the request. Check the prompt and API key.".into(),
-                    401 | 403 => "Gemini API key is invalid or does not have access.".into(),
-                    429 => "Gemini rate limit or quota reached. Try again later.".into(),
-                    500..=599 => "Gemini service is temporarily unavailable.".into(),
-                    _ => format!("Gemini returned HTTP {}.", status.as_u16()),
+                let detail = response.text().unwrap_or_default();
+                let detail = detail.chars().take(700).collect::<String>();
+                let reason = match status.as_u16() {
+                    400 => "Gemini rejected the request. Check the request format.",
+                    401 | 403 => "Gemini API key is invalid or does not have access.",
+                    404 => "Gemini model or endpoint was not found. Check model availability for this API key.",
+                    429 => "Gemini rate limit or quota reached. Try again later.",
+                    500..=599 => "Gemini service is temporarily unavailable.",
+                    _ => "Gemini request failed.",
+                };
+                return Err(if detail.trim().is_empty() {
+                    format!("{reason} (HTTP {}).", status.as_u16())
+                } else {
+                    format!("{reason} (HTTP {}): {detail}", status.as_u16())
                 });
             }
             let value: Value = response.json()
