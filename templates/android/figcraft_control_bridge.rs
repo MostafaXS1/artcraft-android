@@ -165,7 +165,7 @@ fn request_mutation_approval(command: &str, params: Value) -> Result<(), String>
         return Err("MCP command parameters exceed the 64 KiB approval preview limit".into());
     }
     if command == "command.batch" {
-        let count = params.get("commands").and_then(Value::as_array).map_or(0, Vec::len);
+        let count = params.get("commands").and_then(Value::as_array).map_or(0, |items| items.len());
         if count == 0 || count > 32 {
             return Err("MCP batches must contain between 1 and 32 commands".into());
         }
