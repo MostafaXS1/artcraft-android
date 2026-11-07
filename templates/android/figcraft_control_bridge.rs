@@ -357,7 +357,34 @@ fn filter_tool_list(response: &str) -> String {
     value.to_string()
 }
 
-fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std::io::Result<()> {
+fn write_http_with_session(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+    session_id: &str,
+) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 {status}\\r\\nContent-Type: {content_type}\\r\\nContent-Length: {}\\r\\nMcp-Session-Id: {session_id}\\r\\nConnection: close\\r\\nCache-Control: no-store\\r\\n\\r\\n",
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    stream.flush()
+}
+
+fn random_hex_token() -> std::io::Result<String> {
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn handle_http(
+    stream: &mut TcpStream,
+    server: &mut Server,
+    token: &str,
+    session_id: &mut Option<String>,
+) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(130)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -374,7 +401,7 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
             Ok(None) => return Ok(()),
             Err(_) => return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large"),
         };
-        if line == "\r\n" || line == "\n" { break; }
+        if line == "\\r\\n" || line == "\\n" { break; }
         let Some((name, value)) = line.split_once(':') else {
             return write_http(stream, "400 Bad Request", "text/plain", b"malformed HTTP header");
         };
@@ -390,19 +417,35 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
     if version != "HTTP/1.1" && version != "HTTP/1.0" {
         return write_http(stream, "400 Bad Request", "text/plain", b"invalid HTTP request line");
     }
-    if method != "POST" || path != "/mcp" {
-        return write_http(stream, "405 Method Not Allowed", "text/plain", b"POST /mcp only");
+    if path != "/mcp" {
+        return write_http(stream, "404 Not Found", "text/plain", b"unknown MCP endpoint");
     }
     let auth_ok = headers.get("authorization")
-        .and_then(|v| v.strip_prefix("Bearer "))
+        .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|provided| constant_time_eq(provided.as_bytes(), token.as_bytes()));
     if !auth_ok {
         return write_http(stream, "401 Unauthorized", "text/plain", b"bearer token required");
     }
+
+    if method == "DELETE" {
+        let matches_session = session_id.as_ref().is_some_and(|active| {
+            headers.get("mcp-session-id").is_some_and(|provided| provided == active)
+        });
+        if !matches_session {
+            return write_http(stream, "404 Not Found", "text/plain", b"unknown MCP session");
+        }
+        *server = Server::new(Box::new(LiveBackend));
+        *session_id = None;
+        return write_http(stream, "204 No Content", "text/plain", b"");
+    }
+    if method != "POST" {
+        return write_http(stream, "405 Method Not Allowed", "text/plain", b"POST or DELETE /mcp only");
+    }
+
     let content_type_ok = headers.get("content-type")
-        .is_some_and(|v| v.to_ascii_lowercase().starts_with("application/json"));
-    let accept_ok = headers.get("accept").is_some_and(|v| {
-        v.contains("application/json") || v.trim() == "*/*"
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/json"));
+    let accept_ok = headers.get("accept").is_some_and(|value| {
+        value.contains("application/json") || value.trim() == "*/*"
     });
     if !content_type_ok || !accept_ok {
         return write_http(stream, "415 Unsupported Media Type", "text/plain", b"expected JSON MCP request and application/json accept");
@@ -411,34 +454,76 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
         return write_http(stream, "400 Bad Request", "text/plain", b"chunked transfer encoding is not supported");
     }
     let length = headers.get("content-length")
-        .and_then(|v| v.parse::<usize>().ok())
+        .and_then(|value| value.parse::<usize>().ok())
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing or invalid content-length"))?;
     if length == 0 || length > MAX_HTTP_BODY_BYTES {
         return write_http(stream, "413 Content Too Large", "text/plain", b"request body size is invalid");
-    }
-    if let Some(version) = headers.get("mcp-protocol-version") {
-        if !figcraft_mcp::SUPPORTED_VERSIONS.contains(&version.as_str()) {
-            return write_http(stream, "400 Bad Request", "text/plain", b"unsupported MCP protocol version");
-        }
-    } else if server.is_initialized() {
-        return write_http(stream, "400 Bad Request", "text/plain", b"MCP-Protocol-Version header required after initialization");
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
     let body_text = std::str::from_utf8(&body)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    let method = serde_json::from_str::<Value>(body_text).ok()
-        .and_then(|request| request.get("method").and_then(Value::as_str).map(str::to_owned));
+    let request: Value = match serde_json::from_str(body_text) {
+        Ok(request) => request,
+        Err(_) => return write_http(stream, "400 Bad Request", "text/plain", b"invalid JSON-RPC request"),
+    };
+    let rpc_method = request.get("method").and_then(Value::as_str).unwrap_or("");
+    if rpc_method.is_empty() {
+        return write_http(stream, "400 Bad Request", "text/plain", b"JSON-RPC batch and response messages are not accepted");
+    }
+
+    let is_initialize = rpc_method == "initialize";
+    match session_id.as_deref() {
+        None if !is_initialize => {
+            return write_http(stream, "400 Bad Request", "text/plain", b"send initialize before other MCP requests");
+        }
+        Some(active) => {
+            if !headers.get("mcp-session-id").is_some_and(|provided| provided == active) {
+                return write_http(stream, "404 Not Found", "text/plain", b"unknown or missing MCP session");
+            }
+            if !is_initialize && !headers.contains_key("mcp-protocol-version") {
+                return write_http(stream, "400 Bad Request", "text/plain", b"MCP-Protocol-Version header required after initialize");
+            }
+        }
+        None => {}
+    }
+    if let Some(version) = headers.get("mcp-protocol-version") {
+        if !figcraft_mcp::SUPPORTED_VERSIONS.contains(&version.as_str()) {
+            return write_http(stream, "400 Bad Request", "text/plain", b"unsupported MCP protocol version");
+        }
+    }
+
     match server.handle_line(body_text) {
         Some(response) => {
-            let response = if method.as_deref() == Some("tools/list") {
+            let response_value = serde_json::from_str::<Value>(&response).unwrap_or(Value::Null);
+            let initialize_succeeded = is_initialize && response_value.pointer("/result/protocolVersion").is_some();
+            if initialize_succeeded && session_id.is_none() {
+                match random_hex_token() {
+                    Ok(id) => *session_id = Some(id),
+                    Err(error) => {
+                        log::error!("MCP session id generation failed: {error}");
+                        return write_http(stream, "500 Internal Server Error", "text/plain", b"could not create MCP session");
+                    }
+                }
+            }
+            let response = if rpc_method == "tools/list" {
                 filter_tool_list(&response)
             } else {
                 response
             };
-            write_http(stream, "200 OK", "application/json", response.as_bytes())
+            if let Some(active) = session_id.as_deref() {
+                write_http_with_session(stream, "200 OK", "application/json", response.as_bytes(), active)
+            } else {
+                write_http(stream, "200 OK", "application/json", response.as_bytes())
+            }
         }
-        None => write_http(stream, "202 Accepted", "text/plain", b""),
+        None => {
+            if let Some(active) = session_id.as_deref() {
+                write_http_with_session(stream, "202 Accepted", "text/plain", b"", active)
+            } else {
+                write_http(stream, "202 Accepted", "text/plain", b"")
+            }
+        }
     }
 }
 
@@ -482,10 +567,11 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
             }
             log::info!("Local MCP Streamable HTTP endpoint enabled at http://127.0.0.1:{MCP_PORT}/mcp");
             let mut server = Server::new(Box::new(LiveBackend));
+            let mut session_id = None;
             while MCP_GENERATION.load(Ordering::SeqCst) == generation {
                 match listener.accept() {
                     Ok((mut stream, _peer)) => {
-                        if let Err(error) = handle_http(&mut stream, &mut server, &token) {
+                        if let Err(error) = handle_http(&mut stream, &mut server, &token, &mut session_id) {
                             log::warn!("MCP HTTP request failed: {error}");
                         }
                     }
