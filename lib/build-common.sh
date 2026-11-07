@@ -827,6 +827,14 @@ elif app == "lightcraft":
         fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
 
 elif app == "filmcraft":
+    # 0. Allow unsafe code in workspace for hardware surface interop.
+    if fix(
+        "Cargo.toml",
+        'unsafe_code = "forbid"\n',
+        'unsafe_code = "allow"\n',
+    ):
+        fixed.append("Cargo.toml (unsafe_code = allow)")
+
     # 1. Add ndk dependency to crates/platform/Cargo.toml for AMediaCodec.
     if fix(
         "crates/platform/Cargo.toml",
@@ -1271,27 +1279,30 @@ elif app == "filmcraft":
         '        sources: &dyn SourceProvider,\n'
         '    ) -> Option<bool> {\n'
         '        let surface = self.surface.as_ref()?;\n'
-        '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
+        '        let plan = plan_frame(project, seq, t, opts, sources);\n'
         '        match &plan {\n'
-        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
+        '            FramePlan::Layers { .. } => {\n'
         '                if device_failed() {\n'
         '                    return None;\n'
         '                }\n'
         '                let prep = prepare(&plan);\n'
         '                let surface_tex = match surface.get_current_texture() {\n'
-        '                    Ok(tex) => tex,\n'
-        '                    Err(e) => {\n'
+        '                    wgpu::CurrentSurfaceTexture::Success(tex) | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,\n'
+        '                    e => {\n'
         '                        log::warn!("Surface get_current_texture failed: {e:?}");\n'
         '                        return None;\n'
         '                    }\n'
         '                };\n'
         '                let view = surface_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());\n'
         '                self.compositor.render_to_view(&plan, Some(&prep), &view)?;\n'
-        '                surface_tex.present();\n'
+        '                self.queue.present(surface_tex);\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
         '                timing::add_frame();\n'
         '                Some(true)\n'
         '            }\n'
-        '            FramePlan::Image(_) => None,\n'
+        '            FramePlan::Image(_) | FramePlan::Composite { .. } => None,\n'
         '        }\n'
         '    }\n\n'
         '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
