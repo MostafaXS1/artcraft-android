@@ -173,8 +173,8 @@ elif [[ "$APP" == "notecraft" ]]; then
     REPO="https://github.com/AlienTechSoftware/notecraft.git"
     APP_ORIGIN="https://github.com/AlienTechSoftware/notecraft"
 elif [[ "$APP" == "diagramcraft" ]]; then
-    REPO="https://github.com/artcraft-candidates/DiagramCraft.git"
-    APP_ORIGIN="https://github.com/artcraft-candidates/DiagramCraft"
+    REPO="https://github.com/baradhili/DiagramCraft.git"
+    APP_ORIGIN="https://github.com/baradhili/DiagramCraft"
 elif [[ "$APP" == "paintcraft" ]]; then
     REPO="https://github.com/replicraft/PaintCraft.git"
     APP_ORIGIN="https://github.com/replicraft/PaintCraft"

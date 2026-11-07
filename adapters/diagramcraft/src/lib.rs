@@ -3,10 +3,8 @@
 //! ARTCRAFT_DIAGRAMCRAFT_SAF_BRIDGE_V1
 
 use android_activity::AndroidApp;
-use diagramcraft_model::Document;
-use diagramcraft_render::raster;
-use diagramcraft_render::scene::{page, Options as RenderOptions};
-use std::path::{Path, PathBuf};
+use dc_ui::app::App as DcApp;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -108,6 +106,8 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
 struct SafState {
     next_id: AtomicU64,
     mirror: saf::SaveMirror,
+    /// Pending file path to load when we have CreationContext
+    pending_path: std::sync::Mutex<Option<String>>,
 }
 
 impl SafState {
@@ -122,82 +122,25 @@ struct DiagramCraftApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
-
-    // Document state
-    current_path: Option<PathBuf>,
-    document: Option<Document>,
-    current_page_idx: usize,
-    page_texture: Option<egui::TextureHandle>,
-    error_message: Option<String>,
-
-    // View state
-    zoom: f32,
-    pan: egui::Vec2,
+    dc_app: DcApp,
 }
 
 impl DiagramCraftApp {
-    fn new(app: AndroidApp, bridge: saf::Bridge, state: Arc<SafState>) -> Self {
+    fn new(app: AndroidApp, bridge: saf::Bridge, state: Arc<SafState>, dc_app: DcApp) -> Self {
         Self {
             app,
             bridge,
             state,
             modifiers: egui::Modifiers::default(),
             intent_warmup: 2,
-            current_path: None,
-            document: None,
-            current_page_idx: 0,
-            page_texture: None,
-            error_message: None,
-            zoom: 1.0,
-            pan: egui::Vec2::ZERO,
+            dc_app,
         }
     }
 
-    fn load_file(&mut self, ctx: &egui::Context, path: &Path) {
+    fn load_file(&mut self, path: &Path) {
         log::info!("Loading Visio document: {}", path.display());
-        match diagramcraft_vsdx::read(path) {
-            Ok(doc) => {
-                self.current_path = Some(path.to_path_buf());
-                self.current_page_idx = 0;
-                self.error_message = None;
-                self.zoom = 1.0;
-                self.pan = egui::Vec2::ZERO;
-                self.document = Some(doc);
-                self.render_current_page(ctx);
-            }
-            Err(e) => {
-                log::error!("Failed to load Visio document: {e}");
-                self.error_message = Some(format!("Could not read Visio file: {e}"));
-            }
-        }
-    }
-
-    fn render_current_page(&mut self, ctx: &egui::Context) {
-        self.page_texture = None;
-        let Some(ref doc) = self.document else { return };
-        if doc.pages.is_empty() {
-            self.error_message = Some("Visio document contains no pages.".into());
-            return;
-        }
-        let page_idx = self.current_page_idx.min(doc.pages.len() - 1);
-        let opts = RenderOptions::default();
-        match page(doc, page_idx, opts) {
-            Ok(scene) => match raster::render(&scene, opts) {
-                Ok(img) => {
-                    let size = [img.width() as usize, img.height() as usize];
-                    let color_img = egui::ColorImage::from_rgba_unmultiplied(size, &img.into_raw());
-                    let texture = ctx.load_texture("visio-page", color_img, egui::TextureOptions::LINEAR);
-                    self.page_texture = Some(texture);
-                    self.error_message = None;
-                }
-                Err(e) => {
-                    self.error_message = Some(format!("Rasterization failed: {e}"));
-                }
-            },
-            Err(e) => {
-                self.error_message = Some(format!("Failed to layout page {page_idx}: {e}"));
-            }
-        }
+        // Load into the running app so the theme, recents and stencils survive opening a file.
+        self.dc_app.open_document(path.to_path_buf());
     }
 }
 
@@ -212,7 +155,9 @@ impl eframe::App for DiagramCraftApp {
         self.state.mirror.sync(&self.bridge);
         watch_incoming(&self.bridge, ctx);
         if let Some(path) = drain_incoming(&self.bridge, &self.state, &mut self.intent_warmup) {
-            self.load_file(ctx, &PathBuf::from(path));
+            // Store the path to load in the next ui() call when we have access to the frame
+            *self.state.pending_path.lock().unwrap() = Some(path);
+            ctx.request_repaint();
         }
     }
 
@@ -221,123 +166,19 @@ impl eframe::App for DiagramCraftApp {
         apply_android_modifiers(&mut self.modifiers, raw_input);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
 
-        // Top bar
-        egui::Panel::top("top_panel").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("DiagramCraft");
-                ui.separator();
+        // Check if there's a pending file to load
+        if let Some(path) = {
+            let mut guard = self.state.pending_path.lock().unwrap();
+            guard.take()
+        } {
+            self.load_file(Path::new(&path));
+        }
 
-                if ui.button("📂 Open Visio…").clicked() {
-                    let bridge = self.bridge.clone_ref();
-                    let id = self.state.next_id();
-                    let answer = bridge.pick_open_blocking(id, false, saf::PICK_TIMEOUT);
-                    if let Ok(saf::PickAnswer::Paths(paths)) = answer {
-                        if let Some(first) = paths.first() {
-                            self.load_file(ui.ctx(), &PathBuf::from(first));
-                        }
-                    }
-                }
-
-                let mut page_change: Option<isize> = None;
-                if let Some(ref doc) = self.document {
-                    let num_pages = doc.pages.len();
-                    if num_pages > 1 {
-                        ui.separator();
-                        if ui.add_enabled(self.current_page_idx > 0, egui::Button::new("◀ Prev")).clicked() {
-                            page_change = Some(-1);
-                        }
-
-                        let current_name = doc.pages.get(self.current_page_idx)
-                            .map(|p| p.name.as_str())
-                            .filter(|n| !n.is_empty())
-                            .unwrap_or("Untitled Page");
-
-                        ui.label(format!("Page {} of {}: \"{}\"", self.current_page_idx + 1, num_pages, current_name));
-
-                        if ui.add_enabled(self.current_page_idx + 1 < num_pages, egui::Button::new("Next ▶")).clicked() {
-                            page_change = Some(1);
-                        }
-                    }
-
-                    ui.separator();
-                    if ui.button("🔍 -").clicked() {
-                        self.zoom = (self.zoom * 0.8).max(0.1);
-                    }
-                    ui.label(format!("{:.0}%", self.zoom * 100.0));
-                    if ui.button("🔍 +").clicked() {
-                        self.zoom = (self.zoom * 1.25).min(10.0);
-                    }
-                    if ui.button("Reset").clicked() {
-                        self.zoom = 1.0;
-                        self.pan = egui::Vec2::ZERO;
-                    }
-                }
-
-                if let Some(delta) = page_change {
-                    if delta < 0 && self.current_page_idx > 0 {
-                        self.current_page_idx -= 1;
-                        self.render_current_page(ui.ctx());
-                    } else if delta > 0 {
-                        self.current_page_idx += 1;
-                        self.render_current_page(ui.ctx());
-                    }
-                }
-
-                if let Some(ref path) = self.current_path {
-                    ui.separator();
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("document");
-                    ui.label(egui::RichText::new(name).strong());
-                }
-            });
-        });
-
-        // Main canvas area
-        egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(ref err) = self.error_message {
-                ui.colored_label(egui::Color32::RED, err);
-            }
-
-            if let Some(ref texture) = self.page_texture {
-                let available = ui.available_size();
-                let (rect, response) = ui.allocate_exact_size(available, egui::Sense::drag());
-
-                if response.dragged() {
-                    self.pan += response.drag_delta();
-                }
-
-                let tex_size = texture.size_vec2();
-                let fit_scale = (available.x / tex_size.x).min(available.y / tex_size.y).min(1.0);
-                let current_scale = fit_scale * self.zoom;
-                let draw_size = tex_size * current_scale;
-
-                let center = rect.center() + self.pan;
-                let image_rect = egui::Rect::from_center_size(center, draw_size);
-
-                let painter = ui.painter_at(rect);
-                painter.image(texture.id(), image_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-            } else if self.document.is_none() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(80.0);
-                    ui.heading("Welcome to DiagramCraft");
-                    ui.add_space(16.0);
-                    ui.label("View Microsoft Visio drawings, stencils, and templates (.vsdx, .vsdm, .vsd).");
-                    ui.add_space(24.0);
-                    if ui.button(egui::RichText::new("📂 Open Visio Document…").size(18.0)).clicked() {
-                        let bridge = self.bridge.clone_ref();
-                        let id = self.state.next_id();
-                        let answer = bridge.pick_open_blocking(id, false, saf::PICK_TIMEOUT);
-                        if let Ok(saf::PickAnswer::Paths(paths)) = answer {
-                            if let Some(first) = paths.first() {
-                                self.load_file(ui.ctx(), &PathBuf::from(first));
-                            }
-                        }
-                    }
-                });
-            }
-        });
+        // Delegate to the upstream dc-ui App (start screen when no document is open).
+        self.dc_app.ui(ui, frame);
     }
 }
 
@@ -396,14 +237,58 @@ fn android_main(android_app: AndroidApp) {
     );
     log::info!("{SAF_BRIDGE_MARKER} ready ({ANDROID_SHELL_MARKER})");
 
-    egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
-    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
+    // Use android-activity directly (from the vendored crate)
+    android_activity::set_nonblocking_callbacks(true);
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+
+    // Publish Activity and VM for egui-winit bridges
+    #[cfg(target_os = "android")]
+    {
+        egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+        egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
+    }
 
     let bridge = saf::Bridge::new(&android_app);
     bridge.request_storage_permission();
     let state = Arc::new(SafState::default());
+
+    // Route dc-ui's blocking `rfd::FileDialog` calls (File→Open, Save As, Open Stencil, Insert
+    // Picture, hyperlink browse) through Android's system Storage Access Framework pickers. dc-ui
+    // runs the dialog on a worker thread, so the picker answer returns to that same thread. Do NOT
+    // also drain picker answers in the frame loop: `wait_answer` owns the JNI result queue, and a
+    // second reader would steal the answer.
+    let launcher_bridge = bridge.clone_ref();
+    let launcher_state = state.clone();
+    rfd::artcraft_saf::install_blocking(Arc::new(move |kind| {
+        let id = launcher_state.next_id();
+        let answer = match kind {
+            rfd::artcraft_saf::Kind::Open { multiple } => {
+                launcher_bridge.pick_open_blocking(id, multiple, saf::PICK_TIMEOUT)
+            }
+            rfd::artcraft_saf::Kind::Save(name) => {
+                launcher_bridge.pick_blocking(id, Some(&name), saf::PICK_TIMEOUT)
+            }
+            rfd::artcraft_saf::Kind::Folder => {
+                launcher_bridge.pick_folder_blocking(id, saf::PICK_TIMEOUT)
+            }
+        };
+        match answer {
+            Ok(saf::PickAnswer::Paths(paths)) => {
+                // Watch the staged destination for app writes and mirror them to the chosen SAF
+                // document (SAF only grants access to its own URI, not the private staging file).
+                for path in &paths {
+                    launcher_state.mirror.track(id, path);
+                }
+                Some(paths.into_iter().map(std::path::PathBuf::from).collect())
+            }
+            Ok(saf::PickAnswer::Cancelled) => None,
+            Err(error) => {
+                log::error!("Android file picker: {error}");
+                None
+            }
+        }
+    }));
 
     let mut native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -418,15 +303,19 @@ fn android_main(android_app: AndroidApp) {
     }
 
     let app_bridge = bridge.clone_ref();
+    let app_state = state.clone();
     let result = eframe::run_native(
         "DiagramCraft",
         native,
-        Box::new(move |_cc| {
-            Ok(Box::new(DiagramCraftApp::new(
+        Box::new(move |cc| {
+            let dc_app = DcApp::new(cc, None);
+            let app = DiagramCraftApp::new(
                 app_bridge.android_app().clone(),
                 app_bridge.clone_ref(),
-                state,
-            )))
+                app_state,
+                dc_app,
+            );
+            Ok(Box::new(app))
         }),
     );
     if let Err(error) = result {

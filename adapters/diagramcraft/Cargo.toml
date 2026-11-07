@@ -1,19 +1,19 @@
 [package]
 name = "diagramcraft-android"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-diagramcraft-vsdx = { path = "../../crates/vsdx" }
-diagramcraft-model = { path = "../../crates/model" }
-diagramcraft-render = { path = "../../crates/render" }
+vsdx = { path = "../../crates/vsdx" }
+dc-core = { path = "../../crates/dc-core" }
+dc-ui = { path = "../../crates/dc-ui" }
 eframe = { version = "0.37", features = ["wgpu", "persistence"] }
 egui = "0.37"
-egui-winit = "0.37"
+egui-winit = { version = "0.37", features = ["android-native-activity", "clipboard", "links"] }
 image = "0.25"
 log = "0.4"
 rfd = "0.17"
@@ -24,6 +24,9 @@ jni = "0.22"
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
 android_logger = "0.15"
+
+# The workspace root patches rfd, arboard, android-activity, winit, egui-winit and the egui
+# crates; a member manifest must not repeat them.
 
 [package.metadata.android]
 package = "com.artcraft.diagramcraft"
@@ -62,7 +65,7 @@ label = "DiagramCraft"
 launch_mode = "singleTask"
 orientation = "sensor"
 exported = true
-intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/vnd.ms-visio.drawing.main+xml" }, { mime_type = "application/vnd.visio" }, { mime_type = "application/vnd.ms-visio.stencil.main+xml" }, { mime_type = "application/vnd.ms-visio.template.main+xml" }, { mime_type = "application/vnd.ms-visio.drawing.macroenabled.main+xml" }, { mime_type = "application/vnd.ms-visio.stencil.macroenabled.main+xml" }, { mime_type = "application/vnd.ms-visio.template.macroenabled.main+xml" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"], data = [{ scheme = "http", mime_type = "application/vnd.ms-visio.drawing.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.drawing.main+xml" }, { scheme = "http", mime_type = "application/vnd.visio" }, { scheme = "https", mime_type = "application/vnd.visio" }, { scheme = "http", mime_type = "application/vnd.ms-visio.stencil.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.stencil.main+xml" }, { scheme = "http", mime_type = "application/vnd.ms-visio.template.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.template.main+xml" }, { scheme = "http", mime_type = "application/vnd.ms-visio.drawing.macroenabled.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.drawing.macroenabled.main+xml" }, { scheme = "http", mime_type = "application/vnd.ms-visio.stencil.macroenabled.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.stencil.macroenabled.main+xml" }, { scheme = "http", mime_type = "application/vnd.ms-visio.template.macroenabled.main+xml" }, { scheme = "https", mime_type = "application/vnd.ms-visio.template.macroenabled.main+xml" }] }, { actions = ["android.intent.action.SEND", "android.intent.action.SEND_MULTIPLE"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/vnd.ms-visio.drawing.main+xml" }, { mime_type = "application/vnd.visio" }, { mime_type = "application/vnd.ms-visio.stencil.main+xml" }, { mime_type = "application/vnd.ms-visio.template.main+xml" }, { mime_type = "application/vnd.ms-visio.drawing.macroenabled.main+xml" }, { mime_type = "application/vnd.ms-visio.stencil.macroenabled.main+xml" }, { mime_type = "application/vnd.ms-visio.template.macroenabled.main+xml" }] }]
 
 [[package.metadata.android.application.activity.meta_data]]
 name = "android.app.lib_name"
