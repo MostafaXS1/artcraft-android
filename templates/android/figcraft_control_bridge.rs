@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
+use egui::Context;
 
 use figcraft_ui_egui::{ControlRequest, FigApp};
 
@@ -14,6 +15,11 @@ const MAX_PENDING_REQUESTS: usize = 64;
 fn queue() -> &'static Mutex<VecDeque<ControlRequest>> {
     static QUEUE: OnceLock<Mutex<VecDeque<ControlRequest>>> = OnceLock::new();
     QUEUE.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn ui_context() -> &'static Mutex<Option<Context>> {
+    static CONTEXT: OnceLock<Mutex<Option<Context>>> = OnceLock::new();
+    CONTEXT.get_or_init(|| Mutex::new(None))
 }
 
 /// Enqueue one request from a background worker.
@@ -29,16 +35,31 @@ fn push_bounded<T>(pending: &mut VecDeque<T>, item: T, limit: usize) -> Result<(
 }
 
 pub fn enqueue(request: ControlRequest) -> Result<(), ControlRequest> {
-    let mut pending = queue()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    push_bounded(&mut pending, request, MAX_PENDING_REQUESTS)
+    let result = {
+        let mut pending = queue()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        push_bounded(&mut pending, request, MAX_PENDING_REQUESTS)
+    };
+    if result.is_ok() {
+        if let Some(ctx) = ui_context()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            ctx.request_repaint();
+        }
+    }
+    result
 }
 
 /// Transfer pending requests to FigCraft on the UI thread.
 ///
 /// The app's own control::drain then handles cancellation, execution and replies.
-pub fn drain(app: &mut FigApp) {
+pub fn drain(app: &mut FigApp, ctx: &Context) {
+    *ui_context()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ctx.clone());
     let requests: Vec<_> = {
         let mut pending = queue()
             .lock()
@@ -178,10 +199,17 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
         v.contains("application/json") || v.trim() == "*/*"
     });
     if !content_type_ok || !accept_ok {
-        return write_http(stream, "415 Unsupported Media Type", "text/plain", b"expected JSON MCP request and JSON/SSE accept");
+        return write_http(stream, "415 Unsupported Media Type", "text/plain", b"expected JSON MCP request and application/json accept");
     }
     if headers.contains_key("transfer-encoding") {
         return write_http(stream, "400 Bad Request", "text/plain", b"chunked transfer encoding is not supported");
+    }
+    if let Some(version) = headers.get("mcp-protocol-version") {
+        if !figcraft_mcp::SUPPORTED_VERSIONS.contains(&version.as_str()) {
+            return write_http(stream, "400 Bad Request", "text/plain", b"unsupported MCP protocol version");
+        }
+    } else if server.is_initialized() {
+        return write_http(stream, "400 Bad Request", "text/plain", b"MCP-Protocol-Version header required after initialization");
     }
     let length = headers.get("content-length")
         .and_then(|v| v.parse::<usize>().ok())
