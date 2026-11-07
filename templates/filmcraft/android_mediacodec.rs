@@ -535,6 +535,10 @@ impl VideoEncoder for MediaCodecEncoder {
             return Ok(packets);
         }
 
+        if self.surface.is_some() {
+            return Err(ExportError::Encode("Hardware encoder configured for surface rendering cannot accept CPU byte buffers".into()));
+        }
+
         if f.hdr.is_some() {
             return Err(ExportError::Unsupported("hardware encoding does not take HDR pictures".into()));
         }

@@ -1244,7 +1244,7 @@ elif app == "filmcraft":
         '        };\n'
         '        let handle = wgpu::rwh::AndroidNdkWindowHandle::new(non_null);\n'
         '        let target = wgpu::SurfaceTargetUnsafe::RawHandle {\n'
-        '            raw_display_handle: None,\n'
+        '            raw_display_handle: Some(wgpu::rwh::RawDisplayHandle::Android(wgpu::rwh::AndroidDisplayHandle::new())),\n'
         '            raw_window_handle: wgpu::rwh::RawWindowHandle::AndroidNdk(handle),\n'
         '        };\n'
         '        let surface: wgpu::Surface<\'static> = match unsafe { self.instance.create_surface_unsafe(target) } {\n'
