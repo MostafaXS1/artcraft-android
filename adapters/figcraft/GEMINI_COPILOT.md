@@ -58,10 +58,10 @@ FigCraft upstream already has an MCP server implementation and a tool catalogue.
 The upstream tool catalogue is reused. The Android backend allows read-only control methods (`document.inspect`, `node.get`, `engine.commands`, `ui.inspect`, `ui.render`, `ui.screenshot`, and `window.list`) plus the read-only `comment.list` engine command. Other `engine.execute` calls are queued behind an in-app approval sheet that displays the command and parameters. File operations, pointer/key simulation, and event polling remain denied.
 
 Transport implemented (initial slice):
-- MCP Streamable HTTP `POST /mcp` on `127.0.0.1:38761`, JSON request/response mode, bounded 32 MiB request bodies, bearer authentication, and no LAN binding.
+- MCP Streamable HTTP on `127.0.0.1:38761/mcp`: authenticated `POST` JSON requests, a server-issued `Mcp-Session-Id`, required protocol-version/session headers after initialization, `DELETE` to end the session, and bounded 32 MiB request bodies. It never binds to the LAN.
 - The endpoint is disabled by default. For developer testing only, create `mcp-server.enabled` in the directory returned by `AndroidApp::internal_data_path()` before launching. The app creates `mcp-server.token` beside it with a random 256-bit token. The token is never logged.
 - With a debuggable APK and the default package name, the developer flow is: `adb shell run-as com.artcraft.figcraft touch files/mcp-server.enabled`, restart the app, read the token using `adb shell run-as com.artcraft.figcraft cat files/mcp-server.token`, then forward the port with `adb forward tcp:38761 tcp:38761`. Replace the package name if the build uses `-packagename=...`.
-- This first transport slice does not implement GET/SSE, DELETE, multiple independent MCP sessions, or an in-app enable/disable/settings screen. Remove the enable marker and restart the app to disable it.
+- This first transport slice does not implement GET/SSE or multiple simultaneous MCP sessions; one client session is active at a time, and the client can send DELETE to release it. An in-app enable/disable/settings screen is still missing. Remove the enable marker and restart the app to disable the server.
 - Keep stdio as a desktop/CLI transport; Android does not pretend it has a normal desktop stdio lifecycle.
 
 ### Safety
@@ -91,7 +91,7 @@ The upstream implementation is reusable at the protocol/tool layer, but it is **
 
 1. Implemented: bounded request queue drained into `FigApp.control_queue` on the UI thread.
 2. Implemented: adapter for upstream `figcraft_mcp::Server` dispatches read-only backend calls to the live Android `FigApp`; it does not use `Headless`.
-3. Implemented: loopback-only MCP Streamable HTTP POST/JSON transport with bearer token and bounded body size. GET/SSE and multi-session isolation are not implemented yet.
+3. Implemented: loopback-only MCP Streamable HTTP POST/JSON transport with bearer token, server-issued session ID, DELETE termination, and bounded body size. GET/SSE and multiple concurrent sessions are not implemented yet.
 4. Implemented as a developer-only gate: the server starts only when `files/mcp-server.enabled` exists in app-private storage. A UI toggle and credential display are still needed.
 5. Implemented: `engine.execute` displays an in-app approval sheet and only reaches FigCraft after explicit approval. `comment.list` is the only command exception because it is read-only; file operations, pointer/key simulation, and event polling are denied.
 6. Pending: run compile/tests and add end-to-end protocol tests on a real device.
