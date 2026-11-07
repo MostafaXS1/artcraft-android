@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: partial implementation. The bounded Android UI-thread bridge, embedded upstream MCP server, and opt-in loopback HTTP transport are committed. Gemini, the in-app approval/settings UI, compilation, and APK verification remain outstanding.
+Status: partial implementation. The bounded Android UI-thread bridge, embedded upstream MCP server, opt-in loopback HTTP transport, and an in-app approval prompt for `engine.execute` are committed. Gemini, the MCP settings/credential screen, compilation, and APK verification remain outstanding.
 
 ## Goal
 
@@ -55,7 +55,7 @@ MCP is included in the scope, with a deliberately small first version.
 
 FigCraft upstream already has an MCP server implementation and a tool catalogue. The Android work should reuse that implementation where it can be embedded safely, rather than inventing a second command system.
 
-The upstream tool catalogue is reused. The Android backend currently allows only read-only control methods (`document.inspect`, `node.get`, `engine.commands`, `ui.inspect`, `ui.render`, `ui.screenshot`, `window.list`, and `comment.list`). Mutating calls are rejected until an in-app approval surface exists.
+The upstream tool catalogue is reused. The Android backend allows read-only control methods (`document.inspect`, `node.get`, `engine.commands`, `ui.inspect`, `ui.render`, `ui.screenshot`, `window.list`, and `comment.list`). `engine.execute` is queued behind an in-app approval sheet that displays the command and parameters. Other mutating control methods remain denied.
 
 Transport implemented (initial slice):
 - MCP Streamable HTTP `POST /mcp` on `127.0.0.1:38761`, JSON request/response mode, bounded 32 MiB request bodies, bearer authentication, and no LAN binding.
@@ -92,7 +92,7 @@ The upstream implementation is reusable at the protocol/tool layer, but it is **
 2. Implemented: adapter for upstream `figcraft_mcp::Server` dispatches read-only backend calls to the live Android `FigApp`; it does not use `Headless`.
 3. Implemented: loopback-only MCP Streamable HTTP POST/JSON transport with bearer token and bounded body size. GET/SSE and multi-session isolation are not implemented yet.
 4. Implemented as a developer-only gate: the server starts only when `files/mcp-server.enabled` exists in app-private storage. A UI toggle and credential display are still needed.
-5. Implemented: mutating backend methods are rejected. Add in-app approval before enabling any mutations.
+5. Implemented: `engine.execute` displays an in-app approval sheet and only reaches FigCraft after explicit approval. Other mutating methods remain denied.
 6. Pending: run compile/tests and add end-to-end protocol tests on a real device.
 
 This keeps the MCP feature grounded in the actual FigCraft session and avoids the misleading shortcut of launching a second, invisible document.
@@ -111,7 +111,7 @@ The remaining implementation work is now sharply scoped:
 
 1. Add an in-app enable/disable control and display the endpoint credentials only inside the app. The current file-marker gate is developer-only.
 2. Add GET/SSE support and independent MCP session handling if required by target clients.
-3. Add the in-app approval UI, then allow only validated mutations after explicit user approval.
+3. Implemented: the generated Android wrapper draws an approval window after the live FigCraft canvas; `engine.execute` is dispatched only after the user taps Approve. All other mutating control methods remain blocked.
 4. Add Gemini Keystore storage, structured action planning, preview, apply, and undo flow.
 5. Verify the Android build and exercise initialize, tools/list, read-only tools/call, approval-gated mutation, and Undo on a real device.
 
