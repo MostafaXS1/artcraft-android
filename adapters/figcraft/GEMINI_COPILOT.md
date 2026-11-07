@@ -45,3 +45,37 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 ## Important builder constraint
 
 The builder reuses the upstream source checkout under `source/figcraft`. Changes made only inside that generated checkout are not durable. The implementation must be kept as a reproducible patch/overlay in this repository or in a maintained FigCraft fork, then applied by the builder before Cargo compilation.
+
+
+## Basic MCP support
+
+MCP is included in the scope, with a deliberately small first version.
+
+### MVP: expose FigCraft as an MCP server
+
+FigCraft upstream already has an MCP server implementation and a tool catalogue. The Android work should reuse that implementation where it can be embedded safely, rather than inventing a second command system.
+
+Initial tools to expose:
+- `inspect_document`: read document metadata and a bounded layer outline.
+- `get_node`: read a selected node's supported properties.
+- `list_commands`: list the safe, allow-listed design commands and schemas.
+- `run_command`: execute one validated FigCraft command through the same engine path as the UI.
+
+Initial transport:
+- Prefer MCP Streamable HTTP on loopback for an Android-hosted endpoint if the existing MCP crate can support it without pulling in an unsuitable runtime.
+- Bind to localhost by default. Do not expose an unauthenticated MCP endpoint to the LAN.
+- If an external MCP client must connect over the network, require an explicit user opt-in and a per-session random bearer token. Stop the server when the user disables it or the app exits.
+- Keep stdio as a desktop/CLI transport; Android should not pretend it has a normal desktop stdio lifecycle.
+
+### Safety
+
+- Read-only tools can run without confirmation.
+- Every document-mutating tool call requires an explicit in-app approval in the first version.
+- Apply the same command/parameter/target validation as the Gemini copilot.
+- File access is disabled by default and must remain inside user-selected document locations.
+- Enforce request size, execution time, and tool-call limits. Never accept arbitrary shell, script, or filesystem commands.
+- Do not log bearer tokens, prompts, document contents, or raw tool payloads.
+
+### Later: MCP client connections
+
+Connecting third-party MCP servers from Android is a separate phase. It requires transport discovery, server trust/permissions, credential storage, and per-tool approval. Do not imply that the first release can connect to arbitrary remote MCP servers.
