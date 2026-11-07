@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: partial implementation. The Android UI-thread request queue and persistent launcher hook are committed; no transport, Gemini client, approval UI, or APK exists yet.
+Status: partial implementation. The bounded Android UI-thread bridge, embedded upstream MCP server, and opt-in loopback HTTP transport are committed. Gemini, the in-app approval/settings UI, compilation, and APK verification remain outstanding.
 
 ## Goal
 
@@ -8,7 +8,7 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 
 ## Confirmed integration points
 
-- The Android builder currently auto-generates the FigCraft NativeActivity launcher. A custom adapter is not required just to expose the existing FigCraft engine. The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72). The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72).
+- The Android builder currently auto-generates the FigCraft NativeActivity launcher. The generator (version 73) copies `templates/android/figcraft_control_bridge.rs`, adds the `figcraft-mcp` dependency, and injects the UI-thread drain hook.
 - FigCraft's UI is `figcraft-ui-egui`; its app state is `FigApp` in `crates/ui-egui/src/lib.rs`.
 - `FigApp::run(id, params)` in `crates/ui-egui/src/app/commands.rs` routes commands through the same engine used by the UI.
 - `figcraft_engine::cmd::all_commands()`, `find_command()`, and `refuse_unknown_params()` expose the command registry and parameter validation.
@@ -40,7 +40,7 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 - [ ] Add a Rust-side action-plan schema and registry-based validation.
 - [ ] Add a compact egui Copilot panel with prompt, response, preview, Apply, and Cancel.
 - [ ] Add tests for malformed plans, unknown commands/parameters, invalid IDs, partial failures, and undo.
-- [ ] Build the FigCraft Android debug APK and verify on-device that a prompt changes the selected layer and Undo restores it.
+- [ ] Build the FigCraft Android debug APK and verify on-device that read-only MCP requests inspect the visible document.
 
 ## Important builder constraint
 
@@ -55,17 +55,13 @@ MCP is included in the scope, with a deliberately small first version.
 
 FigCraft upstream already has an MCP server implementation and a tool catalogue. The Android work should reuse that implementation where it can be embedded safely, rather than inventing a second command system.
 
-Initial tools to expose:
-- `inspect_document`: read document metadata and a bounded layer outline.
-- `get_node`: read a selected node's supported properties.
-- `list_commands`: list the safe, allow-listed design commands and schemas.
-- `run_command`: execute one validated FigCraft command through the same engine path as the UI.
+The upstream tool catalogue is reused. The Android backend currently allows only read-only control methods (`document.inspect`, `node.get`, `engine.commands`, `ui.inspect`, `ui.render`, `ui.screenshot`, `window.list`, and `comment.list`). Mutating calls are rejected until an in-app approval surface exists.
 
-Initial transport:
-- Prefer MCP Streamable HTTP on loopback for an Android-hosted endpoint if the existing MCP crate can support it without pulling in an unsuitable runtime.
-- Bind to localhost by default. Do not expose an unauthenticated MCP endpoint to the LAN.
-- If an external MCP client must connect over the network, require an explicit user opt-in and a per-session random bearer token. Stop the server when the user disables it or the app exits.
-- Keep stdio as a desktop/CLI transport; Android should not pretend it has a normal desktop stdio lifecycle.
+Transport implemented (initial slice):
+- MCP Streamable HTTP `POST /mcp` on `127.0.0.1:38761`, JSON request/response mode, bounded 32 MiB request bodies, bearer authentication, and no LAN binding.
+- The endpoint is disabled by default. For developer testing only, create `files/mcp-server.enabled` in the app-private files directory before launching. The app creates `files/mcp-server.token` with a random 256-bit token. The token is never logged.
+- This first transport slice does not implement GET/SSE, DELETE, multiple independent MCP sessions, or an in-app enable/disable/settings screen. Remove the enable marker and restart the app to disable it.
+- Keep stdio as a desktop/CLI transport; Android does not pretend it has a normal desktop stdio lifecycle.
 
 ### Safety
 
@@ -92,12 +88,12 @@ The upstream implementation is reusable at the protocol/tool layer, but it is **
 
 ### Revised implementation plan
 
-1. Implemented: a bounded request queue between background workers and the Android UI loop. The UI loop drains requests into `FigApp.control_queue`; FigCraft then resolves them through its existing control handler.
-2. Reuse `figcraft-mcp::Server::handle_line` and the upstream tool definitions, with a backend adapter that dispatches to the live app. Do not use `Headless` for live-canvas editing.
-3. Implement a real MCP-supported Android transport. Preferred target is Streamable HTTP on 127.0.0.1 with session handling and bounded bodies. A raw TCP JSON-RPC socket is not to be advertised as an MCP transport.
-4. Start the endpoint only after explicit user enablement; stop it on disable/app shutdown. Keep loopback-only as the default. Any LAN exposure needs explicit opt-in plus authentication.
-5. Start with read-only inspection tools. Add mutation tools only after in-app approval, then verify the edit appears in the visible canvas and can be undone normally.
-6. Add protocol tests for initialize, notifications/initialized, tools/list, tools/call, invalid sessions, oversized bodies, timeout/cancellation, and app shutdown during an outstanding request.
+1. Implemented: bounded request queue drained into `FigApp.control_queue` on the UI thread.
+2. Implemented: adapter for upstream `figcraft_mcp::Server` dispatches read-only backend calls to the live Android `FigApp`; it does not use `Headless`.
+3. Implemented: loopback-only MCP Streamable HTTP POST/JSON transport with bearer token and bounded body size. GET/SSE and multi-session isolation are not implemented yet.
+4. Implemented as a developer-only gate: the server starts only when `files/mcp-server.enabled` exists in app-private storage. A UI toggle and credential display are still needed.
+5. Implemented: mutating backend methods are rejected. Add in-app approval before enabling any mutations.
+6. Pending: run compile/tests and add end-to-end protocol tests on a real device.
 
 This keeps the MCP feature grounded in the actual FigCraft session and avoids the misleading shortcut of launching a second, invisible document.
 
@@ -113,10 +109,10 @@ A closer read of the current builder generator and FigCraft UI lifecycle found a
 
 The remaining implementation work is now sharply scoped:
 
-1. Add a builder-owned Android control module with the existing request limits, timeout gates, and a bounded queue.
-2. Add a supported MCP Streamable HTTP endpoint in front of `figcraft_mcp::Server`, using an attached backend that talks only to the loopback control bridge.
-3. Add an explicit in-app enable/disable control and display the endpoint credentials only inside the app. Until that UI exists, the endpoint must remain disabled by default.
-4. Add a build-time source patch in `lib/build-common.sh` that injects the bridge into the generated FigCraft Android wrapper. Keep it FigCraft-only and fail the build if expected generator anchors are absent; never silently produce a partially wired APK.
+1. Add an in-app enable/disable control and display the endpoint credentials only inside the app. The current file-marker gate is developer-only.
+2. Add GET/SSE support and independent MCP session handling if required by target clients.
+3. Add the in-app approval UI, then allow only validated mutations after explicit user approval.
+4. Add Gemini Keystore storage, structured action planning, preview, apply, and undo flow.
 5. Verify the Android build and exercise initialize, tools/list, read-only tools/call, approval-gated mutation, and Undo on a real device.
 
 This is a more direct route than adding a separate backend to the engine: the existing `FigApp::ui → control::drain → Session` path already does the important UI-thread and history work.
