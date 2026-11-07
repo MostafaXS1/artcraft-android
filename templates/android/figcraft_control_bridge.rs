@@ -209,6 +209,7 @@ fn request_mutation_approval(command: &str, params: Value) -> Result<(), String>
 /// into FigCraft's control queue until the user explicitly approves it.
 pub fn approval_ui(ctx: &Context) {
     mcp_settings_ui(ctx);
+    gemini_copilot_ui(ctx);
     let view = {
         let mut state = approvals()
             .lock()
@@ -832,4 +833,187 @@ mod file_policy_tests {
         ));
         assert!(!command_uses_file_access("node.create", &Value::Null, 0));
     }
+}
+
+
+// -----------------------------------------------------------------------------
+// Gemini Design Copilot (text-only MVP).
+// API credentials are memory-only for this app session; they are never written
+// to disk or logged. Keystore-backed persistence is intentionally a later step.
+// -----------------------------------------------------------------------------
+
+#[derive(Default)]
+struct GeminiCopilotState {
+    api_key: String,
+    role: String,
+    desired_output: String,
+    context: String,
+    prompt: String,
+    response: String,
+    status: String,
+    busy: bool,
+    open: bool,
+}
+
+fn gemini_copilot_state() -> &'static Mutex<GeminiCopilotState> {
+    static STATE: OnceLock<Mutex<GeminiCopilotState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(GeminiCopilotState {
+        role: "Graphic Designer, UI/UX Designer, Out-of-the-box Creative Consultant".into(),
+        desired_output: "Critique and improve my design with practical color, layout, typography, asset, and UX recommendations".into(),
+        status: "Ready. Add your Gemini API key to begin.".into(),
+        ..GeminiCopilotState::default()
+    }))
+}
+
+static GEMINI_COPILOT_OPEN: AtomicBool = AtomicBool::new(false);
+static GEMINI_COPILOT_BUSY: AtomicBool = AtomicBool::new(false);
+
+fn gemini_system_instruction(role: &str, desired_output: &str, context: &str) -> String {
+    format!(r#"You are a professional AI copilot.
+ROLE:
+{role}
+
+DESIRED DELIVERABLE:
+{desired_output}
+
+ADDITIONAL CONTEXT:
+{context}
+
+Adapt your expertise, terminology, workflow, depth, and output format to the selected role and deliverable. Be specific and actionable. Separate observed facts, assumptions, subjective preferences, and recommendations. If essential information is missing, state reasonable assumptions instead of inventing facts.
+
+For visual design tasks, assess composition, hierarchy, alignment, spacing, contrast, consistency, readability, accessibility, and usability. Recommend contextual color palettes with exact HEX values and semantic roles where useful. Explain color psychology as a design heuristic, not a universal scientific guarantee. Use the Golden Ratio (1:1.618) only when it improves proportions or hierarchy; calculate dimensions from supplied canvas dimensions and never force it where usability or platform conventions matter. Give practical typography, asset dimensions, aspect ratios, and responsive guidance when relevant. Offer a coherent creative alternative when useful. Critique weak choices constructively; do not flatter by default.
+
+IMPORTANT FIGCRAFT LIMITATION:
+You are currently a text-only assistant. You cannot inspect the live canvas, read document layers, or apply edits. Never claim you have seen or changed the canvas. If the user asks for canvas edits, provide a conceptual, step-by-step recommendation only. Do not invent FigCraft command IDs or output executable code, shell commands, or file operations.
+Return the format best suited to the requested deliverable. Avoid generic filler."#)
+}
+
+fn run_gemini_request(api_key: String, role: String, desired_output: String, context: String, prompt: String) {
+    if GEMINI_COPILOT_BUSY.swap(true, Ordering::SeqCst) { return; }
+    {
+        let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.busy = true;
+        state.status = "Connecting to Gemini…".into();
+        state.response.clear();
+    }
+    let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
+        let result = (|| -> Result<String, String> {
+            let client = reqwest::blocking::Client::builder()
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(90))
+                .build()
+                .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
+            let instruction = gemini_system_instruction(&role, &desired_output, &context);
+            let body = serde_json::json!({
+                "systemInstruction": { "parts": [{ "text": instruction }] },
+                "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+                "generationConfig": { "temperature": 0.7, "maxOutputTokens": 4096 }
+            });
+            let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+                .header("x-goog-api-key", api_key)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(&body)
+                .send()
+                .map_err(|error| {
+                    if error.is_timeout() { "Gemini request timed out. Check your connection and retry.".to_owned() }
+                    else { "Could not reach Gemini. Check your internet connection.".to_owned() }
+                })?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(match status.as_u16() {
+                    400 => "Gemini rejected the request. Check the prompt and API key.".into(),
+                    401 | 403 => "Gemini API key is invalid or does not have access.".into(),
+                    429 => "Gemini rate limit or quota reached. Try again later.".into(),
+                    500..=599 => "Gemini service is temporarily unavailable.".into(),
+                    _ => format!("Gemini returned HTTP {}.", status.as_u16()),
+                });
+            }
+            let value: Value = response.json()
+                .map_err(|_| "Gemini returned an unreadable response.".to_owned())?;
+            let parts = value.pointer("/candidates/0/content/parts")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "Gemini returned no text candidate. The request may have been blocked.".to_owned())?;
+            let text = parts.iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>().join("\n");
+            if text.trim().is_empty() { return Err("Gemini returned an empty response.".into()); }
+            Ok(text)
+        })();
+        let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match result {
+            Ok(answer) => { state.response = answer; state.status = "Response received.".into(); }
+            Err(error) => { state.status = error; }
+        }
+        state.busy = false;
+        GEMINI_COPILOT_BUSY.store(false, Ordering::SeqCst);
+        if let Some(ctx) = ui_context().lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+            ctx.request_repaint();
+        }
+    });
+    if spawned.is_err() {
+        GEMINI_COPILOT_BUSY.store(false, Ordering::SeqCst);
+        let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.busy = false;
+        state.status = "Could not start the Gemini background worker.".into();
+    }
+}
+
+fn gemini_copilot_ui(ctx: &Context) {
+    let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut open = state.open || GEMINI_COPILOT_OPEN.load(Ordering::Relaxed);
+    egui::Area::new(egui::Id::new("figcraft_gemini_copilot_launcher"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -58.0))
+        .show(ctx, |ui| {
+            if ui.button(if open { "Close Copilot" } else { "Gemini Copilot" }).clicked() {
+                open = !open;
+            }
+        });
+    if open {
+        egui::Window::new("Gemini Design Copilot")
+            .open(&mut open)
+            .default_width(420.0)
+            .default_height(560.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label("Configure Gemini for the task. Role and deliverable are required.");
+                ui.label("Gemini API key (kept in memory for this session only)");
+                ui.add(egui::TextEdit::singleline(&mut state.api_key).password(true).hint_text("Paste API key"));
+                ui.separator();
+                ui.label("Sebagai apa? *");
+                ui.add(egui::TextEdit::singleline(&mut state.role).hint_text("Contoh: Senior UI/UX Designer"));
+                ui.label("Ingin hasilkan apa? *");
+                ui.add(egui::TextEdit::multiline(&mut state.desired_output).desired_rows(2).hint_text("Deliverable yang ingin dibuat"));
+                ui.label("Konteks tambahan (opsional)");
+                ui.add(egui::TextEdit::multiline(&mut state.context).desired_rows(2).hint_text("Platform, audiens, ukuran canvas, brand, batasan…"));
+                ui.separator();
+                ui.label("Instruksi / brief");
+                ui.add(egui::TextEdit::multiline(&mut state.prompt).desired_rows(4).hint_text("Jelaskan pekerjaan yang ingin dibantu Gemini…"));
+                let ready = !state.api_key.trim().is_empty()
+                    && !state.role.trim().is_empty()
+                    && !state.desired_output.trim().is_empty()
+                    && !state.prompt.trim().is_empty()
+                    && !state.busy;
+                if ui.add_enabled(ready, egui::Button::new(if state.busy { "Generating…" } else { "Generate with Gemini" })).clicked() {
+                    let values = (
+                        state.api_key.trim().to_owned(), state.role.trim().to_owned(),
+                        state.desired_output.trim().to_owned(), state.context.trim().to_owned(),
+                        state.prompt.trim().to_owned()
+                    );
+                    run_gemini_request(values.0, values.1, values.2, values.3, values.4);
+                }
+                ui.label(&state.status);
+                if !state.response.is_empty() {
+                    ui.separator();
+                    ui.label("Gemini response");
+                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        ui.label(egui::RichText::new(&state.response).text_style(egui::TextStyle::Body));
+                    });
+                    if ui.button("Copy response").clicked() { ctx.copy_text(state.response.clone()); }
+                }
+                ui.separator();
+                ui.small("MVP: text recommendations only. Canvas inspection, action-plan validation, preview, Apply, and undo integration are not implemented yet. API key is not saved and will be lost when the app closes.");
+            });
+    }
+    state.open = open;
+    GEMINI_COPILOT_OPEN.store(open, Ordering::Relaxed);
 }
