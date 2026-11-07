@@ -106,7 +106,7 @@ struct LiveBackend;
 fn is_read_only_method(method: &str) -> bool {
     matches!(method,
         "engine.commands" | "document.inspect" | "node.get" | "ui.inspect" |
-        "ui.render" | "ui.screenshot" | "window.list" | "comment.list")
+        "ui.render" | "ui.screenshot" | "window.list")
 }
 
 struct ApprovalRequest {
@@ -239,8 +239,10 @@ impl Backend for LiveBackend {
         if method == "engine.execute" {
             let command = params.get("command").and_then(Value::as_str)
                 .ok_or("MCP engine.execute is missing a command name")?;
-            let command_params = params.get("params").cloned().unwrap_or(Value::Null);
-            request_mutation_approval(command, command_params)?;
+            if command != "comment.list" {
+                let command_params = params.get("params").cloned().unwrap_or(Value::Null);
+                request_mutation_approval(command, command_params)?;
+            }
         } else if !is_read_only_method(method) {
             return Err(format!("MCP method is not permitted by the Android bridge: {method}"));
         }
