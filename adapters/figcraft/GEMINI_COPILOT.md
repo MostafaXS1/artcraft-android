@@ -79,3 +79,24 @@ Initial transport:
 ### Later: MCP client connections
 
 Connecting third-party MCP servers from Android is a separate phase. It requires transport discovery, server trust/permissions, credential storage, and per-tool approval. Do not imply that the first release can connect to arbitrary remote MCP servers.
+
+
+### Android-specific feasibility finding
+
+The upstream implementation is reusable at the protocol/tool layer, but it is **not yet an Android-ready server**:
+
+- `figcraft-mcp` currently implements newline-delimited JSON-RPC over stdio. Its public `Server::serve` accepts generic buffered input/output, and `Server::handle_line` handles one JSON-RPC message.
+- `figcraft-mcp::Headless` owns a separate `Session`; using it would edit a detached document, not the document currently open in the Android canvas. It is not an acceptable integration for this feature.
+- The upstream `Attached` backend speaks FigCraft's localhost control protocol. The desktop app starts that control server only when launched with `--control`; the generated Android launcher currently does not start it.
+- The Android launcher creates a live `FigApp` instance. MCP requests must therefore be marshalled onto the UI/app thread and applied to that same session. A background socket thread must never mutate `FigApp` or its `Session` directly.
+
+### Revised implementation plan
+
+1. Add a bounded request queue between the transport thread and the Android UI loop. The UI loop drains requests and resolves each against the live FigCraft app.
+2. Reuse `figcraft-mcp::Server::handle_line` and the upstream tool definitions, with a backend adapter that dispatches to the live app. Do not use `Headless` for live-canvas editing.
+3. Implement a real MCP-supported Android transport. Preferred target is Streamable HTTP on 127.0.0.1 with session handling and bounded bodies. A raw TCP JSON-RPC socket is not to be advertised as an MCP transport.
+4. Start the endpoint only after explicit user enablement; stop it on disable/app shutdown. Keep loopback-only as the default. Any LAN exposure needs explicit opt-in plus authentication.
+5. Start with read-only inspection tools. Add mutation tools only after in-app approval, then verify the edit appears in the visible canvas and can be undone normally.
+6. Add protocol tests for initialize, notifications/initialized, tools/list, tools/call, invalid sessions, oversized bodies, timeout/cancellation, and app shutdown during an outstanding request.
+
+This keeps the MCP feature grounded in the actual FigCraft session and avoids the misleading shortcut of launching a second, invisible document.
