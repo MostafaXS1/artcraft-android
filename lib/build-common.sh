@@ -1078,15 +1078,7 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
-    # 12. Parallelize GPU float accumulator readback across Rayon threads.
-    if fix(
-        "crates/gpu/src/lib.rs",
-        '        let converted = out.chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {\n',
-        '        let converted = out.par_chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {\n',
-    ):
-        fixed.append("crates/gpu/src/lib.rs (parallelize map_accumulator with Rayon)")
-
-    # 13. Fast contiguous luma extraction for tightly-packed 4K frames in biplanar::to_frame.
+    # 12. Fast contiguous luma extraction for tightly-packed 4K frames in biplanar::to_frame.
     if fix(
         "crates/platform/src/biplanar.rs",
         '    let data = if bps == 1 {\n'
