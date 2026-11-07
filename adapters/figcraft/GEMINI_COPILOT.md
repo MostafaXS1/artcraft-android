@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: partial implementation. The bounded Android UI-thread bridge, embedded upstream MCP server, opt-in loopback HTTP transport, and an in-app approval prompt for `engine.execute` are committed. Gemini, the MCP settings/credential screen, compilation, and APK verification remain outstanding.
+Status: Gemini request MVP implemented; Android build/device verification pending. The bounded Android UI-thread bridge, embedded upstream MCP server, opt-in loopback HTTP transport, approval prompt, and in-app Gemini 2.5 Flash HTTPS prompt panel are committed. The Gemini API key is session-only (held in memory, never written to disk); users must re-enter it after app restart. Structured action planning, secure persistent Keystore storage, canvas-context grounding, preview/apply/undo, compilation and APK verification remain outstanding.
 
 ## Goal
 
