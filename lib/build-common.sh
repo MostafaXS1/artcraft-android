@@ -1088,7 +1088,7 @@ elif app == "filmcraft":
         '        }\n',
         '    let data = if bps == 1 {\n'
         '        let mut yp = pool::take_u8(w * h);\n'
-        '        if ox == 0 && oy == 0 && stride == w && src.rows >= h {\n'
+        '        if ox == 0 && oy == 0 && src.stride == w && src.rows >= h {\n'
         '            if let Some(luma_slice) = src.luma.get(..w * h) {\n'
         '                yp.extend_from_slice(luma_slice);\n'
         '            }\n'
