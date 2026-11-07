@@ -420,6 +420,11 @@ fn handle_http(
     if path != "/mcp" {
         return write_http(stream, "404 Not Found", "text/plain", b"unknown MCP endpoint");
     }
+    // This endpoint is intentionally for native/local MCP clients only. Reject every
+    // browser Origin rather than allowing DNS-rebinding requests from an untrusted site.
+    if headers.contains_key("origin") {
+        return write_http(stream, "403 Forbidden", "text/plain", b"browser-origin requests are not supported");
+    }
     let auth_ok = headers.get("authorization")
         .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|provided| constant_time_eq(provided.as_bytes(), token.as_bytes()));
