@@ -95,6 +95,7 @@ use figcraft_mcp::{Backend, Server};
 use serde_json::Value;
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+static MCP_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MCP_PORT: u16 = 38_761;
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -421,6 +422,7 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
             return;
         }
     };
+    let generation = MCP_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::Builder::new()
         .name("figcraft-mcp-http".into())
         .spawn(move || {
@@ -431,20 +433,54 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
                     return;
                 }
             };
+            if let Err(error) = listener.set_nonblocking(true) {
+                log::error!("MCP server could not enable nonblocking accept: {error}");
+                return;
+            }
             log::info!("Local MCP Streamable HTTP endpoint enabled at http://127.0.0.1:{MCP_PORT}/mcp");
             let mut server = Server::new(Box::new(LiveBackend));
-            for connection in listener.incoming() {
-                match connection {
-                    Ok(mut stream) => {
+            while MCP_GENERATION.load(Ordering::SeqCst) == generation {
+                match listener.accept() {
+                    Ok((mut stream, _peer)) => {
                         if let Err(error) = handle_http(&mut stream, &mut server, &token) {
                             log::warn!("MCP HTTP request failed: {error}");
                         }
                     }
-                    Err(error) => log::warn!("MCP listener error: {error}"),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    Err(error) => {
+                        log::warn!("MCP listener error: {error}");
+                        break;
+                    }
                 }
             }
+            log::info!("Local MCP server stopped");
         })
         .unwrap_or_else(|error| log::error!("MCP server thread could not start: {error}"));
+}
+
+/// Stop accepting new MCP requests when the Android shell is dropped and cancel
+/// requests that have not yet reached FigCraft's UI queue.
+pub fn stop_mcp_server() {
+    MCP_GENERATION.fetch_add(1, Ordering::SeqCst);
+    let mut pending = queue()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for request in pending.drain(..) {
+        request.state.cancel_if_open();
+    }
+    drop(pending);
+
+    let mut state = approvals()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for request in state.queued.drain(..) {
+        let _ = request.decision.send(false);
+    }
+    if let Some(request) = state.active.take() {
+        let _ = request.decision.send(false);
+    }
 }
 
 fn load_or_create_token(path: &Path) -> std::io::Result<String> {
