@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 use egui::Context;
 
-use figcraft_ui_egui::{ControlRequest, FigApp};
+use figcraft_ui_egui::{ControlRequest, FigApp, RequestGate};
 
 const MAX_PENDING_REQUESTS: usize = 64;
 
@@ -563,7 +563,7 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
         }
     };
     let generation = MCP_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    std::thread::Builder::new()
+    if let Err(error) = std::thread::Builder::new()
         .name("figcraft-mcp-http".into())
         .spawn(move || {
             let listener = match TcpListener::bind(("127.0.0.1", MCP_PORT)) {
@@ -598,7 +598,9 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
             }
             log::info!("Local MCP server stopped");
         })
-        .unwrap_or_else(|error| log::error!("MCP server thread could not start: {error}"));
+    {
+        log::error!("MCP server thread could not start: {error}");
+    }
 }
 
 /// Stop accepting new MCP requests when the Android shell is dropped and cancel
