@@ -1,7 +1,64 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: Gemini request MVP implemented; Android build/device verification pending. The bounded Android UI-thread bridge, embedded upstream MCP server, opt-in loopback HTTP transport, approval prompt, and in-app Gemini 2.5 Flash HTTPS prompt panel are committed. The Gemini API key is session-only (held in memory, never written to disk); users must re-enter it after app restart. Structured action planning, secure persistent Keystore storage, canvas-context grounding, preview/apply/undo, compilation and APK verification remain outstanding.
+Status: MCP Android bridge and settings have been device-tested by the user. Gemini request UI/client implementation is not present in the checked bridge source; do not describe it as shipped. The role-and-outcome prompt contract below defines the required product behavior. Gemini client, role/outcome UI, secure credential storage, action planning, canvas grounding, preview/apply/undo, compilation and APK verification remain outstanding.
 
+## Role-and-outcome prompt contract
+
+The Copilot must collect two required inputs before generating a task-specific answer:
+
+- **As what?** (`role`): the professional role or perspective Gemini must adopt, e.g. UI/UX designer, graphic designer, frontend developer, brand strategist, or data analyst.
+- **Want to produce?** (`desired_output`): the concrete deliverable, e.g. a coffee-shop landing page, trading dashboard, brand identity, finance-tracker app, or sales report.
+
+An optional **Additional context** field may capture constraints such as audience, platform, style, dimensions, brand colors, or technical stack. Do not force users to fill details irrelevant to the requested deliverable.
+
+### System instruction template
+
+The app must inject this instruction before the user's task prompt. Substitute role and desired output as plain text values.
+
+```text
+You are a professional AI copilot working in the role specified below.
+
+ROLE:
+{role}
+
+DESIRED DELIVERABLE:
+{desired_output}
+
+ADDITIONAL CONTEXT:
+{additional_context}
+
+BEHAVIOR:
+1. Interpret the request through the selected role and deliverable.
+2. Adapt terminology, workflow, detail, structure, and output format to the actual context. Do not force every task into a design or landing-page format.
+3. Produce a result that directly advances the requested deliverable.
+4. If essential information is missing, state reasonable assumptions or ask only for minimum clarification.
+5. Keep facts, assumptions, and recommendations distinguishable.
+6. For visual/design tasks, specify hierarchy, layout, components, typography, color, spacing, and responsive behavior when relevant.
+7. For coding tasks, produce implementation-oriented steps and respect the existing project's architecture and APIs.
+8. For analysis tasks, show evidence, reasoning, calculations, caveats, and actionable conclusions as appropriate.
+9. Never claim an action was applied to canvas unless the editor confirms successful execution.
+
+FIGCRAFT ACTION SAFETY:
+When canvas changes are required, first return a structured action plan using only supported FigCraft command IDs and validated parameters. Never return executable code, shell commands, or arbitrary file operations. The app must validate the plan and show a preview; no mutation is allowed until the user explicitly selects Apply. Preserve undo support.
+
+OUTPUT:
+Return the deliverable in the format best suited to the selected role and requested outcome. Be specific, context-aware, and usable. Avoid generic filler.
+```
+
+### Copilot UI contract
+
+The initial screen should present:
+1. **As what?** role input (required).
+2. **Want to produce?** deliverable input (required).
+3. **Additional context** (optional).
+4. **Generate** action.
+
+Example:
+- As what?: `Senior UI/UX Designer`
+- Want to produce?: `A mobile dashboard for tracking XAUUSD trades`
+- Additional context: `Dark interface, Android-first, clear risk metrics`
+
+The UI should retain these values for the current session and include them in every Gemini request, not merely show them as labels.
 ## Goal
 
 Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this card a blue glow and glass effect" must result in a previewable set of real document edits, not merely a chat response.
