@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: implementation design, not yet wired into the application.
+Status: partial implementation. The Android UI-thread request queue and persistent launcher hook are committed; no transport, Gemini client, approval UI, or APK exists yet.
 
 ## Goal
 
@@ -8,7 +8,7 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 
 ## Confirmed integration points
 
-- The Android builder currently auto-generates the FigCraft NativeActivity launcher. A custom adapter is not required just to expose the existing FigCraft engine.
+- The Android builder currently auto-generates the FigCraft NativeActivity launcher. A custom adapter is not required just to expose the existing FigCraft engine. The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72).
 - FigCraft's UI is `figcraft-ui-egui`; its app state is `FigApp` in `crates/ui-egui/src/lib.rs`.
 - `FigApp::run(id, params)` in `crates/ui-egui/src/app/commands.rs` routes commands through the same engine used by the UI.
 - `figcraft_engine::cmd::all_commands()`, `find_command()`, and `refuse_unknown_params()` expose the command registry and parameter validation.
@@ -92,7 +92,7 @@ The upstream implementation is reusable at the protocol/tool layer, but it is **
 
 ### Revised implementation plan
 
-1. Add a bounded request queue between the transport thread and the Android UI loop. The UI loop drains requests and resolves each against the live FigCraft app.
+1. Implemented: a bounded request queue between background workers and the Android UI loop. The UI loop drains requests into `FigApp.control_queue`; FigCraft then resolves them through its existing control handler.
 2. Reuse `figcraft-mcp::Server::handle_line` and the upstream tool definitions, with a backend adapter that dispatches to the live app. Do not use `Headless` for live-canvas editing.
 3. Implement a real MCP-supported Android transport. Preferred target is Streamable HTTP on 127.0.0.1 with session handling and bounded bodies. A raw TCP JSON-RPC socket is not to be advertised as an MCP transport.
 4. Start the endpoint only after explicit user enablement; stop it on disable/app shutdown. Keep loopback-only as the default. Any LAN exposure needs explicit opt-in plus authentication.
