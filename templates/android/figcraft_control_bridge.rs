@@ -135,7 +135,7 @@ fn request_mutation_approval(command: &str, params: Value) -> Result<(), String>
     let mut state = approvals()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if state.queued.len() + usize::from(state.active.is_some()) >= MAX_PENDING_APPROVALS {
+    if state.queued.len() + if state.active.is_some() { 1 } else { 0 } >= MAX_PENDING_APPROVALS {
         return Err("too many pending MCP approvals; retry after resolving the current requests".into());
     }
     state.queued.push_back(ApprovalRequest {
