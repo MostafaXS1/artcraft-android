@@ -961,6 +961,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 fn gemini_copilot_ui(ctx: &Context) {
     let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut open = state.open || GEMINI_COPILOT_OPEN.load(Ordering::Relaxed);
+    let mut pending_request: Option<(String, String, String, String, String)> = None;
     egui::Area::new(egui::Id::new("figcraft_gemini_copilot_launcher"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -58.0))
         .show(ctx, |ui| {
@@ -999,7 +1000,7 @@ fn gemini_copilot_ui(ctx: &Context) {
                         state.desired_output.trim().to_owned(), state.context.trim().to_owned(),
                         state.prompt.trim().to_owned()
                     );
-                    run_gemini_request(values.0, values.1, values.2, values.3, values.4);
+                    pending_request = Some(values);
                 }
                 ui.label(&state.status);
                 if !state.response.is_empty() {
@@ -1016,4 +1017,10 @@ fn gemini_copilot_ui(ctx: &Context) {
     }
     state.open = open;
     GEMINI_COPILOT_OPEN.store(open, Ordering::Relaxed);
+    // Never start a worker while holding the UI state mutex: the worker launcher
+    // also acquires that mutex to set its busy/status fields.
+    drop(state);
+    if let Some((key, role, output, context, prompt)) = pending_request {
+        run_gemini_request(key, role, output, context, prompt);
+    }
 }
