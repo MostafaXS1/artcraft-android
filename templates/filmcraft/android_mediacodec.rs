@@ -134,7 +134,103 @@ pub fn factory(
     }
 }
 
-type YuvPlanes = (Vec<u8>, Vec<u8>, Vec<u8>);
+type Nv12Frame = Vec<u8>;
+
+/// Direct, high-performance BT.709 RGBA to NV12 (YUV420 semi-planar) integer conversion.
+/// Writes directly into contiguous NV12 buffer:
+/// [0..w*h]: Y plane
+/// [w*h..w*h + (w*h)/2]: Interleaved UV plane (U, V, U, V...)
+pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
+    let y_len = w * h;
+    let uv_len = (w.div_ceil(2)) * (h.div_ceil(2)) * 2;
+    let total = y_len + uv_len;
+    out.resize(total, 0);
+
+    let (y_plane, uv_plane) = out.split_at_mut(y_len);
+
+    let half_h = h / 2;
+    let half_w = w / 2;
+
+    for y in 0..half_h {
+        let row0 = y * 2;
+        let row1 = row0 + 1;
+        let row0_src = match rgba.get(row0 * w * 4..(row0 + 1) * w * 4) {
+            Some(s) => s,
+            None => continue,
+        };
+        let row1_src = if row1 < h {
+            rgba.get(row1 * w * 4..(row1 + 1) * w * 4).unwrap_or(row0_src)
+        } else {
+            row0_src
+        };
+
+        let y_row0 = match y_plane.get_mut(row0 * w..(row0 + 1) * w) {
+            Some(s) => s,
+            None => continue,
+        };
+        let uv_row = match uv_plane.get_mut(y * w..(y + 1) * w) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        for x in 0..half_w {
+            let px00 = &row0_src[x * 8..x * 8 + 4];
+            let px01 = &row0_src[x * 8 + 4..x * 8 + 8];
+            let px10 = &row1_src[x * 8..x * 8 + 4];
+            let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
+
+            let r00 = px00[0] as i32;
+            let g00 = px00[1] as i32;
+            let b00 = px00[2] as i32;
+
+            let r01 = px01[0] as i32;
+            let g01 = px01[1] as i32;
+            let b01 = px01[2] as i32;
+
+            let r10 = px10[0] as i32;
+            let g10 = px10[1] as i32;
+            let b10 = px10[2] as i32;
+
+            let r11 = px11[0] as i32;
+            let g11 = px11[1] as i32;
+            let b11 = px11[2] as i32;
+
+            // BT.709 integer formula scaled by 256
+            y_row0[x * 2] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+            y_row0[x * 2 + 1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+
+            let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+            let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+            let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+            let u_val = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+            let v_val = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+
+            uv_row[x * 2] = u_val;
+            uv_row[x * 2 + 1] = v_val;
+        }
+
+        if row1 < h {
+            if let Some(y_row1) = y_plane.get_mut(row1 * w..(row1 + 1) * w) {
+                for x in 0..half_w {
+                    let px10 = &row1_src[x * 8..x * 8 + 4];
+                    let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
+
+                    let r10 = px10[0] as i32;
+                    let g10 = px10[1] as i32;
+                    let b10 = px10[2] as i32;
+
+                    let r11 = px11[0] as i32;
+                    let g11 = px11[1] as i32;
+                    let b11 = px11[2] as i32;
+
+                    y_row1[x * 2] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                    y_row1[x * 2 + 1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+                }
+            }
+        }
+    }
+}
 
 pub struct MediaCodecEncoder {
     codec: MediaCodec,
@@ -145,13 +241,11 @@ pub struct MediaCodecEncoder {
     rate: FrameRate,
     timescale: u32,
     duration: u32,
-    y: Vec<u8>,
-    u: Vec<u8>,
-    v: Vec<u8>,
+    nv12: Vec<u8>,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
     eos_seen: bool,
-    ready: Arc<Mutex<HashMap<u64, YuvPlanes>>>,
+    ready: Arc<Mutex<HashMap<u64, Nv12Frame>>>,
 }
 
 impl MediaCodecEncoder {
@@ -232,9 +326,7 @@ impl MediaCodecEncoder {
             rate,
             timescale,
             duration,
-            y: Vec::new(),
-            u: Vec::new(),
-            v: Vec::new(),
+            nv12: Vec::new(),
             sps: None,
             pps: None,
             eos_seen: false,
@@ -380,13 +472,11 @@ impl VideoEncoder for MediaCodecEncoder {
         let ready = self.ready.clone();
         Some(Arc::new(move |f: &EncoderFrame| {
             let (w, h) = (f.width as usize, f.height as usize);
-            let mut y = Vec::new();
-            let mut u = Vec::new();
-            let mut v = Vec::new();
+            let mut nv12 = Vec::new();
             filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
-                filmcraft_export::rgba_to_yuv420_8(f.rgba, w, h, &mut y, &mut u, &mut v);
+                rgba_to_nv12(f.rgba, w, h, &mut nv12);
             });
-            ready.lock().unwrap_or_else(PoisonError::into_inner).insert(f.index, (y, u, v));
+            ready.lock().unwrap_or_else(PoisonError::into_inner).insert(f.index, nv12);
         }))
     }
 
@@ -405,23 +495,21 @@ impl VideoEncoder for MediaCodecEncoder {
             return Err(ExportError::Encode("the RGBA picture is smaller than its size".into()));
         }
 
-        // 1. Color conversion: retrieve pre-converted YUV planes or convert if missing
-        let ready_planes = {
+        // 1. Color conversion: retrieve pre-converted NV12 frame or convert if missing
+        let ready_frame = {
             let mut ready = self.ready.lock().unwrap_or_else(PoisonError::into_inner);
             let mine = ready.remove(&f.index);
             ready.retain(|&i, _| i > f.index);
             mine
         };
-        let chroma = w.div_ceil(2) * h.div_ceil(2);
-        match ready_planes.filter(|(y, u, v)| y.len() == w * h && u.len() == chroma && v.len() == chroma) {
-            Some((y, u, v)) => {
-                self.y = y;
-                self.u = u;
-                self.v = v;
+        let expected_len = w * h + (w.div_ceil(2) * h.div_ceil(2) * 2);
+        match ready_frame.filter(|buf| buf.len() == expected_len) {
+            Some(buf) => {
+                self.nv12 = buf;
             }
             None => {
                 filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
-                    filmcraft_export::rgba_to_yuv420_8(f.rgba, w, h, &mut self.y, &mut self.u, &mut self.v);
+                    rgba_to_nv12(f.rgba, w, h, &mut self.nv12);
                 });
             }
         }
@@ -464,37 +552,38 @@ impl VideoEncoder for MediaCodecEncoder {
 
         if stride == w && slice_height == h {
             // Fast contiguous copy for tightly packed buffers (common case)
-            let y_len = w * h;
-            let (y_dst, uv_dst) = dst.split_at_mut(y_len);
-            unsafe {
-                std::ptr::copy_nonoverlapping(self.y.as_ptr(), y_dst.as_mut_ptr() as *mut u8, y_len);
-            }
-            for ((pair, &u_val), &v_val) in uv_dst.as_chunks_mut::<2>().0.iter_mut().zip(self.u.iter()).zip(self.v.iter()) {
-                pair[0].write(u_val);
-                pair[1].write(v_val);
+            if dst.len() >= total_needed && self.nv12.len() >= total_needed {
+                // SAFETY: dst is valid for total_needed bytes, non-null, and does not overlap with self.nv12.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.nv12.as_ptr(), dst.as_mut_ptr() as *mut u8, total_needed);
+                }
             }
         } else {
             // Strided copy for chips with alignment requirements (e.g. 16/32-byte alignment)
+            let y_plane = &self.nv12[..w * h];
+            let uv_plane = &self.nv12[w * h..];
             for row in 0..h {
                 let src_offset = row * w;
                 let dst_offset = row * stride;
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        self.y.as_ptr().add(src_offset),
+                        y_plane.as_ptr().add(src_offset),
                         dst.as_mut_ptr().add(dst_offset) as *mut u8,
                         w,
                     );
                 }
             }
             let uv_base = y_size;
-            let uv_w = w.div_ceil(2);
+            let uv_w = w.div_ceil(2) * 2;
             for row in 0..uv_height {
                 let src_offset = row * uv_w;
                 let dst_row = uv_base + row * stride;
-                let row_slice = &mut dst[dst_row..dst_row + uv_w * 2];
-                for ((pair, &u_val), &v_val) in row_slice.as_chunks_mut::<2>().0.iter_mut().zip(&self.u[src_offset..src_offset + uv_w]).zip(&self.v[src_offset..src_offset + uv_w]) {
-                    pair[0].write(u_val);
-                    pair[1].write(v_val);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        uv_plane.as_ptr().add(src_offset),
+                        dst.as_mut_ptr().add(dst_row) as *mut u8,
+                        uv_w,
+                    );
                 }
             }
         }

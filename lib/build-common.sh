@@ -951,19 +951,47 @@ elif app == "filmcraft":
             mediacodec_target.write_text(content)
             fixed.append("crates/platform/src/android_mediacodec.rs (updated from template)")
 
-    # 5. Show hardware encoding status in export completion message.
+    # 5. Show hardware encoding status in export completion message and write export report log.
     if fix(
         "crates/export/src/job.rs",
         '            progress.set_status(format!("Done in {secs:.1}s"));\n',
         '            let enc = crate::hw_encode_stats();\n'
         '            let dec = filmcraft_codecs::hw::hw_stats();\n'
+        '            let gop = filmcraft_codecs::gop_stats();\n'
         '            let gpu = crate::gpu_render_stats();\n'
-        '            let hw_info = format!(" (Dec: {} HW, GPU: {}, Enc: {} HW)", dec.frames, gpu.frames, enc.frames);\n'
-        '            progress.set_status(format!("Done in {secs:.1}s{hw_info}"));\n',
+        '            let hw_info = if gop.frames == 0 {\n'
+        '                format!(" (Still/Gen, GPU: {}, Enc: {} HW)", gpu.frames, enc.frames)\n'
+        '            } else {\n'
+        '                format!(" (Dec: {}/{} HW, GPU: {}, Enc: {} HW)", dec.frames, gop.frames, gpu.frames, enc.frames)\n'
+        '            };\n'
+        '            let st = format!("Done in {secs:.1}s{hw_info}");\n'
+        '            progress.set_status(st.clone());\n'
+        '            let log_path = format!("{}.log", self.settings.path);\n'
+        '            let mut diag = String::new();\n'
+        '            diag.push_str("=== FILMCRAFT EXPORT REPORT ===\\n");\n'
+        '            diag.push_str(&format!("Output: {}\\n", self.settings.path));\n'
+        '            diag.push_str(&format!("Status: {st}\\n"));\n'
+        '            diag.push_str(&format!("Frames: {nframes}\\n"));\n'
+        '            diag.push_str(&format!("Duration: {secs:.2}s\\n"));\n'
+        '            diag.push_str(&format!("Render FPS: {:.2}\\n", nframes as f64 / secs.max(1e-6)));\n'
+        '            diag.push_str(&format!("File size: {bytes} bytes\\n\\n"));\n'
+        '            diag.push_str("--- Pipeline Statistics ---\\n");\n'
+        '            diag.push_str(&format!("GOP total decoded pictures: {}\\n", gop.frames));\n'
+        '            diag.push_str(&format!("Hardware decoded pictures: {}\\n", dec.frames));\n'
+        '            diag.push_str(&format!("Software decoded pictures: {}\\n", gop.frames.saturating_sub(dec.frames)));\n'
+        '            diag.push_str(&format!("Hardware decoder sessions: {}, declined: {}, fallbacks: {}\\n", dec.sessions, dec.declined, dec.fallbacks));\n'
+        '            diag.push_str(&format!("GPU composited frames: {}\\n", gpu.frames));\n'
+        '            diag.push_str(&format!("Hardware encoded frames: {}\\n\\n", enc.frames));\n'
+        '            diag.push_str("--- Stage Timings ---\\n");\n'
+        '            for (stage, ns) in crate::stage_times() {\n'
+        '                let ms = ns as f64 / 1_000_000.0;\n'
+        '                diag.push_str(&format!("  {:?}: {:.1} ms ({:.2}s)\\n", stage, ms, ms / 1000.0));\n'
+        '            }\n'
+        '            let _ = std::fs::write(&log_path, &diag);\n',
     ):
-        fixed.append("crates/export/src/job.rs (export status HW indicator)")
+        fixed.append("crates/export/src/job.rs (export status HW indicator and log)")
 
-    # 6. Display export status on the on-screen status bar when complete.
+    # 6. Display export status on the on-screen status bar when complete and show live progress.
     if fix(
         "crates/ui-egui/src/app/frame.rs",
         '        let job = running?;\n',
@@ -979,9 +1007,24 @@ elif app == "filmcraft":
         '                break;\n'
         '            }\n'
         '        }\n'
-        '        let job = running?;\n',
+        '        let job = running?;\n'
+        '        let done = job.progress.done.load(Ordering::Relaxed);\n'
+        '        let total = job.progress.total.load(Ordering::Relaxed);\n'
+        '        if total > 0 && !job.progress.finished.load(Ordering::Relaxed) {\n'
+        '            let pct = (done as f32 / total as f32 * 100.0).clamp(0.0, 100.0);\n'
+        '            self.ui.status = format!("Exporting: {done}/{total} frames ({pct:.0}%) [GPU+HW Enc]");\n'
+        '        }\n',
     ):
-        fixed.append("crates/ui-egui/src/app/frame.rs (export completion status in UI)")
+        fixed.append("crates/ui-egui/src/app/frame.rs (export completion status and progress in UI)")
+
+    # 7. Add diagnostics for make_video_decoder in crates/codecs/src/lib.rs.
+    if fix(
+        "crates/codecs/src/lib.rs",
+        'pub fn make_video_decoder(entry: &filmcraft_isobmff::SampleEntry) -> Result<Box<dyn VideoDecoder>> {\n',
+        'pub fn make_video_decoder(entry: &filmcraft_isobmff::SampleEntry) -> Result<Box<dyn VideoDecoder>> {\n'
+        '    log::info!("make_video_decoder called for codec: {}", entry.codec.name());\n',
+    ):
+        fixed.append("crates/codecs/src/lib.rs (make_video_decoder diagnostic logging)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
