@@ -1279,7 +1279,7 @@ elif app == "filmcraft":
         '        sources: &dyn SourceProvider,\n'
         '    ) -> Option<bool> {\n'
         '        let surface = self.surface.as_ref()?;\n'
-        '        let plan = plan_frame(project, seq, t, opts, sources);\n'
+        '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
         '        match &plan {\n'
         '            FramePlan::Layers { .. } => {\n'
         '                if device_failed() {\n'
