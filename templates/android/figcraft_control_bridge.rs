@@ -142,6 +142,12 @@ fn request_mutation_approval(command: &str, params: Value) -> Result<(), String>
     if params.to_string().len() > MAX_APPROVAL_PARAMS_BYTES {
         return Err("MCP command parameters exceed the 64 KiB approval preview limit".into());
     }
+    if command == "command.batch" {
+        let count = params.get("commands").and_then(Value::as_array).map_or(0, Vec::len);
+        if count == 0 || count > 32 {
+            return Err("MCP batches must contain between 1 and 32 commands".into());
+        }
+    }
     let (decision_tx, decision_rx) = std::sync::mpsc::channel();
     let mut state = approvals()
         .lock()
