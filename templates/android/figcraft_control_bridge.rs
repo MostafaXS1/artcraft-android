@@ -556,12 +556,18 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// explicitly enabled it by creating files/mcp-server.enabled in app-private storage.
 /// The bearer token is stored in files/mcp-server.token and never written to logcat.
 pub fn start_mcp_if_enabled(private_dir: &Path) {
+    // The settings launcher must know the app-private directory even while the server
+    // is disabled. AndroidShell calls this once during startup.
+    let _ = MCP_PRIVATE_DIR.set(private_dir.to_path_buf());
     let enabled = private_dir.join("mcp-server.enabled");
     if !enabled.is_file() { return; }
+    // Prevent duplicate listener threads when startup and the settings toggle race.
+    if MCP_RUNNING.swap(true, Ordering::SeqCst) { return; }
     let token_path = private_dir.join("mcp-server.token");
     let token = match load_or_create_token(&token_path) {
         Ok(token) => token,
         Err(error) => {
+            MCP_RUNNING.store(false, Ordering::SeqCst);
             log::error!("MCP server could not load/create its local access token: {error}");
             return;
         }
@@ -573,14 +579,17 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
             let listener = match TcpListener::bind(("127.0.0.1", MCP_PORT)) {
                 Ok(listener) => listener,
                 Err(error) => {
+                    MCP_RUNNING.store(false, Ordering::SeqCst);
                     log::error!("MCP server could not bind 127.0.0.1:{MCP_PORT}: {error}");
                     return;
                 }
             };
             if let Err(error) = listener.set_nonblocking(true) {
+                MCP_RUNNING.store(false, Ordering::SeqCst);
                 log::error!("MCP server could not enable nonblocking accept: {error}");
                 return;
             }
+            MCP_RUNNING.store(true, Ordering::SeqCst);
             log::info!("Local MCP Streamable HTTP endpoint enabled at http://127.0.0.1:{MCP_PORT}/mcp");
             let mut server = Server::new(Box::new(LiveBackend));
             let mut session_id = None;
@@ -600,9 +609,11 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
                     }
                 }
             }
+            MCP_RUNNING.store(false, Ordering::SeqCst);
             log::info!("Local MCP server stopped");
         })
     {
+        MCP_RUNNING.store(false, Ordering::SeqCst);
         log::error!("MCP server thread could not start: {error}");
     }
 }
