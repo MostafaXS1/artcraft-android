@@ -298,6 +298,21 @@ fn read_http_header_line(
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
+fn filter_tool_list(response: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<Value>(response) else {
+        return response.to_owned();
+    };
+    if let Some(tools) = value.pointer_mut("/result/tools").and_then(Value::as_array_mut) {
+        tools.retain(|tool| {
+            !matches!(
+                tool.get("name").and_then(Value::as_str).unwrap_or(""),
+                "open_file" | "save_file" | "pointer" | "key" | "type_text"
+            )
+        });
+    }
+    value.to_string()
+}
+
 fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(130)))?;
@@ -368,8 +383,17 @@ fn handle_http(stream: &mut TcpStream, server: &mut Server, token: &str) -> std:
     reader.read_exact(&mut body)?;
     let body_text = std::str::from_utf8(&body)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let method = serde_json::from_str::<Value>(body_text).ok()
+        .and_then(|request| request.get("method").and_then(Value::as_str).map(str::to_owned));
     match server.handle_line(body_text) {
-        Some(response) => write_http(stream, "200 OK", "application/json", response.as_bytes()),
+        Some(response) => {
+            let response = if method.as_deref() == Some("tools/list") {
+                filter_tool_list(&response)
+            } else {
+                response
+            };
+            write_http(stream, "200 OK", "application/json", response.as_bytes())
+        }
         None => write_http(stream, "202 Accepted", "text/plain", b""),
     }
 }
@@ -467,5 +491,29 @@ mod access_tests {
         assert!(!is_read_only_method("engine.execute"));
         assert!(!is_read_only_method("ui.pointer"));
         assert!(!is_read_only_method("file.open"));
+    }
+}
+
+#[cfg(test)]
+mod tool_filter_tests {
+    use super::*;
+
+    #[test]
+    fn tool_list_hides_control_methods_not_supported_on_android() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "inspect_document"},
+                {"name": "run_command"},
+                {"name": "open_file"},
+                {"name": "pointer"},
+                {"name": "type_text"}
+            ]}
+        }).to_string();
+        let filtered: Value = serde_json::from_str(&filter_tool_list(&response)).unwrap();
+        let names: Vec<_> = filtered.pointer("/result/tools").unwrap().as_array().unwrap()
+            .iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+        assert_eq!(names, vec!["inspect_document", "run_command"]);
     }
 }
