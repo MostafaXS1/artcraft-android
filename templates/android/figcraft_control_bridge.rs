@@ -556,7 +556,8 @@ mod tool_filter_tests {
                 {"name": "run_command"},
                 {"name": "open_file"},
                 {"name": "pointer"},
-                {"name": "type_text"}
+                {"name": "type_text"},
+                {"name": "wait_for_changes"}
             ]}
         }).to_string();
         let filtered: Value = serde_json::from_str(&filter_tool_list(&response)).unwrap_or(Value::Null);
