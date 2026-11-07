@@ -99,6 +99,8 @@ static MCP_GENERATION: AtomicU64 = AtomicU64::new(0);
 static MCP_RUNNING: AtomicBool = AtomicBool::new(false);
 static MCP_PRIVATE_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 static MCP_SETTINGS_OPEN: AtomicBool = AtomicBool::new(false);
+static MCP_TEST_RUNNING: AtomicBool = AtomicBool::new(false);
+static MCP_TEST_RESULT: OnceLock<Mutex<String>> = OnceLock::new();
 const MCP_PORT: u16 = 38_761;
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -621,6 +623,41 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
 
 /// In-app MCP controls. The endpoint remains loopback-only and disabled until the user
 /// explicitly enables it here. The token is shown only in this private app UI.
+fn run_mcp_connection_test() {
+    if MCP_TEST_RUNNING.swap(true, Ordering::SeqCst) { return; }
+    let _ = std::thread::Builder::new().name("figcraft-mcp-self-test".into()).spawn(|| {
+        let result = (|| -> Result<String, String> {
+            if !MCP_RUNNING.load(Ordering::SeqCst) {
+                return Err("MCP server is not running".into());
+            }
+            // Exercise the same MCP protocol dispatcher used by external clients.
+            let mut protocol = Server::new(Box::new(LiveBackend));
+            let init = protocol.handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"figcraft-self-test","version":"1.0"}}}"#)
+                .ok_or("MCP initialize returned no response")?;
+            let init_value: Value = serde_json::from_str(&init).map_err(|e| format!("Invalid initialize response: {e}"))?;
+            if init_value.get("error").is_some() { return Err(format!("Initialize failed: {}", init_value["error"])); }
+            let tools = protocol.handle_line(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#)
+                .ok_or("MCP tools/list returned no response")?;
+            let tools_value: Value = serde_json::from_str(&tools).map_err(|e| format!("Invalid tools/list response: {e}"))?;
+            if tools_value.get("error").is_some() { return Err(format!("tools/list failed: {}", tools_value["error"])); }
+            let count = tools_value.pointer("/result/tools").and_then(Value::as_array)
+                .ok_or("tools/list response did not contain a tools array")?.len();
+            if count == 0 { return Err("MCP connected but exposed zero tools".into()); }
+
+            let mut backend = LiveBackend;
+            backend.call("engine.commands", serde_json::json!({}))
+                .map_err(|e| format!("Canvas command discovery failed: {e}"))?;
+            backend.call("document.inspect", serde_json::json!({}))
+                .map_err(|e| format!("Canvas inspection failed: {e}"))?;
+            Ok(format!("PASS: initialize, tools/list ({count} tools), engine.commands, document.inspect"))
+        })();
+        let message = result.unwrap_or_else(|error| format!("FAIL: {error}"));
+        *MCP_TEST_RESULT.get_or_init(|| Mutex::new(String::new())).lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = message;
+        MCP_TEST_RUNNING.store(false, Ordering::SeqCst);
+    });
+}
+
 fn mcp_settings_ui(ctx: &Context) {
     let Some(private_dir) = MCP_PRIVATE_DIR.get().cloned() else { return; };
     let marker = private_dir.join("mcp-server.enabled");
@@ -655,6 +692,18 @@ fn mcp_settings_ui(ctx: &Context) {
             }
             ui.label(format!("Status: {}", if MCP_RUNNING.load(Ordering::SeqCst) { "Running" } else if enabled { "Starting / unavailable" } else { "Disabled" }));
             ui.monospace(format!("http://127.0.0.1:{MCP_PORT}/mcp"));
+            if ui.button_enabled(!MCP_TEST_RUNNING.load(Ordering::SeqCst), "Test MCP Connection").clicked() {
+                *MCP_TEST_RESULT.get_or_init(|| Mutex::new(String::new())).lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = "Testing MCP handshake and live canvas access…".into();
+                run_mcp_connection_test();
+            }
+            if MCP_TEST_RUNNING.load(Ordering::SeqCst) {
+                ui.label("Test running… keep the document open.");
+            }
+            if let Some(result) = MCP_TEST_RESULT.get() {
+                let result = result.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !result.is_empty() { ui.label(result.as_str()); }
+            }
             if let Ok(token) = std::fs::read_to_string(&token_path) {
                 ui.label("Bearer token (private to this device):");
                 ui.label("•••••••••••••••• (hidden)");
