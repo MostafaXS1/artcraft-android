@@ -156,7 +156,7 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
 
     let (y_plane, uv_plane) = out.split_at_mut(y_len);
     let half_h = h / 2;
-    let half_w = w / 2;
+    let _half_w = w / 2;
 
     for y in 0..half_h {
         let row0 = y * 2;
