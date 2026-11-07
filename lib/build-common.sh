@@ -729,7 +729,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "72"
+GENERATOR_VERSION = "73"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -3064,6 +3064,7 @@ intent_filter = {intent_filter_value}
 [[package.metadata.android.uses_permission]]
 name = "android.permission.RECORD_AUDIO"
 """
+    mcp_dep = 'figcraft-mcp = { path = "../../crates/mcp" }' if app == "figcraft" else ""
 
     manifest = f'''[package]
 name = "{app}-android"
@@ -3077,6 +3078,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
+{mcp_dep}
 eframe = {{ workspace = true, default-features = false, features = {eframe_features} }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
@@ -3707,6 +3709,13 @@ fn install_cadcraft_io() {
         intent_field = ""
         intent_init = ""
 
+    mcp_start = (
+        "        if let Some(dir) = app.internal_data_path() {\\n"
+        "            figcraft_control_bridge::start_mcp_if_enabled(&dir);\\n"
+        "        }\\n"
+        if app == "figcraft" else ""
+    )
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -3780,7 +3789,7 @@ struct AndroidShell {{
 
 impl AndroidShell {{
     fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+        {persist_new_body}{mcp_start}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
