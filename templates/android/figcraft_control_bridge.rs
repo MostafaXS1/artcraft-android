@@ -915,8 +915,15 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .json(&body)
                 .send()
                 .map_err(|error| {
-                    if error.is_timeout() { "Gemini request timed out. Check your connection and retry.".to_owned() }
-                    else { "Could not reach Gemini. Check your internet connection.".to_owned() }
+                    if error.is_connect() {
+                        format!("Could not connect to Gemini (DNS/TLS/network): {error}")
+                    } else if error.is_timeout() {
+                        format!("Gemini request timed out after the configured deadline: {error}")
+                    } else if error.is_request() {
+                        format!("Gemini request could not be sent: {error}")
+                    } else {
+                        format!("Gemini network error: {error}")
+                    }
                 })?;
             let status = response.status();
             if !status.is_success() {
