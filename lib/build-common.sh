@@ -2242,6 +2242,10 @@ impl filmcraft_export::FrameRenderer for GpuFrameRenderer {
     ) -> Option<filmcraft_render::Image> {
         self.0.render(project, seq, t, opts, sources)
     }
+
+    fn caps(&self) -> filmcraft_render::plan::DeviceCaps {
+        self.0.caps()
+    }
 }
 
 /// Show a native file dialog without blocking the frame loop: the app gets the receiver, keeps
