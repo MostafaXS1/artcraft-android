@@ -88,7 +88,7 @@ mod tests {
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use figcraft_mcp::{Backend, Server};
@@ -96,6 +96,9 @@ use serde_json::Value;
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 static MCP_GENERATION: AtomicU64 = AtomicU64::new(0);
+static MCP_RUNNING: AtomicBool = AtomicBool::new(false);
+static MCP_PRIVATE_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+static MCP_SETTINGS_OPEN: AtomicBool = AtomicBool::new(false);
 const MCP_PORT: u16 = 38_761;
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -203,6 +206,7 @@ fn request_mutation_approval(command: &str, params: Value) -> Result<(), String>
 /// Draws a blocking approval sheet over the live canvas. A mutation is not enqueued
 /// into FigCraft's control queue until the user explicitly approves it.
 pub fn approval_ui(ctx: &Context) {
+    mcp_settings_ui(ctx);
     let view = {
         let mut state = approvals()
             .lock()
@@ -601,6 +605,53 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
     {
         log::error!("MCP server thread could not start: {error}");
     }
+}
+
+
+/// In-app MCP controls. The endpoint remains loopback-only and disabled until the user
+/// explicitly enables it here. The token is shown only in this private app UI.
+fn mcp_settings_ui(ctx: &Context) {
+    let Some(private_dir) = MCP_PRIVATE_DIR.get().cloned() else { return; };
+    let marker = private_dir.join("mcp-server.enabled");
+    let token_path = private_dir.join("mcp-server.token");
+    let mut enabled = marker.is_file();
+    let mut open = MCP_SETTINGS_OPEN.load(Ordering::Relaxed);
+    egui::Window::new("MCP Server Settings")
+        .open(&mut open)
+        .default_width(360.0)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.label("Expose the current FigCraft canvas to a local MCP client.");
+            ui.label("Only 127.0.0.1 is used. This server is not reachable over Wi-Fi/LAN.");
+            ui.separator();
+            if ui.checkbox(&mut enabled, "Enable local MCP server").changed() {
+                if enabled {
+                    match std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(&marker) {
+                        Ok(_) => start_mcp_if_enabled(&private_dir),
+                        Err(error) => log::error!("Could not enable MCP server: {error}"),
+                    }
+                } else {
+                    let _ = std::fs::remove_file(&marker);
+                    stop_mcp_server();
+                }
+            }
+            ui.label(format!("Status: {}", if MCP_RUNNING.load(Ordering::SeqCst) { "Running" } else if enabled { "Starting / unavailable" } else { "Disabled" }));
+            ui.monospace(format!("http://127.0.0.1:{MCP_PORT}/mcp"));
+            if let Ok(token) = std::fs::read_to_string(&token_path) {
+                ui.label("Bearer token (private to this device):");
+                ui.add(egui::TextEdit::singleline(&mut token.clone()).password(true).desired_width(f32::INFINITY));
+                if ui.button("Copy token").clicked() { ctx.copy_text(token.trim().to_owned()); }
+                if ui.button("Rotate token").clicked() {
+                    stop_mcp_server();
+                    let _ = std::fs::remove_file(&token_path);
+                    if enabled { start_mcp_if_enabled(&private_dir); }
+                }
+            } else {
+                ui.label("Enable the server to generate its access token.");
+            }
+            ui.small("Mutating MCP commands still require approval inside FigCraft.");
+        });
+    MCP_SETTINGS_OPEN.store(open, Ordering::Relaxed);
 }
 
 /// Stop accepting new MCP requests when the Android shell is dropped and cancel
