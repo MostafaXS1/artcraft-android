@@ -511,9 +511,10 @@ mod tool_filter_tests {
                 {"name": "type_text"}
             ]}
         }).to_string();
-        let filtered: Value = serde_json::from_str(&filter_tool_list(&response)).unwrap();
-        let names: Vec<_> = filtered.pointer("/result/tools").unwrap().as_array().unwrap()
-            .iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+        let filtered: Value = serde_json::from_str(&filter_tool_list(&response)).unwrap_or(Value::Null);
+        let names: Vec<_> = filtered.pointer("/result/tools").and_then(Value::as_array)
+            .map(|tools| tools.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect())
+            .unwrap_or_default();
         assert_eq!(names, vec!["inspect_document", "run_command"]);
     }
 }
