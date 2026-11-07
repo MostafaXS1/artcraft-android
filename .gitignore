@@ -31,3 +31,6 @@ Thumbs.db
 
 # Local reversible snapshots (not part of the project)
 .backups/
+
+# Logs
+*.log

@@ -185,46 +185,72 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
             None => continue,
         };
 
-        for x in 0..half_w {
-            let px00 = &row0_src[x * 8..x * 8 + 4];
-            let px01 = &row0_src[x * 8 + 4..x * 8 + 8];
-            let px10 = &row1_src[x * 8..x * 8 + 4];
-            let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
+        let chunk0_iter = row0_src.chunks_exact(8);
+        let chunk1_iter = row1_src.chunks_exact(8);
+        let y0_iter = y_row0.chunks_exact_mut(2);
+        let uv_iter = uv_row.chunks_exact_mut(2);
 
-            let r00 = px00[0] as i32;
-            let g00 = px00[1] as i32;
-            let b00 = px00[2] as i32;
+        if !y_row1.is_empty() {
+            let y1_iter = y_row1.chunks_exact_mut(2);
+            for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
+                let r00 = c0[0] as i32;
+                let g00 = c0[1] as i32;
+                let b00 = c0[2] as i32;
 
-            let r01 = px01[0] as i32;
-            let g01 = px01[1] as i32;
-            let b01 = px01[2] as i32;
+                let r01 = c0[4] as i32;
+                let g01 = c0[5] as i32;
+                let b01 = c0[6] as i32;
 
-            let r10 = px10[0] as i32;
-            let g10 = px10[1] as i32;
-            let b10 = px10[2] as i32;
+                let r10 = c1[0] as i32;
+                let g10 = c1[1] as i32;
+                let b10 = c1[2] as i32;
 
-            let r11 = px11[0] as i32;
-            let g11 = px11[1] as i32;
-            let b11 = px11[2] as i32;
+                let r11 = c1[4] as i32;
+                let g11 = c1[5] as i32;
+                let b11 = c1[6] as i32;
 
-            // BT.709 integer formula scaled by 256
-            y_row0[x * 2] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
-            y_row0[x * 2 + 1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+                // BT.709 integer formula scaled by 256
+                y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
 
-            if !y_row1.is_empty() {
-                y_row1[x * 2] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
-                y_row1[x * 2 + 1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+                y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+
+                let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
             }
+        } else {
+            for (((c0, c1), y0), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(uv_iter) {
+                let r00 = c0[0] as i32;
+                let g00 = c0[1] as i32;
+                let b00 = c0[2] as i32;
 
-            let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
-            let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
-            let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+                let r01 = c0[4] as i32;
+                let g01 = c0[5] as i32;
+                let b01 = c0[6] as i32;
 
-            let u_val = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-            let v_val = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                let r10 = c1[0] as i32;
+                let g10 = c1[1] as i32;
+                let b10 = c1[2] as i32;
 
-            uv_row[x * 2] = u_val;
-            uv_row[x * 2 + 1] = v_val;
+                let r11 = c1[4] as i32;
+                let g11 = c1[5] as i32;
+                let b11 = c1[6] as i32;
+
+                y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+
+                let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+            }
         }
     }
 }

@@ -1159,11 +1159,37 @@ elif app == "filmcraft":
         '    ) -> Option<bool> {\n'
         '        None\n'
         '    }\n'
+        '    fn render_rgba8(\n'
+        '        &mut self,\n'
+        '        _project: &Project,\n'
+        '        _seq: ItemId,\n'
+        '        _t: Tick,\n'
+        '        _opts: filmcraft_render::RenderOptions,\n'
+        '        _sources: &dyn SourceProvider,\n'
+        '    ) -> Option<Vec<u8>> {\n'
+        '        None\n'
+        '    }\n'
         '}\n',
     ):
-        fixed.append("crates/export/src/registry.rs (FrameRenderer surface methods)")
+        fixed.append("crates/export/src/registry.rs (FrameRenderer surface and rgba8 methods)")
 
-    # 14. Add render_to_view on GpuCompositor for direct rendering into surface texture view.
+    # 14. Add render_to_view and render_export_rgba8 on GpuCompositor.
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n',
+        '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n'
+        '    output_readback_buf: Option<(wgpu::Buffer, u64)>,\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf field)")
+
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '            accum_readback_buf: None,\n',
+        '            accum_readback_buf: None,\n'
+        '            output_readback_buf: None,\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf init)")
+
     if fix(
         "crates/gpu/src/lib.rs",
         '    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {\n',
@@ -1202,6 +1228,83 @@ elif app == "filmcraft":
         '    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {\n',
     ):
         fixed.append("crates/gpu/src/lib.rs (GpuCompositor render_to_view)")
+
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '        self.queue.submit([enc.finish()]);\n'
+        '        export_renderer::timing::add_submit(t.elapsed());\n'
+        '        self.map_accumulator(size)\n'
+        '    }\n\n'
+        '    /// Run the effect stage of a layer alone: `frame` decoded into its working image and `fx`\n',
+        '        self.queue.submit([enc.finish()]);\n'
+        '        export_renderer::timing::add_submit(t.elapsed());\n'
+        '        self.map_accumulator(size)\n'
+        '    }\n\n'
+        '    pub fn render_export_rgba8(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<u8>)> {\n'
+        '        let t = std::time::Instant::now();\n'
+        '        self.render_plan(plan, prep, true, true);\n'
+        '        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("filmcraft-composite-rgba8") });\n'
+        '        let size = self.copy_output(&mut enc)?;\n'
+        '        self.queue.submit([enc.finish()]);\n'
+        '        export_renderer::timing::add_submit(t.elapsed());\n'
+        '        self.map_output(size)\n'
+        '    }\n\n'
+        '    fn copy_output(&mut self, enc: &mut wgpu::CommandEncoder) -> Option<(u32, u32, u32)> {\n'
+        '        let (_, _, (w, h)) = self.output.as_ref()?;\n'
+        '        let (w, h) = (*w, *h);\n'
+        '        let row = w.checked_mul(4)?.div_ceil(256).checked_mul(256)?;\n'
+        '        let needed = u64::from(row) * u64::from(h);\n'
+        '        if self.output_readback_buf.as_ref().is_none_or(|(_, size)| *size < needed) {\n'
+        '            let b = self.device.create_buffer(&wgpu::BufferDescriptor {\n'
+        '                label: Some("output-readback"),\n'
+        '                size: needed,\n'
+        '                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,\n'
+        '                mapped_at_creation: false,\n'
+        '            });\n'
+        '            self.output_readback_buf = Some((b, needed));\n'
+        '        }\n'
+        '        let (tex, _, _) = self.output.as_ref()?;\n'
+        '        let (buf, _) = self.output_readback_buf.as_ref()?;\n'
+        '        enc.copy_texture_to_buffer(\n'
+        '            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },\n'
+        '            wgpu::TexelCopyBufferInfo { buffer: buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },\n'
+        '            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },\n'
+        '        );\n'
+        '        Some((w, h, row))\n'
+        '    }\n\n'
+        '    fn map_output(&mut self, (w, h, row): (u32, u32, u32)) -> Option<(u32, u32, Vec<u8>)> {\n'
+        '        if w == 0 || h == 0 {\n'
+        '            return None;\n'
+        '        }\n'
+        '        let t = std::time::Instant::now();\n'
+        '        let (buf, capacity) = self.output_readback_buf.take()?;\n'
+        '        let slice = buf.slice(..);\n'
+        '        let (tx, rx) = std::sync::mpsc::channel();\n'
+        '        slice.map_async(wgpu::MapMode::Read, move |r| {\n'
+        '            let _ = tx.send(r);\n'
+        '        });\n'
+        '        wait_mapped(&self.device, &rx)?;\n'
+        '        let data = slice.get_mapped_range().ok()?;\n'
+        '        let mut out = vec![0u8; (w * h * 4) as usize];\n'
+        '        let width_bytes = (w * 4) as usize;\n'
+        '        let row_bytes = row as usize;\n'
+        '        if row_bytes == width_bytes {\n'
+        '            out.copy_from_slice(&data[..width_bytes * h as usize]);\n'
+        '        } else {\n'
+        '            for (y, dst) in out.chunks_exact_mut(width_bytes).enumerate() {\n'
+        '                let src = &data[y * row_bytes..y * row_bytes + width_bytes];\n'
+        '                dst.copy_from_slice(src);\n'
+        '            }\n'
+        '        }\n'
+        '        drop(data);\n'
+        '        buf.unmap();\n'
+        '        self.output_readback_buf = Some((buf, capacity));\n'
+        '        export_renderer::timing::add_convert(t.elapsed());\n'
+        '        Some((w, h, out))\n'
+        '    }\n\n'
+        '    /// Run the effect stage of a layer alone: `frame` decoded into its working image and `fx`\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor render_export_rgba8)")
 
     # 15. Add hardware surface binding and direct surface rendering on ExportRenderer.
     if fix(
@@ -1343,9 +1446,65 @@ elif app == "filmcraft":
         '            FramePlan::Image(_) | FramePlan::Composite { .. } => None,\n'
         '        }\n'
         '    }\n\n'
+        '    pub fn render_rgba8(\n'
+        '        &mut self,\n'
+        '        project: &Project,\n'
+        '        seq: ItemId,\n'
+        '        t: Tick,\n'
+        '        opts: RenderOptions,\n'
+        '        sources: &dyn SourceProvider,\n'
+        '    ) -> Option<Vec<u8>> {\n'
+        '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
+        '        match &plan {\n'
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(&plan);\n'
+        '                let (_w, _h, px) = self.compositor.render_export_rgba8(&plan, Some(&prep))?;\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                timing::add_frame();\n'
+        '                Some(px)\n'
+        '            }\n'
+        '            FramePlan::Image(_) => None,\n'
+        '        }\n'
+        '    }\n\n'
         '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
     ):
-        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer bind_surface and render_to_surface)")
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer bind_surface, render_to_surface and render_rgba8)")
+
+    # 16. Support surface rendering and fast GPU RGBA8 dispatch in Pipeline.
+    if fix(
+        "crates/export/src/pipeline.rs",
+        '        let pool = self.renderer.as_ref().filter(|pool| !filmcraft_render::plan::is_cpu_frame(&self.project, self.seq, t, self.opts, pool.caps));\n'
+        '        let gpu = match pool {\n',
+        '        let pool = self.renderer.as_ref().filter(|pool| !filmcraft_render::plan::is_cpu_frame(&self.project, self.seq, t, self.opts, pool.caps));\n'
+        '        let can_fast_rgba8 = !self.hdr_out\n'
+        '            && !self.alpha\n'
+        '            && self.geom.content.is_none()\n'
+        '            && self.geom.offset == (0, 0)\n'
+        '            && !self.effects.image_overlay.enabled\n'
+        '            && !self.effects.name_overlay.enabled\n'
+        '            && !self.effects.timecode_overlay.enabled\n'
+        '            && !self.effects.video_limiter.enabled;\n'
+        '        if can_fast_rgba8 {\n'
+        '            if let Some(pool) = pool {\n'
+        '                let asked = web_time::Instant::now();\n'
+        '                let rgba = pool.with(|r| {\n'
+        '                    crate::note_lock_wait(asked.elapsed());\n'
+        '                    r.render_rgba8(&self.project, self.seq, t, self.opts, sources)\n'
+        '                }).flatten();\n'
+        '                if let Some(rgba) = rgba {\n'
+        '                    note_gpu_frame();\n'
+        '                    return (rgba, Vec::new());\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '        let gpu = match pool {\n',
+    ):
+        fixed.append("crates/export/src/pipeline.rs (Pipeline fast rgba8 dispatch)")
 
     # 16. Support surface rendering in Pipeline.
     if fix(
@@ -2756,6 +2915,17 @@ impl filmcraft_export::FrameRenderer for GpuFrameRenderer {
         sources: &dyn filmcraft_render::SourceProvider,
     ) -> Option<bool> {
         self.0.render_to_surface(project, seq, t, opts, sources)
+    }
+
+    fn render_rgba8(
+        &mut self,
+        project: &filmcraft_project::Project,
+        seq: filmcraft_project::ItemId,
+        t: filmcraft_time::Tick,
+        opts: filmcraft_render::RenderOptions,
+        sources: &dyn filmcraft_render::SourceProvider,
+    ) -> Option<Vec<u8>> {
+        self.0.render_rgba8(project, seq, t, opts, sources)
     }
 }
 
