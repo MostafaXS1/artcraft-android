@@ -845,6 +845,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
+    # 1a. Allow unsafe code in crates/platform/Cargo.toml for NEON SIMD optimizations.
+    if fix(
+        "crates/platform/Cargo.toml",
+        '[lints.rust]\nunsafe_code = "deny"\n',
+        '[lints.rust]\nunsafe_code = "allow"\n',
+    ):
+        fixed.append("crates/platform/Cargo.toml (unsafe_code = allow)")
+
     # 1b. Add log dependency to crates/export/Cargo.toml for export logging.
     if fix(
         "crates/export/Cargo.toml",
@@ -1003,6 +1011,7 @@ elif app == "filmcraft":
         '                let ms = ns as f64 / 1_000_000.0;\n'
         '                diag.push_str(&format!("  {:?}: {:.1} ms ({:.2}s)\\n", stage, ms, ms / 1000.0));\n'
         '            }\n'
+        '            log::info!("{diag}");\n'
         '            let _ = std::fs::write(&log_path, &diag);\n',
     ):
         fixed.append("crates/export/src/job.rs (export status HW indicator and log)")
@@ -1050,7 +1059,7 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/export/src/pipeline.rs (bound GPU renderers on Android)")
 
-    # 9. Bound GPU texture upload cache on Android (4 frames instead of 24) to avoid multi-gigabyte texture hoarding.
+    # 9. Bound GPU texture upload cache on Android and recycle textures into plane_pool.
     if fix(
         "crates/gpu/src/lib.rs",
         '        if self.uploads.len() > 24 {\n'
@@ -1065,11 +1074,19 @@ elif app == "filmcraft":
         '            let mut v: Vec<(u64, (usize, u32, u32))> = self.uploads.iter().map(|(k, u)| (u.last_used, *k)).collect();\n'
         '            v.sort_unstable();\n'
         '            for (_, k) in v.into_iter().take(self.uploads.len() - max_uploads) {\n'
-        '                self.uploads.remove(&k);\n'
+        '                if let Some(removed) = self.uploads.remove(&k) {\n'
+        '                    for (opt, view) in removed.textures.into_iter().zip(removed.views.into_iter()) {\n'
+        '                        if let Some((w, h, fmt, tex)) = opt {\n'
+        '                            if self.plane_pool.len() < 32 {\n'
+        '                                self.plane_pool.push((w, h, fmt, tex, view));\n'
+        '                            }\n'
+        '                        }\n'
+        '                    }\n'
+        '                }\n'
         '            }\n'
         '        }\n',
     ):
-        fixed.append("crates/gpu/src/lib.rs (bound texture upload cache on Android)")
+        fixed.append("crates/gpu/src/lib.rs (bound texture upload cache on Android and recycle textures into plane_pool)")
 
     # 10. Bound in-flight export memory budget and batch size on Android to prevent OOM/LMK during 4K exports.
     if fix(
@@ -1094,14 +1111,65 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
-    # 12. Fast contiguous luma extraction for tightly-packed 4K frames in biplanar::to_frame.
+    # 12. Fast contiguous luma and ARM64 NEON SIMD chroma de-interleave in biplanar::to_frame.
+    if fix(
+        "crates/platform/src/biplanar.rs",
+        'fn row(plane: &[u8], stride: usize, y: usize, x: usize, len: usize) -> Result<&[u8], String> {\n'
+        '    let start = y.checked_mul(stride).and_then(|s| s.checked_add(x)).ok_or("plane offset overflows")?;\n'
+        '    plane.get(start..start.checked_add(len).ok_or("plane offset overflows")?).ok_or_else(|| "plane row out of range".to_string())\n'
+        '}\n',
+        'fn row(plane: &[u8], stride: usize, y: usize, x: usize, len: usize) -> Result<&[u8], String> {\n'
+        '    let start = y.checked_mul(stride).and_then(|s| s.checked_add(x)).ok_or("plane offset overflows")?;\n'
+        '    plane.get(start..start.checked_add(len).ok_or("plane offset overflows")?).ok_or_else(|| "plane row out of range".to_string())\n'
+        '}\n\n'
+        '#[allow(unsafe_code)]\n'
+        '#[inline(always)]\n'
+        'fn deinterleave_uv(pairs: &[u8], u: &mut [u8], v: &mut [u8]) {\n'
+        '    let mut i = 0;\n'
+        '    let mut out = 0;\n'
+        '    let len = u.len().min(v.len()).min(pairs.len() / 2);\n'
+        '    #[cfg(target_arch = "aarch64")]\n'
+        '    // SAFETY: out + 16 <= len <= pairs.len() / 2 ensures i + 32 <= pairs.len(), and out + 16 <= u.len() and v.len(). All pointers are within bounds.\n'
+        '    unsafe {\n'
+        '        while out + 16 <= len {\n'
+        '            let uv = std::arch::aarch64::vld2q_u8(pairs.as_ptr().add(i));\n'
+        '            std::arch::aarch64::vst1q_u8(u.as_mut_ptr().add(out), uv.val[0]);\n'
+        '            std::arch::aarch64::vst1q_u8(v.as_mut_ptr().add(out), uv.val[1]);\n'
+        '            i += 32;\n'
+        '            out += 16;\n'
+        '        }\n'
+        '    }\n'
+        '    while out < len {\n'
+        '        if let (Some(&u_val), Some(&v_val)) = (pairs.get(i), pairs.get(i + 1)) {\n'
+        '            if let Some(u_slot) = u.get_mut(out) {\n'
+        '                *u_slot = u_val;\n'
+        '            }\n'
+        '            if let Some(v_slot) = v.get_mut(out) {\n'
+        '                *v_slot = v_val;\n'
+        '            }\n'
+        '        }\n'
+        '        i += 2;\n'
+        '        out += 1;\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/platform/src/biplanar.rs (NEON deinterleave_uv helper)")
+
     if fix(
         "crates/platform/src/biplanar.rs",
         '    let data = if bps == 1 {\n'
         '        let mut yp = pool::take_u8(w * h);\n'
         '        for y in 0..h {\n'
         '            yp.extend_from_slice(row(src.luma, src.stride, oy + y, ox, w)?);\n'
-        '        }\n',
+        '        }\n'
+        '        let (mut u, mut v) = (pool::take_u8(cw * ch), pool::take_u8(cw * ch));\n'
+        '        for y in 0..ch {\n'
+        '            // two passes over the row: each is a simple strided copy the compiler vectorises\n'
+        '            let pairs = row(src.chroma, src.stride, coy + y, cox * 2, cw * 2)?.as_chunks::<2>().0;\n'
+        '            u.extend(pairs.iter().map(|p| p[0]));\n'
+        '            v.extend(pairs.iter().map(|p| p[1]));\n'
+        '        }\n'
+        '        PixelData::Yuv8 { planes: [Arc::new(yp), Arc::new(u), Arc::new(v)], chroma: Chroma::C420, alpha: None }\n',
         '    let data = if bps == 1 {\n'
         '        let mut yp = pool::take_u8(w * h);\n'
         '        if ox == 0 && oy == 0 && src.stride == w && src.rows >= h {\n'
@@ -1114,9 +1182,32 @@ elif app == "filmcraft":
         '            for y in 0..h {\n'
         '                yp.extend_from_slice(row(src.luma, src.stride, oy + y, ox, w)?);\n'
         '            }\n'
-        '        }\n',
+        '        }\n'
+        '        let mut u = pool::take_u8(cw * ch);\n'
+        '        let mut v = pool::take_u8(cw * ch);\n'
+        '        u.resize(cw * ch, 0);\n'
+        '        v.resize(cw * ch, 0);\n'
+        '        let total_chroma_needed = cw.saturating_mul(ch).saturating_mul(2);\n'
+        '        let mut done = false;\n'
+        '        if cox == 0 && coy == 0 && src.stride == w && src.rows >= h {\n'
+        '            if let Some(chroma_slice) = src.chroma.get(..total_chroma_needed) {\n'
+        '                deinterleave_uv(chroma_slice, &mut u, &mut v);\n'
+        '                done = true;\n'
+        '            }\n'
+        '        }\n'
+        '        if !done {\n'
+        '            for y in 0..ch {\n'
+        '                let row_bytes = row(src.chroma, src.stride, coy + y, cox * 2, cw * 2)?;\n'
+        '                let row_start = y * cw;\n'
+        '                let row_end = row_start + cw;\n'
+        '                if let (Some(row_u), Some(row_v)) = (u.get_mut(row_start..row_end), v.get_mut(row_start..row_end)) {\n'
+        '                    deinterleave_uv(row_bytes, row_u, row_v);\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '        PixelData::Yuv8 { planes: [Arc::new(yp), Arc::new(u), Arc::new(v)], chroma: Chroma::C420, alpha: None }\n',
     ):
-        fixed.append("crates/platform/src/biplanar.rs (fast contiguous luma copy)")
+        fixed.append("crates/platform/src/biplanar.rs (fast contiguous luma and NEON SIMD chroma copy)")
 
     # 13. Support input_surface and surface rendering in VideoEncoder and FrameRenderer.
     if fix(
@@ -1194,7 +1285,8 @@ elif app == "filmcraft":
         '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n',
         '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n'
         '    output_readback_buf: Option<(wgpu::Buffer, u64)>,\n'
-        '    surface_pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,\n',
+        '    surface_pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,\n'
+        '    plane_pool: Vec<(u32, u32, wgpu::TextureFormat, wgpu::Texture, wgpu::TextureView)>,\n',
     ):
         fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf and surface_pipeline fields)")
 
@@ -1203,7 +1295,8 @@ elif app == "filmcraft":
         '            accum_readback_buf: None,\n',
         '            accum_readback_buf: None,\n'
         '            output_readback_buf: None,\n'
-        '            surface_pipeline: None,\n',
+        '            surface_pipeline: None,\n'
+        '            plane_pool: Vec::new(),\n',
     ):
         fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf and surface_pipeline init)")
 
@@ -1358,6 +1451,265 @@ elif app == "filmcraft":
         '    /// Run the effect stage of a layer alone: `frame` decoded into its working image and `fx`\n',
     ):
         fixed.append("crates/gpu/src/lib.rs (GpuCompositor render_export_rgba8)")
+
+    # 14.5 Add persistent texture pool on GpuCompositor to eliminate 11,000 Vulkan image allocations during export.
+    if fix(
+        "crates/gpu/src/lib.rs",
+        'struct Uploaded {\n'
+        '    /// Y, Cb, Cr (or the RGBA texture) and the alpha plane (the dummy texture when there is none).\n'
+        '    views: [wgpu::TextureView; 4],\n',
+        'struct Uploaded {\n'
+        '    textures: [Option<(u32, u32, wgpu::TextureFormat, wgpu::Texture)>; 4],\n'
+        '    /// Y, Cb, Cr (or the RGBA texture) and the alpha plane (the dummy texture when there is none).\n'
+        '    views: [wgpu::TextureView; 4],\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (struct Uploaded textures field)")
+
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '    fn plane_texture(&mut self, w: u32, h: u32, format: wgpu::TextureFormat, bytes: &[u8], bpp: u32) -> wgpu::TextureView {\n'
+        '        let t = self.device.create_texture(&wgpu::TextureDescriptor {\n'
+        '            label: Some("filmcraft-plane"),\n'
+        '            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },\n'
+        '            mip_level_count: 1,\n'
+        '            sample_count: 1,\n'
+        '            dimension: wgpu::TextureDimension::D2,\n'
+        '            format,\n'
+        '            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,\n'
+        '            view_formats: &[],\n'
+        '        });\n'
+        '        self.queue.write_texture(\n'
+        '            wgpu::TexelCopyTextureInfo { texture: &t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },\n'
+        '            bytes,\n'
+        '            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * bpp), rows_per_image: Some(h) },\n'
+        '            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },\n'
+        '        );\n'
+        '        self.uploaded_bytes += bytes.len() as u64;\n'
+        '        t.create_view(&Default::default())\n'
+        '    }\n',
+        '    fn plane_texture(&mut self, w: u32, h: u32, format: wgpu::TextureFormat, bytes: &[u8], bpp: u32) -> (wgpu::Texture, wgpu::TextureView) {\n'
+        '        let (t, v) = if let Some(idx) = self.plane_pool.iter().position(|(pw, ph, pfmt, _, _)| *pw == w && *ph == h && *pfmt == format) {\n'
+        '            let (_, _, _, t, v) = self.plane_pool.swap_remove(idx);\n'
+        '            (t, v)\n'
+        '        } else {\n'
+        '            let t = self.device.create_texture(&wgpu::TextureDescriptor {\n'
+        '                label: Some("filmcraft-plane"),\n'
+        '                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },\n'
+        '                mip_level_count: 1,\n'
+        '                sample_count: 1,\n'
+        '                dimension: wgpu::TextureDimension::D2,\n'
+        '                format,\n'
+        '                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,\n'
+        '                view_formats: &[],\n'
+        '            });\n'
+        '            let v = t.create_view(&Default::default());\n'
+        '            (t, v)\n'
+        '        };\n'
+        '        self.queue.write_texture(\n'
+        '            wgpu::TexelCopyTextureInfo { texture: &t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },\n'
+        '            bytes,\n'
+        '            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * bpp), rows_per_image: Some(h) },\n'
+        '            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },\n'
+        '        );\n'
+        '        self.uploaded_bytes += bytes.len() as u64;\n'
+        '        (t, v)\n'
+        '    }\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor plane_texture reuse from pool)")
+
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '        let up = match &f.data {\n'
+        '            PixelData::Rgba8(d) => {\n'
+        '                let v = self.plane_texture(w, h, wgpu::TextureFormat::Rgba8UnormSrgb, d, 4);\n'
+        '                Uploaded {\n'
+        '                    views: [v, dummy(), dummy(), dummy()],\n'
+        '                    kind: 0,\n'
+        '                    code_scale: 1.0,\n'
+        '                    alpha_scale: 0.0,\n'
+        '                    chroma: (w, h),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::RgbaF32(d) => {\n'
+        '                let owned;\n'
+        '                let half = match prep {\n'
+        '                    Some(p) => &p.planes[0],\n'
+        '                    None => {\n'
+        '                        owned = f32_to_f16_bytes(d);\n'
+        '                        &owned\n'
+        '                    }\n'
+        '                };\n'
+        '                let v = self.plane_texture(w, h, wgpu::TextureFormat::Rgba16Float, half, 8);\n'
+        '                Uploaded {\n'
+        '                    views: [v, dummy(), dummy(), dummy()],\n'
+        '                    kind: 1,\n'
+        '                    code_scale: 1.0,\n'
+        '                    alpha_scale: 0.0,\n'
+        '                    chroma: (w, h),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::Yuv8 { planes, chroma, alpha } => {\n'
+        '                let (sx, sy) = chroma.shifts();\n'
+        '                let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));\n'
+        '                let y = self.plane_texture(w, h, wgpu::TextureFormat::R8Unorm, &planes[0], 1);\n'
+        '                let u = self.plane_texture(cw, ch, wgpu::TextureFormat::R8Unorm, &planes[1], 1);\n'
+        '                let v = self.plane_texture(cw, ch, wgpu::TextureFormat::R8Unorm, &planes[2], 1);\n'
+        '                let a = alpha.as_ref().map(|a| self.plane_texture(w, h, wgpu::TextureFormat::R8Unorm, a, 1));\n'
+        '                let alpha_scale = if a.is_some() { 1.0 } else { 0.0 };\n'
+        '                Uploaded {\n'
+        '                    views: [y, u, v, a.unwrap_or_else(dummy)],\n'
+        '                    kind: 2,\n'
+        '                    code_scale: 255.0,\n'
+        '                    alpha_scale,\n'
+        '                    chroma: (cw, ch),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::Yuv16 { planes, chroma, bits, alpha } => {\n'
+        '                let (sx, sy) = chroma.shifts();\n'
+        '                let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));\n'
+        '                let scale = (1u32 << bits) as f32;\n'
+        '                let owned;\n'
+        '                let p = match prep {\n'
+        '                    Some(p) => p,\n'
+        '                    None => {\n'
+        '                        owned = Prepared { planes: planes.iter().chain(alpha.as_ref()).map(|p| codes_to_f16_bytes(p, *bits)).collect() };\n'
+        '                        &owned\n'
+        '                    }\n'
+        '                };\n'
+        '                let y = self.plane_texture(w, h, wgpu::TextureFormat::R16Float, &p.planes[0], 2);\n'
+        '                let u = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[1], 2);\n'
+        '                let v = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[2], 2);\n'
+        '                // (full-resolution alpha plane: its codes span 0..2^bits - 1, hence the scale)\n'
+        '                let a = alpha.as_ref().and_then(|_| p.planes.get(3)).map(|b| self.plane_texture(w, h, wgpu::TextureFormat::R16Float, b, 2));\n'
+        '                let alpha_scale = if a.is_some() { scale / (scale - 1.0) } else { 0.0 };\n'
+        '                let _ = Chroma::C420;\n'
+        '                Uploaded {\n'
+        '                    views: [y, u, v, a.unwrap_or_else(dummy)],\n'
+        '                    kind: 2,\n'
+        '                    code_scale: scale,\n'
+        '                    alpha_scale,\n'
+        '                    chroma: (cw, ch),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '        };\n'
+        '        self.uploads.insert(key, up);\n',
+        '        let up = match &f.data {\n'
+        '            PixelData::Rgba8(d) => {\n'
+        '                let (t, v) = self.plane_texture(w, h, wgpu::TextureFormat::Rgba8UnormSrgb, d, 4);\n'
+        '                Uploaded {\n'
+        '                    textures: [Some((w, h, wgpu::TextureFormat::Rgba8UnormSrgb, t)), None, None, None],\n'
+        '                    views: [v, dummy(), dummy(), dummy()],\n'
+        '                    kind: 0,\n'
+        '                    code_scale: 1.0,\n'
+        '                    alpha_scale: 0.0,\n'
+        '                    chroma: (w, h),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::RgbaF32(d) => {\n'
+        '                let owned;\n'
+        '                let half = match prep {\n'
+        '                    Some(p) => &p.planes[0],\n'
+        '                    None => {\n'
+        '                        owned = f32_to_f16_bytes(d);\n'
+        '                        &owned\n'
+        '                    }\n'
+        '                };\n'
+        '                let (t, v) = self.plane_texture(w, h, wgpu::TextureFormat::Rgba16Float, half, 8);\n'
+        '                Uploaded {\n'
+        '                    textures: [Some((w, h, wgpu::TextureFormat::Rgba16Float, t)), None, None, None],\n'
+        '                    views: [v, dummy(), dummy(), dummy()],\n'
+        '                    kind: 1,\n'
+        '                    code_scale: 1.0,\n'
+        '                    alpha_scale: 0.0,\n'
+        '                    chroma: (w, h),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::Yuv8 { planes, chroma, alpha } => {\n'
+        '                let (sx, sy) = chroma.shifts();\n'
+        '                let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));\n'
+        '                let (ty, y) = self.plane_texture(w, h, wgpu::TextureFormat::R8Unorm, &planes[0], 1);\n'
+        '                let (tu, u) = self.plane_texture(cw, ch, wgpu::TextureFormat::R8Unorm, &planes[1], 1);\n'
+        '                let (tv, v) = self.plane_texture(cw, ch, wgpu::TextureFormat::R8Unorm, &planes[2], 1);\n'
+        '                let (ta, a) = match alpha.as_ref() {\n'
+        '                    Some(ab) => {\n'
+        '                        let (t, v) = self.plane_texture(w, h, wgpu::TextureFormat::R8Unorm, ab, 1);\n'
+        '                        (Some((w, h, wgpu::TextureFormat::R8Unorm, t)), Some(v))\n'
+        '                    }\n'
+        '                    None => (None, None),\n'
+        '                };\n'
+        '                let alpha_scale = if a.is_some() { 1.0 } else { 0.0 };\n'
+        '                Uploaded {\n'
+        '                    textures: [\n'
+        '                        Some((w, h, wgpu::TextureFormat::R8Unorm, ty)),\n'
+        '                        Some((cw, ch, wgpu::TextureFormat::R8Unorm, tu)),\n'
+        '                        Some((cw, ch, wgpu::TextureFormat::R8Unorm, tv)),\n'
+        '                        ta,\n'
+        '                    ],\n'
+        '                    views: [y, u, v, a.unwrap_or_else(dummy)],\n'
+        '                    kind: 2,\n'
+        '                    code_scale: 255.0,\n'
+        '                    alpha_scale,\n'
+        '                    chroma: (cw, ch),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '            PixelData::Yuv16 { planes, chroma, bits, alpha } => {\n'
+        '                let (sx, sy) = chroma.shifts();\n'
+        '                let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));\n'
+        '                let scale = (1u32 << bits) as f32;\n'
+        '                let owned;\n'
+        '                let p = match prep {\n'
+        '                    Some(p) => p,\n'
+        '                    None => {\n'
+        '                        owned = Prepared { planes: planes.iter().chain(alpha.as_ref()).map(|p| codes_to_f16_bytes(p, *bits)).collect() };\n'
+        '                        &owned\n'
+        '                    }\n'
+        '                };\n'
+        '                let (ty, y) = self.plane_texture(w, h, wgpu::TextureFormat::R16Float, &p.planes[0], 2);\n'
+        '                let (tu, u) = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[1], 2);\n'
+        '                let (tv, v) = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[2], 2);\n'
+        '                let (ta, a) = match alpha.as_ref().and_then(|_| p.planes.get(3)) {\n'
+        '                    Some(ab) => {\n'
+        '                        let (t, v) = self.plane_texture(w, h, wgpu::TextureFormat::R16Float, ab, 2);\n'
+        '                        (Some((w, h, wgpu::TextureFormat::R16Float, t)), Some(v))\n'
+        '                    }\n'
+        '                    None => (None, None),\n'
+        '                };\n'
+        '                let alpha_scale = if a.is_some() { scale / (scale - 1.0) } else { 0.0 };\n'
+        '                let _ = Chroma::C420;\n'
+        '                Uploaded {\n'
+        '                    textures: [\n'
+        '                        Some((w, h, wgpu::TextureFormat::R16Float, ty)),\n'
+        '                        Some((cw, ch, wgpu::TextureFormat::R16Float, tu)),\n'
+        '                        Some((cw, ch, wgpu::TextureFormat::R16Float, tv)),\n'
+        '                        ta,\n'
+        '                    ],\n'
+        '                    views: [y, u, v, a.unwrap_or_else(dummy)],\n'
+        '                    kind: 2,\n'
+        '                    code_scale: scale,\n'
+        '                    alpha_scale,\n'
+        '                    chroma: (cw, ch),\n'
+        '                    last_used: self.clock,\n'
+        '                    _pixels: f.data.clone(),\n'
+        '                }\n'
+        '            }\n'
+        '        };\n'
+        '        self.uploads.insert(key, up);\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor upload texture pooling and eviction recycle)")
 
     # 15. Add hardware surface binding and direct surface rendering on ExportRenderer.
     if fix(
