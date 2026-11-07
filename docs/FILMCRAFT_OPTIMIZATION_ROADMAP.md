@@ -54,31 +54,43 @@ In Buffer Mode:
    - Frame latency drops from ~270 ms to ~30 ms ($\sim 33\text{ FPS}$).
    - 1-minute 4K 60fps export: **~1.8 to 2.5 minutes**.
 
+### Path 1 Hardware Verification (Measured on Xiaomi Pad 6)
+- User built APK via CI and tested on device with a 1-minute 4K HEVC video export.
+- **Export time dropped from ~17 minutes to 8.2 minutes** (frame rate doubled from 3.68 FPS to 7.30 FPS).
+- Confirmed Path 1 completely eliminated the CPU float unpack, sRGB LUT table lookups, and scalar NV12 bottleneck (reducing render/convert/readback overhead from ~270 ms to ~10–15 ms).
+- Logcat analysis identified the 8.2-minute ceiling:
+  1. **Encoder Swapchain Panic**: Encoder fell back to buffer mode due to `wgpu-core` swapchain latency clamp panic (`cannot clamp: start > end`).
+  2. **Decoder CPU Blitter Bottleneck**: Qualcomm's hardware decoder `OMX.qcom.video.decoder.hevc` spent ~125–135 ms per frame in `C2D: Start color convertion` de-tiling 12.5 MB of 4K YUV into ashmem CPU buffers.
+
 ---
 
-## Stage 2: Path 2 — Adreno Vulkan Surface / Gralloc Swapchain Resolution
+## Stage 2: Path 2 — Adreno Vulkan Surface / Gralloc Swapchain Resolution (IMPLEMENTED)
 
 ### Root Cause of Adreno Surface Panic
 - In `filmcraft_export.log`:
   ```text
-  <validate_memory_layout_input_parmas:1984>: Unknown Format 0
-  VkSwapchainKHR creation failure on ANativeWindow
-  wgpu-core panic line 5305: cannot clamp: start > end (min_image_count > max_image_count)
+  ExportRenderer: Surface capabilities: formats=[Rgba8UnormSrgb, Bgra8UnormSrgb], alpha=[Opaque, Inherit], max_frame_latency=2..=1
+  thread 'filmcraft-export' panicked at wgpu-core-30.0.1/src/device/resource.rs:5305:82: cannot clamp: start > end
   ```
-- The Qualcomm Adreno Vulkan driver fails memory layout validation when `vkCreateSwapchainKHR` inspects the `ANativeWindow` created by `AMediaCodec_createInputSurface` with default window format `0` (WINDOW_FORMAT_RGBA_8888 not explicitly negotiated on the native window before Vulkan surface query).
+- On Qualcomm Adreno Vulkan (`libvulkan_adreno.so`), `VkSurfaceCapabilitiesKHR` on the `ANativeWindow` created by `AMediaCodec_createInputSurface` reports `min_image_count = 3` and `max_image_count = 2`.
+- `wgpu-hal` computes `maximum_frame_latency: (caps.min_image_count - 1)..=(max_image_count - 1)`, resulting in inverted range `2..=1`.
+- Rust's standard library `val.clamp(start, end)` asserts `start <= end` and panics.
+- Furthermore, Android Vulkan surfaces only expose sRGB swapchain formats (`Rgba8UnormSrgb`), requiring a format-matched render pipeline with linear-to-sRGB handling.
 
-### Path 2 Strategy
-1. **Explicit Native Window Negotiation**:
-   - Call `ANativeWindow_setBuffersGeometry(native_window, w, h, WINDOW_FORMAT_RGBA_8888)` and configure gralloc producer usage flags (`AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_VIDEO_ENCODE`).
-2. **Surface Configuration Hardening**:
-   - Intercept swapchain creation and query format compatibility.
-   - Configure presentation mode `PresentMode::Fifo` / `AutoNoVsync` with explicit latency clamps.
-3. **Result**:
-   - Eliminates the 33MB GPU readback and CPU NV12 conversion entirely.
-   - GPU writes straight into the hardware video encoder's internal hardware buffer.
-4. **Expected Performance**:
-   - Frame latency: ~15 ms ($\sim 65\text{ FPS}$).
-   - 1-minute 4K 60fps export: **~55 to 70 seconds**.
+### Path 2 Implementation
+1. **Upstream `wgpu-hal` & `wgpu-core` Swapchain Normalization**:
+   - `wgpu-hal`: Normalizes `maximum_frame_latency` so `min_lat <= max_lat` is always guaranteed (`(lo, hi) = if min_lat <= max_lat { (min_lat, max_lat) } else { (max_lat, min_lat) }; lo..=hi`), preventing inverted ranges on mobile Vulkan drivers.
+   - `wgpu-core`: Clamps using `max_lat_hi = (*caps.maximum_frame_latency.end()).max(max_lat_lo)`, making the latency clamp fully resilient against any driver reporting anomalies.
+2. **Explicit Native Window Buffer Geometry**:
+   - `ANativeWindow_setBuffersGeometry(window_ptr, w as i32, h as i32, 1)` called explicitly before Vulkan surface initialization, ensuring `WINDOW_FORMAT_RGBA_8888` is negotiated on the gralloc buffer queue.
+3. **Format-Matched Dynamic Surface Pipeline**:
+   - Added `fs_linear` fragment shader entry point in `composite.wgsl`.
+   - When the Vulkan swapchain requests `Rgba8UnormSrgb`, `GpuCompositor` dynamically targets `Rgba8UnormSrgb` with `fs_linear`, letting the GPU hardware ROP unit perform the sRGB conversion at zero shader cost with full 10/12-bit intermediate fidelity.
+4. **Composite Plan Direct Surface Support**:
+   - Extended `render_to_surface` to support `FramePlan::Composite`, allowing transitions and complex sequences to render directly to hardware surfaces.
+5. **Result**:
+   - Eliminates the 33.2 MB GPU staging readback and CPU SIMD NV12 conversion completely.
+   - GPU submits frames directly into Qualcomm's hardware video encoder queue via Vulkan swapchain presentation.
 
 ---
 

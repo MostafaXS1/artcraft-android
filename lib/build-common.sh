@@ -1173,28 +1173,45 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/export/src/registry.rs (FrameRenderer surface and rgba8 methods)")
 
+    # 13.5 Add fs_linear to composite.wgsl for direct hardware sRGB surface rendering.
+    if fix(
+        "crates/gpu/src/composite.wgsl",
+        '    return vec4(select(hi, lo, c <= vec3(0.0031308)), 1.0);\n'
+        '}\n',
+        '    return vec4(select(hi, lo, c <= vec3(0.0031308)), 1.0);\n'
+        '}\n\n'
+        '@fragment\n'
+        'fn fs_linear(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {\n'
+        '    let c = clamp(textureLoad(accum, vec2<i32>(pos.xy), 0).rgb, vec3(0.0), vec3(1.0));\n'
+        '    return vec4(c, 1.0);\n'
+        '}\n',
+    ):
+        fixed.append("crates/gpu/src/composite.wgsl (fs_linear for sRGB surface)")
+
     # 14. Add render_to_view and render_export_rgba8 on GpuCompositor.
     if fix(
         "crates/gpu/src/lib.rs",
         '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n',
         '    accum_readback_buf: Option<(wgpu::Buffer, u64)>,\n'
-        '    output_readback_buf: Option<(wgpu::Buffer, u64)>,\n',
+        '    output_readback_buf: Option<(wgpu::Buffer, u64)>,\n'
+        '    surface_pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,\n',
     ):
-        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf field)")
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf and surface_pipeline fields)")
 
     if fix(
         "crates/gpu/src/lib.rs",
         '            accum_readback_buf: None,\n',
         '            accum_readback_buf: None,\n'
-        '            output_readback_buf: None,\n',
+        '            output_readback_buf: None,\n'
+        '            surface_pipeline: None,\n',
     ):
-        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf init)")
+        fixed.append("crates/gpu/src/lib.rs (GpuCompositor output_readback_buf and surface_pipeline init)")
 
     if fix(
         "crates/gpu/src/lib.rs",
         '    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {\n',
-        '    /// Direct GPU render into a target view (surface texture) using final_pipeline (with sRGB fs_full).\n'
-        '    pub fn render_to_view(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, target_view: &wgpu::TextureView) -> Option<()> {\n'
+        '    /// Direct GPU render into a target view (surface texture) using format-matched pipeline.\n'
+        '    pub fn render_to_view(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, target_view: &wgpu::TextureView, target_format: wgpu::TextureFormat) -> Option<()> {\n'
         '        let t = std::time::Instant::now();\n'
         '        let (accum_view, _) = self.render_plan(plan, prep, true, false);\n'
         '        let final_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {\n'
@@ -1202,6 +1219,42 @@ elif app == "filmcraft":
         '            layout: &self.final_bgl,\n'
         '            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&accum_view) }],\n'
         '        });\n'
+        '        if target_format != OUTPUT_FORMAT\n'
+        '            && self.surface_pipeline.as_ref().map_or(true, |(fmt, _)| *fmt != target_format)\n'
+        '        {\n'
+        '            let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {\n'
+        '                label: Some("composite-surface"),\n'
+        '                source: wgpu::ShaderSource::Wgsl(include_str!("composite.wgsl").into()),\n'
+        '            });\n'
+        '            let fpl = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {\n'
+        '                label: Some("final-surface"),\n'
+        '                bind_group_layouts: &[Some(&self.final_bgl)],\n'
+        '                immediate_size: 0,\n'
+        '            });\n'
+        '            let entry_point = if target_format.is_srgb() { "fs_linear" } else { "fs_full" };\n'
+        '            let p = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {\n'
+        '                label: Some("final-surface"),\n'
+        '                layout: Some(&fpl),\n'
+        '                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_full"), compilation_options: Default::default(), buffers: &[] },\n'
+        '                primitive: wgpu::PrimitiveState::default(),\n'
+        '                depth_stencil: None,\n'
+        '                multisample: wgpu::MultisampleState::default(),\n'
+        '                fragment: Some(wgpu::FragmentState {\n'
+        '                    module: &shader,\n'
+        '                    entry_point: Some(entry_point),\n'
+        '                    compilation_options: Default::default(),\n'
+        '                    targets: &[Some(wgpu::ColorTargetState { format: target_format, blend: None, write_mask: wgpu::ColorWrites::ALL })],\n'
+        '                }),\n'
+        '                multiview_mask: None,\n'
+        '                cache: None,\n'
+        '            });\n'
+        '            self.surface_pipeline = Some((target_format, p));\n'
+        '        }\n'
+        '        let pipeline = if target_format == OUTPUT_FORMAT {\n'
+        '            &self.final_pipeline\n'
+        '        } else {\n'
+        '            &self.surface_pipeline.as_ref()?.1\n'
+        '        };\n'
         '        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("filmcraft-composite-to-view") });\n'
         '        {\n'
         '            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {\n'
@@ -1217,7 +1270,7 @@ elif app == "filmcraft":
         '                occlusion_query_set: None,\n'
         '                multiview_mask: None,\n'
         '            });\n'
-        '            pass.set_pipeline(&self.final_pipeline);\n'
+        '            pass.set_pipeline(pipeline);\n'
         '            pass.set_bind_group(0, &final_bg, &[]);\n'
         '            pass.draw(0..3, 0..1);\n'
         '        }\n'
@@ -1326,6 +1379,7 @@ elif app == "filmcraft":
         '    queue: wgpu::Queue,\n'
         '    compositor: GpuCompositor,\n'
         '    surface: Option<wgpu::Surface<\'static>>,\n'
+        '    surface_format: Option<wgpu::TextureFormat>,\n'
         '}\n',
     ):
         fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer surface field)")
@@ -1352,7 +1406,7 @@ elif app == "filmcraft":
         "crates/gpu/src/export_renderer.rs",
         '        Some(Self { _instance: instance, device, queue, compositor })\n'
         '    }\n',
-        '        Some(Self { instance, adapter, device, queue, compositor, surface: None })\n'
+        '        Some(Self { instance, adapter, device, queue, compositor, surface: None, surface_format: None })\n'
         '    }\n',
     ):
         fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer new with adapter)")
@@ -1363,6 +1417,18 @@ elif app == "filmcraft":
         '    pub fn bind_surface(&mut self, window_ptr: *mut std::ffi::c_void, w: u32, h: u32) -> bool {\n'
         '        if window_ptr.is_null() {\n'
         '            return false;\n'
+        '        }\n'
+        '        #[cfg(target_os = "android")]\n'
+        '        {\n'
+        '            #[link(name = "android")]\n'
+        '            extern "C" {\n'
+        '                fn ANativeWindow_setBuffersGeometry(window: *mut std::ffi::c_void, width: i32, height: i32, format: i32) -> i32;\n'
+        '            }\n'
+        '            unsafe {\n'
+        '                // 1 = WINDOW_FORMAT_RGBA_8888 in android/native_window.h\n'
+        '                let res = ANativeWindow_setBuffersGeometry(window_ptr, w as i32, h as i32, 1);\n'
+        '                log::info!("ANativeWindow_setBuffersGeometry({w}x{h}, format=RGBA_8888) = {res}");\n'
+        '            }\n'
         '        }\n'
         '        let non_null = match std::ptr::NonNull::new(window_ptr) {\n'
         '            Some(p) => p,\n'
@@ -1409,6 +1475,7 @@ elif app == "filmcraft":
         '        }\n'
         '        log::info!("ExportRenderer successfully configured hardware surface: {w}x{h} ({format:?})");\n'
         '        self.surface = Some(surface);\n'
+        '        self.surface_format = Some(format);\n'
         '        true\n'
         '    }\n\n'
         '    pub fn render_to_surface(\n'
@@ -1420,9 +1487,10 @@ elif app == "filmcraft":
         '        sources: &dyn SourceProvider,\n'
         '    ) -> Option<bool> {\n'
         '        let surface = self.surface.as_ref()?;\n'
+        '        let format = self.surface_format?;\n'
         '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
         '        match &plan {\n'
-        '            FramePlan::Layers { .. } => {\n'
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
         '                if device_failed() {\n'
         '                    return None;\n'
         '                }\n'
@@ -1435,7 +1503,7 @@ elif app == "filmcraft":
         '                    }\n'
         '                };\n'
         '                let view = surface_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());\n'
-        '                self.compositor.render_to_view(&plan, Some(&prep), &view)?;\n'
+        '                self.compositor.render_to_view(&plan, Some(&prep), &view, format)?;\n'
         '                self.queue.present(surface_tex);\n'
         '                if device_failed() {\n'
         '                    return None;\n'
@@ -1443,7 +1511,7 @@ elif app == "filmcraft":
         '                timing::add_frame();\n'
         '                Some(true)\n'
         '            }\n'
-        '            FramePlan::Image(_) | FramePlan::Composite { .. } => None,\n'
+        '            FramePlan::Image(_) => None,\n'
         '        }\n'
         '    }\n\n'
         '    pub fn render_rgba8(\n'
@@ -5896,6 +5964,66 @@ python3 "$ROOT/lib/android_project.py" "$ROOT" "$ANDROID_DIR" "$APP" "$APP_VERSI
 # MIN_SDK feeds cargo-ndk's --platform below and must match the APK's minSdk.
 # shellcheck source=/dev/null
 source "$ANDROID_DIR/.artcraft-gradle.properties"
+
+if [[ "$APP" == "filmcraft" ]]; then
+    echo "  -> pre-fetching Cargo dependencies and patching wgpu for Adreno Vulkan swapchain support"
+    cargo fetch --manifest-path "$ANDROID_DIR/Cargo.toml" || true
+    python3 - <<'PY'
+from pathlib import Path
+import os, stat
+
+cargo_home = Path(os.environ.get("CARGO_HOME", os.path.expanduser("~/.cargo")))
+search_dirs = [cargo_home / "registry" / "src", Path.home() / ".cargo" / "registry" / "src"]
+
+for base in search_dirs:
+    if not base.exists():
+        continue
+    # 1. Patch wgpu-hal swapchain latency calculation
+    for p in base.glob("**/wgpu-hal-*/src/vulkan/swapchain/native.rs"):
+        try:
+            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            txt = p.read_text()
+            old = "maximum_frame_latency: (caps.min_image_count - 1)..=(max_image_count - 1)"
+            if old in txt:
+                new = (
+                    "maximum_frame_latency: {\n"
+                    "                let min_lat = caps.min_image_count.saturating_sub(1);\n"
+                    "                let max_lat = if max_image_count == 0 { min_lat.max(2) } else { max_image_count.saturating_sub(1) };\n"
+                    "                let (lo, hi) = if min_lat <= max_lat { (min_lat, max_lat) } else { (max_lat, min_lat) };\n"
+                    "                lo..=hi\n"
+                    "            }"
+                )
+                p.write_text(txt.replace(old, new))
+                print(f"  -> patched wgpu-hal swapchain latency in {p.name}")
+        except Exception as e:
+            print(f"  -> note: wgpu-hal patch ({p.name}): {e}")
+
+    # 2. Patch wgpu-core clamp panic guard
+    for p in base.glob("**/wgpu-core-*/src/device/resource.rs"):
+        try:
+            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            txt = p.read_text()
+            old = (
+                "                let maximum_frame_latency = config.desired_maximum_frame_latency.clamp(\n"
+                "                    *caps.maximum_frame_latency.start(),\n"
+                "                    *caps.maximum_frame_latency.end(),\n"
+                "                );"
+            )
+            if old in txt:
+                new = (
+                    "                let max_lat_lo = *caps.maximum_frame_latency.start();\n"
+                    "                let max_lat_hi = (*caps.maximum_frame_latency.end()).max(max_lat_lo);\n"
+                    "                let maximum_frame_latency = config.desired_maximum_frame_latency.clamp(\n"
+                    "                    max_lat_lo,\n"
+                    "                    max_lat_hi,\n"
+                    "                );"
+                )
+                p.write_text(txt.replace(old, new))
+                print(f"  -> patched wgpu-core clamp guard in {p.name}")
+        except Exception as e:
+            print(f"  -> note: wgpu-core patch ({p.name}): {e}")
+PY
+fi
 
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"

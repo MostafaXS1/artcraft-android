@@ -325,11 +325,15 @@ impl MediaCodecEncoder {
             let native_win = if surface_mode {
                 let win = codec.create_input_surface()
                     .map_err(|e| format!("AMediaCodec_createInputSurface failed: {e:?}"))?;
-                let _ = win.set_buffers_geometry(
+                if let Err(e) = win.set_buffers_geometry(
                     w as i32,
                     h as i32,
                     Some(HardwareBufferFormat::R8G8B8A8_UNORM),
-                );
+                ) {
+                    log::warn!("win.set_buffers_geometry error: {e:?}");
+                } else {
+                    log::info!("win.set_buffers_geometry({w}x{h}, RGBA_8888) succeeded");
+                }
                 Some(win)
             } else {
                 None
