@@ -8,7 +8,7 @@ Add an in-app Gemini copilot to FigCraft on Android. A prompt such as "give this
 
 ## Confirmed integration points
 
-- The Android builder currently auto-generates the FigCraft NativeActivity launcher. A custom adapter is not required just to expose the existing FigCraft engine. The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72).
+- The Android builder currently auto-generates the FigCraft NativeActivity launcher. A custom adapter is not required just to expose the existing FigCraft engine. The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72). The generator now copies `templates/android/figcraft_control_bridge.rs` into the launcher and injects its drain hook before `FigApp::ui` (generator version 72).
 - FigCraft's UI is `figcraft-ui-egui`; its app state is `FigApp` in `crates/ui-egui/src/lib.rs`.
 - `FigApp::run(id, params)` in `crates/ui-egui/src/app/commands.rs` routes commands through the same engine used by the UI.
 - `figcraft_engine::cmd::all_commands()`, `find_command()`, and `refuse_unknown_params()` expose the command registry and parameter validation.
