@@ -366,7 +366,7 @@ fn write_http_with_session(
 ) -> std::io::Result<()> {
     write!(
         stream,
-        "HTTP/1.1 {status}\\r\\nContent-Type: {content_type}\\r\\nContent-Length: {}\\r\\nMcp-Session-Id: {session_id}\\r\\nConnection: close\\r\\nCache-Control: no-store\\r\\n\\r\\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nMcp-Session-Id: {session_id}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
         body.len()
     )?;
     stream.write_all(body)?;
@@ -401,7 +401,7 @@ fn handle_http(
             Ok(None) => return Ok(()),
             Err(_) => return write_http(stream, "431 Request Header Fields Too Large", "text/plain", b"headers too large"),
         };
-        if line == "\\r\\n" || line == "\\n" { break; }
+        if line == "\r\n" || line == "\n" { break; }
         let Some((name, value)) = line.split_once(':') else {
             return write_http(stream, "400 Bad Request", "text/plain", b"malformed HTTP header");
         };
