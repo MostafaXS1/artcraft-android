@@ -1452,6 +1452,13 @@ elif app == "filmcraft":
     # 17. Bind surface in Exporter::set_up and use step_surface_batch for zero-copy hardware encoding.
     if fix(
         "crates/export/src/job.rs",
+        '        let venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
+        '        let mut venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter let mut venc in set_up)")
+
+    if fix(
+        "crates/export/src/job.rs",
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
         '        Ok(Self {\n',
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
