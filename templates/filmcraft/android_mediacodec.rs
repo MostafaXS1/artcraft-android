@@ -22,6 +22,7 @@ use filmcraft_export::{
 };
 use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
+use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::media::media_codec::{
     DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection,
 };
@@ -238,6 +239,9 @@ pub struct MediaCodecEncoder {
     rate: FrameRate,
     timescale: u32,
     duration: u32,
+    bitrate_kbps: u32,
+    key_interval_sec: i32,
+    cbr: bool,
     nv12: Vec<u8>,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
@@ -255,6 +259,7 @@ impl MediaCodecEncoder {
             .filter(|k| *k > 0)
             .map(|k| (f64::from(k) / fps).round().max(1.0) as i32)
             .unwrap_or(2);
+        let cbr = s.bitrate_mode == BitrateMode::Cbr;
 
         let make_format = |surface_mode: bool, with_operating_rate: bool| {
             let mut format = MediaFormat::new();
@@ -267,7 +272,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
-            format.set_i32("bitrate-mode", if s.bitrate_mode == BitrateMode::Cbr { 2 } else { 1 });
+            format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
                 format.set_f32("operating-rate", 1000.0);
@@ -294,7 +299,11 @@ impl MediaCodecEncoder {
             let native_win = if surface_mode {
                 let win = codec.create_input_surface()
                     .map_err(|e| format!("AMediaCodec_createInputSurface failed: {e:?}"))?;
-                let _ = win.set_buffers_geometry(w as i32, h as i32, None);
+                let _ = win.set_buffers_geometry(
+                    w as i32,
+                    h as i32,
+                    Some(HardwareBufferFormat::R8G8B8A8_UNORM),
+                );
                 Some(win)
             } else {
                 None
@@ -354,12 +363,71 @@ impl MediaCodecEncoder {
             rate,
             timescale,
             duration,
+            bitrate_kbps: kbps,
+            key_interval_sec,
+            cbr,
             nv12: Vec::new(),
             sps: None,
             pps: None,
             eos_seen: false,
             ready: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// Reinitialize the hardware encoder in buffer mode (Phase A) if surface mode binding fails
+    /// or if byte buffers need to be encoded.
+    pub fn fallback_to_buffer(&mut self) -> bool {
+        if self.surface.is_none() {
+            return true;
+        }
+        log::warn!("Switching MediaCodec encoder from surface mode to buffer mode fallback");
+        let _ = self.codec.stop();
+        self.surface = None;
+        let fps = f64::from(self.timescale) / f64::from(self.duration);
+        let kbps = self.bitrate_kbps;
+        let cbr = self.cbr;
+        let key_interval_sec = self.key_interval_sec;
+        let (w, h) = (self.w, self.h);
+        let make_format = |with_operating_rate: bool| {
+            let mut format = MediaFormat::new();
+            format.set_str("mime", "video/avc");
+            format.set_i32("width", w as i32);
+            format.set_i32("height", h as i32);
+            format.set_i32("color-format", 21); // COLOR_FormatYUV420SemiPlanar
+            format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
+            format.set_i32("frame-rate", fps.round().max(1.0) as i32);
+            format.set_i32("i-frame-interval", key_interval_sec);
+            format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
+            if with_operating_rate {
+                format.set_i32("priority", 0);
+                format.set_f32("operating-rate", 1000.0);
+            }
+            format
+        };
+        let try_buffer = |with_op: bool| -> std::result::Result<MediaCodec, String> {
+            let codec = MediaCodec::from_encoder_type("video/avc")
+                .ok_or_else(|| "MediaCodec::from_encoder_type failed".to_string())?;
+            let fmt = make_format(with_op);
+            codec.configure(&fmt, None, MediaCodecDirection::Encoder)
+                .map_err(|e| format!("configure failed: {e:?}"))?;
+            codec.start()
+                .map_err(|e| format!("start failed: {e:?}"))?;
+            Ok(codec)
+        };
+        let new_codec = match try_buffer(true).or_else(|_| try_buffer(false)) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("MediaCodec failed to reinit in buffer mode: {e}");
+                return false;
+            }
+        };
+        if let Ok(infmt) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| new_codec.input_format())) {
+            self.stride = infmt.i32("stride").filter(|&s| s > 0).map(|s| s as usize).unwrap_or(self.w as usize);
+            self.slice_height = infmt.i32("slice-height").filter(|&h| h > 0).map(|h| h as usize).unwrap_or(self.h as usize);
+        }
+        self.codec = new_codec;
+        log::info!("MediaCodec successfully fell back to buffer mode (stride={}, slice_height={})", self.stride, self.slice_height);
+        true
     }
 
     fn fallback_sps(w: u32, h: u32) -> Vec<u8> {
@@ -477,6 +545,10 @@ impl VideoEncoder for MediaCodecEncoder {
         self.surface.as_ref().map(|w| w.ptr().as_ptr() as *mut std::ffi::c_void)
     }
 
+    fn fallback_to_buffer(&mut self) -> bool {
+        self.fallback_to_buffer()
+    }
+
     fn sample_entry(&self) -> SampleEntry {
         let (w, h) = (self.w.min(u32::from(u16::MAX)) as u16, self.h.min(u32::from(u16::MAX)) as u16);
         let sps_list = match &self.sps {
@@ -536,7 +608,9 @@ impl VideoEncoder for MediaCodecEncoder {
         }
 
         if self.surface.is_some() {
-            return Err(ExportError::Encode("Hardware encoder configured for surface rendering cannot accept CPU byte buffers".into()));
+            if !self.fallback_to_buffer() {
+                return Err(ExportError::Encode("Hardware encoder configured for surface rendering cannot accept CPU byte buffers".into()));
+            }
         }
 
         if f.hdr.is_some() {
