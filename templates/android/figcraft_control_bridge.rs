@@ -109,6 +109,28 @@ fn is_read_only_method(method: &str) -> bool {
         "ui.render" | "ui.screenshot" | "window.list")
 }
 
+fn command_uses_file_access(command: &str, params: &Value, depth: usize) -> bool {
+    if command.starts_with("file.") {
+        return true;
+    }
+    if command != "command.batch" {
+        return false;
+    }
+    if depth >= 8 {
+        return true;
+    }
+    let Some(commands) = params.get("commands").and_then(Value::as_array) else {
+        return true;
+    };
+    commands.iter().any(|step| {
+        let Some(command) = step.get("command").and_then(Value::as_str) else {
+            return true;
+        };
+        let params = step.get("params").unwrap_or(&Value::Null);
+        command_uses_file_access(command, params, depth + 1)
+    })
+}
+
 struct ApprovalRequest {
     id: u64,
     command: String,
@@ -245,8 +267,11 @@ impl Backend for LiveBackend {
         if method == "engine.execute" {
             let command = params.get("command").and_then(Value::as_str)
                 .ok_or("MCP engine.execute is missing a command name")?;
+            let command_params = params.get("params").cloned().unwrap_or(Value::Null);
+            if command_uses_file_access(command, &command_params, 0) {
+                return Err("MCP file access is disabled in the Android bridge".into());
+            }
             if command != "comment.list" {
-                let command_params = params.get("params").cloned().unwrap_or(Value::Null);
                 request_mutation_approval(command, command_params)?;
             }
         } else if !is_read_only_method(method) {
@@ -571,5 +596,24 @@ mod tool_filter_tests {
             .map(|tools| tools.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect())
             .unwrap_or_default();
         assert_eq!(names, vec!["inspect_document", "run_command"]);
+    }
+}
+
+#[cfg(test)]
+mod file_policy_tests {
+    use super::*;
+
+    #[test]
+    fn blocks_file_commands_even_when_nested_in_a_batch() {
+        assert!(command_uses_file_access("file.open", &Value::Null, 0));
+        assert!(command_uses_file_access(
+            "command.batch",
+            &serde_json::json!({"commands": [
+                {"command": "node.create", "params": {}},
+                {"command": "file.save", "params": {"path": "/tmp/out.figcraft"}}
+            ]}),
+            0
+        ));
+        assert!(!command_uses_file_access("node.create", &Value::Null, 0));
     }
 }
