@@ -126,8 +126,8 @@ fn command_uses_file_access(command: &str, params: &Value, depth: usize) -> bool
         let Some(command) = step.get("command").and_then(Value::as_str) else {
             return true;
         };
-        let params = step.get("params").unwrap_or(&Value::Null);
-        command_uses_file_access(command, params, depth + 1)
+        let params = step.get("params").cloned().unwrap_or(Value::Null);
+        command_uses_file_access(command, &params, depth + 1)
     })
 }
 
