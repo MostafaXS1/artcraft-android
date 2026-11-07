@@ -3065,6 +3065,7 @@ intent_filter = {intent_filter_value}
 name = "android.permission.RECORD_AUDIO"
 """
     mcp_dep = 'figcraft-mcp = { path = "../../crates/mcp" }' if app == "figcraft" else ""
+    gemini_dep = 'reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots"] }' if app == "figcraft" else ""
 
     manifest = f'''[package]
 name = "{app}-android"
@@ -3079,6 +3080,7 @@ crate-type = ["cdylib"]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
 {mcp_dep}
+{gemini_dep}
 eframe = {{ workspace = true, default-features = false, features = {eframe_features} }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
