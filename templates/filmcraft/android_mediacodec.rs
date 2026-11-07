@@ -144,92 +144,115 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
     let y_len = w * h;
     let uv_len = (w.div_ceil(2)) * (h.div_ceil(2)) * 2;
     let total = y_len + uv_len;
-    out.resize(total, 0);
+    if out.capacity() < total {
+        out.reserve(total - out.len());
+    }
+    // SAFETY: Every byte of y_plane and uv_plane is written by the threads below.
+    unsafe {
+        out.set_len(total);
+    }
 
     let (y_plane, uv_plane) = out.split_at_mut(y_len);
-
     let half_h = h / 2;
     let half_w = w / 2;
 
-    for y in 0..half_h {
-        let row0 = y * 2;
-        let row1 = row0 + 1;
-        let row0_src = match rgba.get(row0 * w * 4..(row0 + 1) * w * 4) {
-            Some(s) => s,
-            None => continue,
-        };
-        let row1_src = if row1 < h {
-            rgba.get(row1 * w * 4..(row1 + 1) * w * 4).unwrap_or(row0_src)
-        } else {
-            row0_src
-        };
-
-        let y_row0 = match y_plane.get_mut(row0 * w..(row0 + 1) * w) {
-            Some(s) => s,
-            None => continue,
-        };
-        let uv_row = match uv_plane.get_mut(y * w..(y + 1) * w) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        for x in 0..half_w {
-            let px00 = &row0_src[x * 8..x * 8 + 4];
-            let px01 = &row0_src[x * 8 + 4..x * 8 + 8];
-            let px10 = &row1_src[x * 8..x * 8 + 4];
-            let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
-
-            let r00 = px00[0] as i32;
-            let g00 = px00[1] as i32;
-            let b00 = px00[2] as i32;
-
-            let r01 = px01[0] as i32;
-            let g01 = px01[1] as i32;
-            let b01 = px01[2] as i32;
-
-            let r10 = px10[0] as i32;
-            let g10 = px10[1] as i32;
-            let b10 = px10[2] as i32;
-
-            let r11 = px11[0] as i32;
-            let g11 = px11[1] as i32;
-            let b11 = px11[2] as i32;
-
-            // BT.709 integer formula scaled by 256
-            y_row0[x * 2] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
-            y_row0[x * 2 + 1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
-
-            let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
-            let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
-            let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
-
-            let u_val = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-            let v_val = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-
-            uv_row[x * 2] = u_val;
-            uv_row[x * 2 + 1] = v_val;
-        }
-
-        if row1 < h {
-            if let Some(y_row1) = y_plane.get_mut(row1 * w..(row1 + 1) * w) {
-                for x in 0..half_w {
-                    let px10 = &row1_src[x * 8..x * 8 + 4];
-                    let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
-
-                    let r10 = px10[0] as i32;
-                    let g10 = px10[1] as i32;
-                    let b10 = px10[2] as i32;
-
-                    let r11 = px11[0] as i32;
-                    let g11 = px11[1] as i32;
-                    let b11 = px11[2] as i32;
-
-                    y_row1[x * 2] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
-                    y_row1[x * 2 + 1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
-                }
-            }
-        }
+    if half_h == 0 || half_w == 0 {
+        return;
     }
+
+    let num_threads = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .clamp(2, 8);
+    let chunk_size = half_h.div_ceil(num_threads);
+
+    std::thread::scope(|s| {
+        for t in 0..num_threads {
+            let start_y = t * chunk_size;
+            let end_y = (start_y + chunk_size).min(half_h);
+            if start_y >= end_y {
+                break;
+            }
+
+            let num_pairs = end_y - start_y;
+            let rgba_chunk = match rgba.get(start_y * 8 * w..end_y * 8 * w) {
+                Some(slice) => slice,
+                None => continue,
+            };
+            let y_chunk = match y_plane.get_mut(start_y * 2 * w..end_y * 2 * w) {
+                Some(slice) => slice,
+                None => continue,
+            };
+            let uv_chunk = match uv_plane.get_mut(start_y * w..end_y * w) {
+                Some(slice) => slice,
+                None => continue,
+            };
+
+            s.spawn(move || {
+                for y in 0..num_pairs {
+                    let row0_src = match rgba_chunk.get(y * 8 * w..(y * 8 + 4) * w) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let row1_src = match rgba_chunk.get((y * 8 + 4) * w..(y + 1) * 8 * w) {
+                        Some(s) => s,
+                        None => row0_src,
+                    };
+
+                    let y_row0 = match y_chunk.get_mut(y * 2 * w..(y * 2 + 1) * w) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let y_row1 = match y_chunk.get_mut((y * 2 + 1) * w..(y * 2 + 2) * w) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let uv_row = match uv_chunk.get_mut(y * w..(y + 1) * w) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    for x in 0..half_w {
+                        let px00 = &row0_src[x * 8..x * 8 + 4];
+                        let px01 = &row0_src[x * 8 + 4..x * 8 + 8];
+                        let px10 = &row1_src[x * 8..x * 8 + 4];
+                        let px11 = &row1_src[x * 8 + 4..x * 8 + 8];
+
+                        let r00 = px00[0] as i32;
+                        let g00 = px00[1] as i32;
+                        let b00 = px00[2] as i32;
+
+                        let r01 = px01[0] as i32;
+                        let g01 = px01[1] as i32;
+                        let b01 = px01[2] as i32;
+
+                        let r10 = px10[0] as i32;
+                        let g10 = px10[1] as i32;
+                        let b10 = px10[2] as i32;
+
+                        let r11 = px11[0] as i32;
+                        let g11 = px11[1] as i32;
+                        let b11 = px11[2] as i32;
+
+                        // BT.709 integer formula scaled by 256
+                        y_row0[x * 2] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                        y_row0[x * 2 + 1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+                        y_row1[x * 2] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                        y_row1[x * 2 + 1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+
+                        let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                        let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                        let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                        let u_val = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                        let v_val = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+
+                        uv_row[x * 2] = u_val;
+                        uv_row[x * 2 + 1] = v_val;
+                    }
+                }
+            });
+        }
+    });
 }
 
 pub struct MediaCodecEncoder {

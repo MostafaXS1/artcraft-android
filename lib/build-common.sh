@@ -1078,6 +1078,38 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
+    # 12. Parallelize GPU float accumulator readback across Rayon threads.
+    if fix(
+        "crates/gpu/src/lib.rs",
+        '        let converted = out.chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {\n',
+        '        let converted = out.par_chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {\n',
+    ):
+        fixed.append("crates/gpu/src/lib.rs (parallelize map_accumulator with Rayon)")
+
+    # 13. Fast contiguous luma extraction for tightly-packed 4K frames in biplanar::to_frame.
+    if fix(
+        "crates/platform/src/biplanar.rs",
+        '    let data = if bps == 1 {\n'
+        '        let mut yp = pool::take_u8(w * h);\n'
+        '        for y in 0..h {\n'
+        '            yp.extend_from_slice(row(src.luma, src.stride, oy + y, ox, w)?);\n'
+        '        }\n',
+        '    let data = if bps == 1 {\n'
+        '        let mut yp = pool::take_u8(w * h);\n'
+        '        if ox == 0 && oy == 0 && stride == w && src.rows >= h {\n'
+        '            if let Some(luma_slice) = src.luma.get(..w * h) {\n'
+        '                yp.extend_from_slice(luma_slice);\n'
+        '            }\n'
+        '        }\n'
+        '        if yp.len() < w * h {\n'
+        '            yp.clear();\n'
+        '            for y in 0..h {\n'
+        '                yp.extend_from_slice(row(src.luma, src.stride, oy + y, ox, w)?);\n'
+        '            }\n'
+        '        }\n',
+    ):
+        fixed.append("crates/platform/src/biplanar.rs (fast contiguous luma copy)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
