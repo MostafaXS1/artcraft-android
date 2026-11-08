@@ -1519,7 +1519,7 @@ fn scaler_clear() {
 }
 
 #[cfg(target_os = "android")]
-extern "C" {
+unsafe extern "C" {
     fn dlopen(filename: *const std::os::raw::c_char, flag: std::os::raw::c_int) -> *mut std::ffi::c_void;
     fn dlsym(handle: *mut std::ffi::c_void, symbol: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
     fn dlclose(handle: *mut std::ffi::c_void) -> std::os::raw::c_int;
