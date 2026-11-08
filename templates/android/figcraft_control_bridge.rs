@@ -984,7 +984,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 /// remains available; this floating strip removes the need for keyboard shortcuts on phones.
 pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
     let screen = ctx.content_rect();
-    {
+    if app.session.doc().is_ok() {
         egui::Area::new(egui::Id::new("figcraft_android_touch_actions"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -104.0))
             .order(egui::Order::Foreground)
@@ -1050,7 +1050,7 @@ fn gemini_copilot_ui(ctx: &Context) {
         });
     if open {
         let screen = ctx.content_rect();
-        let panel_width = (screen.width() * 0.46).clamp(300.0, 480.0).min((screen.width() - 24.0).max(240.0));
+        let panel_width = (screen.width() * 0.58).clamp(300.0, 520.0).min((screen.width() - 24.0).max(240.0));
         let panel_height = (screen.height() - 24.0).max(180.0);
         let panel_pos = egui::pos2(
             (screen.max.x - panel_width - 12.0).max(screen.min.x + 12.0),
