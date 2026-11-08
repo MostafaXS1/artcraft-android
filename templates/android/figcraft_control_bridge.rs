@@ -899,15 +899,15 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
         let result = (|| -> Result<String, String> {
             let client = reqwest::blocking::Client::builder()
-                .connect_timeout(Duration::from_secs(15))
-                .timeout(Duration::from_secs(90))
+                .connect_timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(150))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
             let instruction = gemini_system_instruction(&role, &desired_output, &context);
             let body = serde_json::json!({
                 "systemInstruction": { "parts": [{ "text": instruction }] },
                 "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
-                "generationConfig": { "temperature": 0.7, "maxOutputTokens": 4096 }
+                "generationConfig": { "maxOutputTokens": 4096, "thinkingConfig": { "thinkingLevel": "LOW" } }
             });
             let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", api_key)
@@ -925,7 +925,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                     if error.is_connect() {
                         format!("Could not connect to Gemini (DNS/TLS/network): {details}")
                     } else if error.is_timeout() {
-                        format!("Gemini request timed out. Network detail: {details}")
+                        format!("Gemini could not finish within 150 seconds. Check internet access, DNS, VPN/private DNS, or firewall. Network detail: {details}")
                     } else if error.is_request() {
                         format!("Gemini request could not be sent: {details}")
                     } else {
