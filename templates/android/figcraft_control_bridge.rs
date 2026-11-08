@@ -985,12 +985,24 @@ fn gemini_copilot_ui(ctx: &Context) {
             }
         });
     if open {
+        let screen = ctx.content_rect();
+        let panel_width = (screen.width() * 0.46).clamp(300.0, 480.0).min((screen.width() - 24.0).max(240.0));
+        let panel_height = (screen.height() - 24.0).max(180.0);
+        let panel_pos = egui::pos2(
+            (screen.max.x - panel_width - 12.0).max(screen.min.x + 12.0),
+            screen.min.y + 12.0,
+        );
         egui::Window::new("Gemini Design Copilot")
             .open(&mut open)
-            .default_width(420.0)
-            .default_height(560.0)
+            .default_pos(panel_pos)
+            .default_width(panel_width)
+            .default_height(panel_height.min(560.0))
+            .max_size(egui::vec2((screen.width() - 24.0).max(240.0), panel_height))
             .resizable(true)
             .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height((panel_height - 32.0).max(140.0))
+                    .show(ui, |ui| {
                 ui.label("Configure Gemini for the task. Role and deliverable are required.");
                 ui.label("Gemini API key (kept in memory for this session only)");
                 ui.add(egui::TextEdit::singleline(&mut state.api_key).password(true).hint_text("Paste API key"));
@@ -1028,6 +1040,7 @@ fn gemini_copilot_ui(ctx: &Context) {
                 }
                 ui.separator();
                 ui.small("MVP: text recommendations only. Canvas inspection, action-plan validation, preview, Apply, and undo integration are not implemented yet. API key is not saved and will be lost when the app closes.");
+                    });
             });
     }
     state.open = open;
