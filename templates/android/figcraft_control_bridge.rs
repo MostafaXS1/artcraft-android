@@ -914,17 +914,17 @@ The user brief may include a live document snapshot and the exact command regist
 
 OUTPUT CONTRACT:
 Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
-{
+{{
   "summary": "Short analysis and intended result in Indonesian",
   "recommendations": ["Concise useful design observations"],
   "actions": [
-    {
+    {{
       "command": "exact registered FigCraft command id",
-      "params": {"ids": [existing numeric layer ids], "props": {"fill": "#202020"}},
+      "params": {{"ids": [existing numeric layer ids], "props": {{"fill": "#202020"}}}},
       "reason": "Why this change improves the design"
-    }
+    }}
   ]
-}
+}}
 For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."#)
 }
 
@@ -947,7 +947,7 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
         if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
         for id in ids {
             let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
-            if !document_json.contains(&format!("\\"id\\":{n}")) {
+            if !document_json.contains(&format!(r#""id":{n}"#)) {
                 return Err(format!("Layer {n} was not found in the inspected canvas"));
             }
         }
@@ -975,7 +975,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
         state.proposed_actions.clear();
     }
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
-        let result = (|| -> Result<String, String> {
+        let result = (|| -> Result<(String, Vec<Value>), String> {
             let client = reqwest::blocking::Client::builder()
                 .connect_timeout(Duration::from_secs(30))
                 .timeout(Duration::from_secs(150))
