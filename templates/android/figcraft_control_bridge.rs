@@ -1093,55 +1093,91 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 
 /// Compact Android touch controls for common editing actions. The native desktop toolbar
 /// remains available; this floating strip removes the need for keyboard shortcuts on phones.
+/// Compact Android touch controls for common editing actions.
+/// Portrait keeps a horizontal action strip; landscape switches to a vertical,
+/// touch-scrollable rail so every tool remains reachable on short displays.
 pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
     let screen = ctx.content_rect();
-    if app.session.doc().is_ok() {
-        egui::Area::new(egui::Id::new("figcraft_android_touch_actions"))
+    if app.session.doc().is_err() {
+        return;
+    }
+
+    let landscape = screen.width() > screen.height();
+    let area_id = egui::Id::new("figcraft_android_touch_actions");
+
+    let mut draw_controls = |ui: &mut egui::Ui| {
+        let has_selection = !app.session.selection().is_empty();
+        for (label, tool) in [
+            ("Move", "move"),
+            ("Hand", "hand"),
+            ("Frame", "frame"),
+            ("Rect", "rectangle"),
+            ("Ellipse", "ellipse"),
+            ("Text", "text"),
+            ("Pen", "pen"),
+            ("Comment", "comment"),
+        ] {
+            let width = if landscape { 84.0 } else { 58.0 };
+            if ui.add(egui::Button::new(label).min_size(egui::vec2(width, 40.0))).clicked() {
+                app.run("tool.set", serde_json::json!({"tool": tool}));
+            }
+        }
+
+        ui.separator();
+        for (label, command, needs_selection) in [
+            ("Undo", "edit.undo", false),
+            ("Redo", "edit.redo", false),
+            ("Copy", "edit.copy", true),
+            ("Cut", "edit.cut", true),
+            ("Duplicate", "edit.duplicate", true),
+            ("Delete", "edit.delete", true),
+            ("Group", "object.group", true),
+            ("Ungroup", "object.ungroup", true),
+        ] {
+            let width = if landscape { 84.0 } else { 58.0 };
+            if ui.add_enabled(
+                !needs_selection || has_selection,
+                egui::Button::new(label).min_size(egui::vec2(width, 40.0)),
+            ).clicked() {
+                figcraft_ui_egui::menus::invoke(app, command);
+            }
+        }
+
+        let width = if landscape { 84.0 } else { 58.0 };
+        if ui.add(egui::Button::new("Paste").min_size(egui::vec2(width, 40.0))).clicked() {
+            figcraft_ui_egui::menus::paste(app, None, None);
+        }
+        if ui.add(egui::Button::new("Actions").min_size(egui::vec2(width, 40.0))).clicked() {
+            figcraft_ui_egui::menus::toggle_palette(&mut app.ui);
+        }
+    };
+
+    if landscape {
+        egui::Area::new(area_id)
+            .anchor(egui::Align2::LEFT_CENTER, egui::vec2(8.0, 0.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(100.0);
+                    egui::ScrollArea::vertical()
+                        .max_height((screen.height() - 24.0).max(120.0))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| draw_controls(ui));
+                        });
+                });
+            });
+    } else {
+        egui::Area::new(area_id)
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -104.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     egui::ScrollArea::horizontal()
                         .max_width((screen.width() - 24.0).max(220.0))
+                        .auto_shrink([false, true])
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let has_selection = !app.session.selection().is_empty();
-                                for (label, tool) in [
-                                    ("Move", "move"),
-                                    ("Hand", "hand"),
-                                    ("Frame", "frame"),
-                                    ("Rect", "rectangle"),
-                                    ("Ellipse", "ellipse"),
-                                    ("Text", "text"),
-                                    ("Pen", "pen"),
-                                    ("Comment", "comment"),
-                                ] {
-                                    if ui.add(egui::Button::new(label).min_size(egui::vec2(58.0, 40.0))).clicked() {
-                                        app.run("tool.set", serde_json::json!({"tool": tool}));
-                                    }
-                                }
-                                ui.separator();
-                                for (label, command, needs_selection) in [
-                                    ("Undo", "edit.undo", false),
-                                    ("Redo", "edit.redo", false),
-                                    ("Copy", "edit.copy", true),
-                                    ("Cut", "edit.cut", true),
-                                    ("Duplicate", "edit.duplicate", true),
-                                    ("Delete", "edit.delete", true),
-                                    ("Group", "object.group", true),
-                                    ("Ungroup", "object.ungroup", true),
-                                ] {
-                                    if ui.add_enabled(!needs_selection || has_selection, egui::Button::new(label).min_size(egui::vec2(58.0, 40.0))).clicked() {
-                                        figcraft_ui_egui::menus::invoke(app, command);
-                                    }
-                                }
-                                if ui.add(egui::Button::new("Paste").min_size(egui::vec2(58.0, 40.0))).clicked() {
-                                    figcraft_ui_egui::menus::paste(app, None, None);
-                                }
-                                if ui.add(egui::Button::new("Actions").min_size(egui::vec2(68.0, 40.0))).clicked() {
-                                    figcraft_ui_egui::menus::toggle_palette(&mut app.ui);
-                                }
-                            });
+                            ui.horizontal(|ui| draw_controls(ui));
                         });
                 });
             });
