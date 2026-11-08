@@ -2067,7 +2067,7 @@ elif app == "filmcraft":
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
         '    fn step_surface_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n'
         '        let f = self.next;\n'
-        '        let batch_size = if cfg!(target_os = "android") { 16 } else { self.batch_len() };\n'
+        '        let batch_size = if cfg!(target_os = "android") { 64 } else { self.batch_len() };\n'
         '        let end = self.next.saturating_add(batch_size).min(self.f1);\n'
         '        if end <= f {\n'
         '            return Err(ExportError::Encode("internal: an empty batch was rendered".into()));\n'
@@ -2086,7 +2086,7 @@ elif app == "filmcraft":
         '            return Ok(Step::Pending);\n'
         '        }\n'
         '        let mut mixed = mixed.into_iter();\n'
-        '        let (tx, rx) = std::sync::mpsc::sync_channel::<(i64, filmcraft_render::plan::FramePlan)>(4);\n'
+        '        let (tx, rx) = std::sync::mpsc::sync_channel::<(i64, filmcraft_render::plan::FramePlan)>(8);\n'
         '        let pipe = self.pipe.clone();\n'
         '        let f0 = self.f0;\n'
         '        let pipe_w = pipe.w;\n'
@@ -6452,6 +6452,25 @@ for base in search_dirs:
                 print(f"  -> patched wgpu-core clamp guard in {p.name}")
         except Exception as e:
             print(f"  -> note: wgpu-core patch ({p.name}): {e}")
+
+    # 3. Patch wgpu-hal to enable VK_ANDROID_external_memory_android_hardware_buffer
+    for p in base.glob("**/wgpu-hal-*/src/vulkan/adapter.rs"):
+        try:
+            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            txt = p.read_text()
+            old = "if self.supports_extension(ext::external_memory_dma_buf::NAME) {"
+            if old in txt and "VK_ANDROID_external_memory_android_hardware_buffer" not in txt:
+                new = (
+                    "const ANDROID_HWB_EXT: &std::ffi::CStr = c\"VK_ANDROID_external_memory_android_hardware_buffer\";\n"
+                    "        if self.supports_extension(ANDROID_HWB_EXT) {\n"
+                    "            extensions.push(ANDROID_HWB_EXT);\n"
+                    "        }\n"
+                    "        if self.supports_extension(ext::external_memory_dma_buf::NAME) {"
+                )
+                p.write_text(txt.replace(old, new, 1))
+                print(f"  -> patched wgpu-hal android_hardware_buffer extension in {p.name}")
+        except Exception as e:
+            print(f"  -> note: wgpu-hal adapter patch ({p.name}): {e}")
 PY
 fi
 
