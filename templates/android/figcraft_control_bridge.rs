@@ -918,7 +918,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     {
         let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.busy = true;
-        state.status = "Connecting to Gemini…".into();
+        state.status = "Reading live canvas…".into();
         state.response.clear();
     }
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
@@ -931,7 +931,11 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
             let canvas_snapshot = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 120000}))
                 .map(|snapshot| serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".into()))
                 .unwrap_or_else(|error| format!("Canvas snapshot unavailable: {error}"));
-            let live_context = format!("{context}\\n\\nLIVE FIGCRAFT CANVAS SNAPSHOT (read-only):\\n{canvas_snapshot}");
+            let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT (read-only):\n{canvas_snapshot}");
+            {
+                let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.status = "Canvas context ready. Sending request to Gemini…".into();
+            }
             let instruction = gemini_system_instruction(&role, &desired_output, &live_context);
             let body = serde_json::json!({
                 "systemInstruction": { "parts": [{ "text": instruction }] },
