@@ -20,12 +20,15 @@ flowchart TD
     
     Stage25["Stage 2.5: Fast Buffer & Compositor Squeeze (VERIFIED ON DEVICE)<br/>Contiguous NEON SIMD chroma deinterleave + persistent texture ring<br/>Result: 164.0s (2.73 min, 22.51 FPS)"]
 
-    PhaseB2["Stage 3: Phase B2 — End-to-End Vulkan Gralloc (PLANNED NEXT)<br/>Zero-copy Vulkan import (VK_ANDROID_external_memory)<br/>Direct Adreno UBWC sampling without CPU readback<br/>Target: ~25–35s export (CapCut Parity)"]
+    PathA["Stage 2.7: Path A — Async Lookahead & Prefetch Pipeline (IN PROGRESS)<br/>Async prefetch worker + MediaCodec queue saturation + direct NV12 Rg8Unorm<br/>Target: ~60–75s (~50–60 FPS)"]
+
+    PhaseB2["Stage 3: Phase B2 — End-to-End Vulkan Gralloc (FINAL STAGE)<br/>Zero-copy Vulkan import (VK_ANDROID_external_memory)<br/>Direct Adreno UBWC sampling without CPU readback<br/>Target: ~25–35s export (CapCut Parity)"]
 
     Current --> Path1
     Path1 --> Path2
     Path2 --> Stage25
-    Stage25 --> PhaseB2
+    Stage25 --> PathA
+    PathA --> PhaseB2
 ```
 
 ---
@@ -170,3 +173,53 @@ When `MediaCodec` is configured with an `ANativeWindow` surface from `AImageRead
   - GPU Compositor: Zero-allocation persistent texture ring (warm pool in VRAM).
   - Hardware Encoder: Zero-copy Adreno Vulkan swapchain surface render (`AMediaCodec_createInputSurface`).
   - 100% color accuracy, perfect preview playback, no "MEDIA UNREADABLE" errors.
+
+---
+
+## Stage 2.7: Path A — Asynchronous Lookahead Pipeline & Prefetch Decoupling
+
+### Core Principle: Silicon Parallelism
+Snapdragon 870 features physically independent hardware silicon blocks:
+1. **Venus VDEC**: Hardware video decoding engine.
+2. **Kryo 585 CPU**: 8-core application processor (1x Prime @ 3.2GHz, 3x Gold @ 2.42GHz, 4x Silver @ 1.8GHz).
+3. **Adreno 650 GPU**: Vulkan graphics compositing engine.
+4. **Venus VENC**: Hardware video encoding engine.
+
+In the current Stage 2.5 baseline, the export loop executes **serially on a single thread**:
+```
+[Frame N Decode: 20ms] -> [Upload & Composite: 18ms] -> [Encode: 2.3ms] => 40.3 ms/frame (24.8 FPS -> 164s)
+```
+While Adreno 650 renders, Venus VDEC is completely idle. While Venus VDEC decodes, Adreno 650 is completely idle.
+
+### Path A Architecture (Target: ~60–75s / ~50–60 FPS)
+```
+Thread 1 (Decoder Prefetch Worker):
+  [Extract & Decode N+1] -> [Extract & Decode N+2] -> [Extract & Decode N+3] -> (Bounded Queue: 4–8 frames)
+
+Thread 2 (Main Export & Compositor):
+  [Take N from Queue] -> [Upload NV12] -> [GPU Composite & Vulkan Surface Present]
+```
+Wall-clock time drops from $\text{Sum}(\text{Decode}, \text{Composite}) \approx 40\text{ ms}$ to $\max(\text{Decode}, \text{Composite}) \approx 18\text{–}20\text{ ms/frame}$.
+$$3,692\text{ frames} \times 18\text{ ms} \approx 66.4\text{ seconds total export time!}$$
+
+### Key Components of Path A:
+1. **Asynchronous Prefetch Worker & Bounded Queue**:
+   - Spawn a dedicated background decoder worker thread.
+   - Bounded channel (`crossbeam_channel` or `std::sync::mpsc`) with a depth of 4 to 8 frames to prevent RAM pressure while keeping Venus VDEC continuously fed.
+   - Decouples file I/O (`AMediaExtractor`) and decoder latency from GPU frame presentation.
+2. **Direct NV12 Two-Plane Texture Upload (`Rg8Unorm`)**:
+   - Skip CPU `deinterleave_uv` entirely.
+   - Upload Y plane as `TextureFormat::R8Unorm` ($W \times H$).
+   - Upload interleaved UV plane directly as `TextureFormat::Rg8Unorm` ($W/2 \times H/2$, 2 bytes/texel).
+   - Reduces GPU upload draw calls from 3 to 2, saving CPU cycles and bus memory bandwidth on unified LPDDR5.
+3. **Pipelined Saturation**:
+   - MediaCodec input and output buffers are drained concurrently in a non-blocking asynchronous loop rather than synchronous lockstep ping-pong.
+
+---
+
+## Stage 3: Phase B2 — End-to-End Vulkan Gralloc Bridge (Final Stage, CapCut Parity)
+
+Following successful verification of Path A (~60–75s), Phase B2 will bridge the decoded `AHardwareBuffer` directly into Vulkan via `VK_ANDROID_external_memory_android_hardware_buffer`:
+- Zero CPU memory touch (0 ms texture upload).
+- Direct Adreno 650 UBWC hardware sampling in GPU shaders.
+- Target export time: **~25–35 seconds (105–140 FPS)**.
