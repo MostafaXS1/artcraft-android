@@ -1009,10 +1009,33 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
         let result = (|| -> Result<(String, Vec<Value>), String> {
             let client = reqwest::blocking::Client::builder()
-                .connect_timeout(Duration::from_secs(30))
-                .timeout(Duration::from_secs(100))
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(75))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
+
+            // Probe DNS/TCP/TLS separately before reading the canvas or sending a
+            // large POST. A fast HTTP response (even 404) proves transport works.
+            {
+                let probe = reqwest::blocking::Client::builder()
+                    .connect_timeout(Duration::from_secs(10))
+                    .timeout(Duration::from_secs(12))
+                    .build()
+                    .map_err(|_| "Could not initialize Gemini connectivity diagnostics".to_owned())?;
+                probe.get("https://generativelanguage.googleapis.com/")
+                    .send()
+                    .map_err(|error| {
+                        let details = error.to_string();
+                        if error.is_connect() {
+                            format!("Gemini host connection failed before API request (DNS/TCP/TLS): {details}")
+                        } else if error.is_timeout() {
+                            format!("Gemini host preflight timed out after 12 seconds (DNS/TCP/TLS). Check Android Private DNS, VPN, or network filtering: {details}")
+                        } else {
+                            format!("Gemini host preflight failed: {details}")
+                        }
+                    })?;
+            }
+
             // Bound live context for mobile networks; the first editing version only needs node.set.
             let canvas_document = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 48000}))?;
             let command_list = call_live_read("engine.commands", serde_json::json!({}))?;
@@ -1056,7 +1079,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                     if error.is_connect() {
                         format!("Could not connect to Gemini (DNS/TLS/network): {details}")
                     } else if error.is_timeout() {
-                        format!("Gemini did not respond within 100 seconds. The request context is now bounded; check connection stability, DNS/private DNS, VPN, or retry. Network detail: {details}")
+                        format!("Gemini API request timed out after 75 seconds. Host preflight succeeded, so inspect API response latency, quota, or payload size. Network detail: {details}")
                     } else if error.is_request() {
                         format!("Gemini request could not be sent: {details}")
                     } else {
