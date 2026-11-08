@@ -908,9 +908,23 @@ Adapt your expertise, terminology, workflow, depth, and output format to the sel
 
 For visual design tasks, assess composition, hierarchy, alignment, spacing, contrast, consistency, readability, accessibility, and usability. Recommend contextual color palettes with exact HEX values and semantic roles where useful. Explain color psychology as a design heuristic, not a universal scientific guarantee. Use the Golden Ratio (1:1.618) only when it improves proportions or hierarchy; calculate dimensions from supplied canvas dimensions and never force it where usability or platform conventions matter. Give practical typography, asset dimensions, aspect ratios, and responsive guidance when relevant. Offer a coherent creative alternative when useful. Critique weak choices constructively; do not flatter by default.
 
-FIGCRAFT CANVAS CONTEXT:
-A live, read-only snapshot of the active document may be included in the user's brief. Treat it as the source of truth for the current page, selected layers, geometry, fills, typography, and hierarchy. Distinguish data present in the snapshot from assumptions. You may analyze the actual canvas when this snapshot is present. You cannot apply edits yet: never claim that you changed the document. When asked to make changes, provide a concrete proposed change plan with target layer IDs, property names, and exact values, but do not invent IDs or command names.
-Return the format best suited to the requested deliverable. Avoid generic filler."#)
+FIGCRAFT LIVE CONTEXT:
+The user brief may include a live document snapshot and the exact command registry from this FigCraft build. Treat both as authoritative. Only target layer IDs present in the snapshot and command IDs present in the registry. Do not invent IDs, properties, or commands. Distinguish facts from assumptions.
+
+OUTPUT CONTRACT:
+Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
+{
+  "summary": "Short analysis and intended result in Indonesian",
+  "recommendations": ["Concise useful design observations"],
+  "actions": [
+    {
+      "command": "exact registered FigCraft command id",
+      "params": {"ids": [existing numeric layer ids], "props": {"fill": "#202020"}},
+      "reason": "Why this change improves the design"
+    }
+  ]
+}
+For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."#)
 }
 
 fn run_gemini_request(api_key: String, role: String, desired_output: String, context: String, prompt: String) {
@@ -928,10 +942,13 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .timeout(Duration::from_secs(150))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
-            let canvas_snapshot = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 120000}))
+            let canvas_snapshot = call_live_read("document.inspect", serde_json::json!({"depth": 4, "maxBytes": 180000}))
                 .map(|snapshot| serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".into()))
                 .unwrap_or_else(|error| format!("Canvas snapshot unavailable: {error}"));
-            let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT (read-only):\n{canvas_snapshot}");
+            let command_registry = call_live_read("engine.commands", serde_json::json!({}))
+                .map(|commands| serde_json::to_string(&commands).unwrap_or_else(|_| "[]".into()))
+                .unwrap_or_else(|error| format!("Command registry unavailable: {error}"));
+            let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT:\n{canvas_snapshot}\n\nEXACT FIGCRAFT COMMAND REGISTRY:\n{command_registry}");
             {
                 let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 state.status = "Canvas context ready. Sending request to Gemini…".into();
@@ -940,7 +957,11 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
             let body = serde_json::json!({
                 "systemInstruction": { "parts": [{ "text": instruction }] },
                 "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
-                "generationConfig": { "maxOutputTokens": 4096, "thinkingConfig": { "thinkingLevel": "LOW" } }
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "maxOutputTokens": 4096,
+                    "thinkingConfig": { "thinkingLevel": "LOW" }
+                }
             });
             let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", api_key)
