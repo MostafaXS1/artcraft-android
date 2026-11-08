@@ -138,10 +138,14 @@ jobs:
             cargo-registry-${{ runner.os }}-
 
       - name: Install cargo-ndk
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! command -v cargo-ndk >/dev/null 2>&1; then
             mkdir -p "$HOME/.cargo/bin"
-            curl -fsSL https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-x86_64-unknown-linux-musl-v4.1.2.tgz | tar -xz --strip-components=1 -C "$HOME/.cargo/bin"
+            gh release download v4.1.2 -R bbqsrc/cargo-ndk -p 'cargo-ndk-x86_64-unknown-linux-musl-v4.1.2.tgz'
+            tar -xzf cargo-ndk-x86_64-unknown-linux-musl-v4.1.2.tgz --strip-components=1 -C "$HOME/.cargo/bin"
+            rm -f cargo-ndk-x86_64-unknown-linux-musl-v4.1.2.tgz
             chmod +x "$HOME/.cargo/bin/cargo-ndk"*
           fi
           cargo ndk -V
