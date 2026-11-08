@@ -3206,7 +3206,7 @@ icon = "@mipmap/ic_launcher"
             inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
         if app == "figcraft":
-            inner_ui = "let _ = frame;\n        figcraft_control_bridge::drain(&mut self.inner, ui.ctx());\n        self.inner.ui(ui);\n        figcraft_control_bridge::approval_ui(ui.ctx());"
+            inner_ui = "let _ = frame;\n        figcraft_control_bridge::drain(&mut self.inner, ui.ctx());\n        self.inner.ui(ui);\n        figcraft_control_bridge::mobile_controls_ui(&mut self.inner, ui.ctx());\n        figcraft_control_bridge::approval_ui(ui.ctx());"
         if has_raw_hook:
             if re.search(r"pub\s+fn\s+raw_input_hook\s*\(\s*&mut\s+self\s*,\s*raw\s*:", ui_text):
                 inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
