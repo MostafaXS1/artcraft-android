@@ -915,7 +915,7 @@ Use one concise sentence for each where possible. Avoid generic praise, long the
 For edits, propose only changes supported by the inspected canvas and exact registered commands. Prefer concrete values (such as HEX colors) and identify the target layers. Do not claim that a proposed edit has already been applied.
 
 FIGCRAFT LIVE CONTEXT:
-The user brief may include a live document snapshot and the exact command registry from this FigCraft build. Treat both as authoritative. Only target layer IDs present in the snapshot and command IDs present in the registry. Do not invent IDs, properties, or commands. Distinguish facts from assumptions.
+The user brief includes a live document snapshot, editor UI state (which may contain the current selection), and the exact command registry from this FigCraft build. Treat them as authoritative. For edits to an existing selected object, use its exact selected layer ID from the editor UI state. If there is no selection, identify the intended target from the document snapshot only when unambiguous; otherwise return an empty actions array and explain which object needs selection. Every node.set action MUST include params.ids as a non-empty array of existing numeric layer IDs. Never omit ids, invent IDs, properties, or commands. Distinguish facts from assumptions.
 
 OUTPUT CONTRACT:
 Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
@@ -1043,8 +1043,14 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 
             // Bound live context for mobile networks; the first editing version only needs node.set.
             let canvas_document = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 48000}))?;
+            // Include the editor UI state so Gemini can see the actual current
+            // selection. Without this, the model sees document nodes but has no
+            // reliable target IDs for a request such as "change its color".
+            let editor_state = call_live_read("ui.inspect", serde_json::json!({}))
+                .unwrap_or_else(|error| serde_json::json!({"selection_inspection_error": error}));
             let command_list = call_live_read("engine.commands", serde_json::json!({}))?;
             let canvas_snapshot = canvas_document.to_string();
+            let editor_state_snapshot = editor_state.to_string();
             let command_registry = command_list.as_array()
                 .map(|items| Value::Array(items.iter()
                     .filter(|item| item.get("id").and_then(Value::as_str) == Some("node.set"))
@@ -1053,7 +1059,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
             if canvas_snapshot.len() > 56000 {
                 return Err("Canvas context is too large for a reliable mobile request. Reduce document complexity and retry.".into());
             }
-            let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT:\n{canvas_snapshot}\n\nEXACT FIGCRAFT COMMAND REGISTRY:\n{command_registry}");
+            let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT:\n{canvas_snapshot}\n\nLIVE EDITOR UI STATE (INCLUDING CURRENT SELECTION WHEN AVAILABLE):\n{editor_state_snapshot}\n\nEXACT FIGCRAFT COMMAND REGISTRY:\n{command_registry}");
             {
                 let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 state.status = "Canvas context ready. Sending request to Gemini…".into();
