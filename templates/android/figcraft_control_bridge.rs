@@ -1008,9 +1008,14 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     }
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
         let result = (|| -> Result<(String, Vec<Value>), String> {
+            // Force HTTP/1.1 on Android for this API call. This avoids HTTP/2
+            // ALPN/stream issues on some device network stacks and gives the
+            // request a deterministic Content-Length body below.
             let client = reqwest::blocking::Client::builder()
+                .http1_only()
                 .connect_timeout(Duration::from_secs(15))
                 .timeout(Duration::from_secs(75))
+                .tcp_nodelay(true)
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
 
@@ -1063,12 +1068,22 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                     "thinkingConfig": { "thinkingLevel": "LOW" }
                 }
             });
+            let request_body = serde_json::to_vec(&body)
+                .map_err(|_| "Could not serialize the Gemini request".to_owned())?;
+            let request_bytes = request_body.len();
+            {
+                let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.status = format!("Sending Gemini request ({request_bytes} bytes, HTTP/1.1)…");
+            }
+            let post_started = Instant::now();
             let response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", api_key)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .json(&body)
+                .header(reqwest::header::CONNECTION, "close")
+                .body(request_body)
                 .send()
                 .map_err(|error| {
+                    let elapsed = post_started.elapsed().as_secs_f32();
                     let mut details = error.to_string();
                     let mut source = std::error::Error::source(&error);
                     while let Some(cause) = source {
@@ -1077,16 +1092,21 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                         source = std::error::Error::source(cause);
                     }
                     if error.is_connect() {
-                        format!("Could not connect to Gemini (DNS/TLS/network): {details}")
+                        format!("Gemini POST connection failed after {elapsed:.1}s (HTTP/1.1, {request_bytes} request bytes): {details}")
                     } else if error.is_timeout() {
-                        format!("Gemini API request timed out after 75 seconds. Host preflight succeeded, so inspect API response latency, quota, or payload size. Network detail: {details}")
+                        format!("Gemini POST timed out after {elapsed:.1}s (HTTP/1.1, {request_bytes} request bytes). Host preflight succeeded; no HTTP response headers were received. Check Android network/VPN filtering or Google API reachability. Detail: {details}")
                     } else if error.is_request() {
-                        format!("Gemini request could not be sent: {details}")
+                        format!("Gemini POST could not be sent after {elapsed:.1}s ({request_bytes} request bytes): {details}")
                     } else {
-                        format!("Gemini network error: {details}")
+                        format!("Gemini network error after {elapsed:.1}s ({request_bytes} request bytes): {details}")
                     }
                 })?;
+            let post_elapsed = post_started.elapsed().as_secs_f32();
             let status = response.status();
+            {
+                let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.status = format!("Gemini responded HTTP {} in {post_elapsed:.1}s. Reading response…", status.as_u16());
+            }
             if !status.is_success() {
                 let detail = response.text().unwrap_or_default();
                 let detail = detail.chars().take(700).collect::<String>();
