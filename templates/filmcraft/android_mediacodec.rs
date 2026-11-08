@@ -32,7 +32,7 @@ use ndk::native_window::NativeWindow;
 #[cfg(target_os = "android")]
 use jni::{
     jni_sig, jni_str,
-    objects::JValue,
+    objects::{Global, JObject, JValue},
     JavaVM,
 };
 
@@ -1599,7 +1599,7 @@ void main() {\n\
 }\0";
 
 #[cfg(target_os = "android")]
-unsafe fn compile_shader(
+fn compile_shader(
     gl_create_shader: unsafe extern "C" fn(u32) -> u32,
     gl_shader_source: unsafe extern "C" fn(u32, i32, *const *const std::os::raw::c_char, *const i32),
     gl_compile_shader: unsafe extern "C" fn(u32),
@@ -1607,20 +1607,22 @@ unsafe fn compile_shader(
     shader_type: u32,
     src: &[u8],
 ) -> Option<u32> {
-    let shader = gl_create_shader(shader_type);
-    if shader == 0 {
-        return None;
+    unsafe {
+        let shader = gl_create_shader(shader_type);
+        if shader == 0 {
+            return None;
+        }
+        let src_ptr = src.as_ptr() as *const std::os::raw::c_char;
+        let len = src.len().saturating_sub(1) as i32;
+        gl_shader_source(shader, 1, &src_ptr, &len);
+        gl_compile_shader(shader);
+        let mut status = 0i32;
+        gl_get_shader_iv(shader, GL_COMPILE_STATUS, &mut status);
+        if status == 0 {
+            return None;
+        }
+        Some(shader)
     }
-    let src_ptr = src.as_ptr() as *const std::os::raw::c_char;
-    let len = src.len().saturating_sub(1) as i32;
-    gl_shader_source(shader, 1, &src_ptr, &len);
-    gl_compile_shader(shader);
-    let mut status = 0i32;
-    gl_get_shader_iv(shader, GL_COMPILE_STATUS, &mut status);
-    if status == 0 {
-        return None;
-    }
-    Some(shader)
 }
 
 #[cfg(target_os = "android")]
@@ -1639,7 +1641,7 @@ pub struct HardwareSurfaceScaler {
     a_tex_coord_loc: i32,
     asurface_texture: *mut std::ffi::c_void,
     decoder_window: *mut std::ffi::c_void,
-    _java_st_ref: jni::objects::GlobalRef,
+    _java_st_ref: Global<JObject<'static>>,
     // EGL function pointers
     fn_eglMakeCurrent: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
     fn_eglSwapBuffers: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
@@ -1911,7 +1913,7 @@ impl HardwareSurfaceScaler {
             }
 
             let vm = JavaVM::from_raw(vm_ptr);
-            let jni_res = vm.attach_current_thread(|env| -> jni::errors::Result<(jni::objects::GlobalRef, *mut std::ffi::c_void, *mut std::ffi::c_void)> {
+            let jni_res = vm.attach_current_thread(|env| -> jni::errors::Result<(Global<JObject<'static>>, *mut std::ffi::c_void, *mut std::ffi::c_void)> {
                 let st_class = env.find_class(jni_str!("android/graphics/SurfaceTexture"))?;
                 let st_obj = env.new_object(
                     &st_class,
