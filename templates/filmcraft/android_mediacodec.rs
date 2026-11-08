@@ -1290,6 +1290,7 @@ impl MediaCodecDecoder {
                                 }
                             }
                         }
+                        }
                     }
 
                     let _ = self.codec.release_output_buffer(output_buffer, false);
