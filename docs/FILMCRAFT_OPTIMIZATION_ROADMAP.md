@@ -348,8 +348,45 @@ Stage 3 eliminates the remaining 123-second bottleneck by directly coupling the 
 | **Render Latency / Frame** | **~0.3 ms** (Single downscaled quad draw) | **~25.0 ms** (C2D blit + bus copy + Vulkan upload + quad draw) |
 | **1-Min 4K -> 1080p Export** | **~30 seconds** (~120 FPS) | **115.2 seconds** (~32.1 FPS) |
 
-### 3. Physical Limitations & Future Roadmap
+### 3. Physical Limitations & Phase B3 Roadmap
 - On Snapdragon 870 with unified LPDDR5 memory, running the C2D de-tiler and Vulkan texture upload pipeline for 3,692 4K frames transfers over 207 Gigabytes of data. 115.2 seconds represents the physical memory bandwidth saturation limit for this architecture.
 - For 1:1 exports (4K $\to$ 4K), FilmCraft achieves full **CapCut parity (30 seconds)** via the direct hardware bridge.
-- Achieving 30 seconds on downscaled exports in FilmCraft requires a dedicated future architectural extension:
-  - **Phase B3 (`VK_ANDROID_external_memory_android_hardware_buffer`)**: Hook into Vulkan extensions to import the Qualcomm UBWC `AHardwareBuffer` directly into a `wgpu` external texture without CPU linear NV12 conversion or bus copies.
+- To achieve 30 seconds across downscaled resolutions (4K $\to$ 1080p, 720p), **Phase B3** implements zero-copy hardware surface scaling.
+
+---
+
+## Stage 4: Phase B3 — Zero-Copy Hardware Surface Scaler & AHardwareBuffer Import (IN PROGRESS)
+
+```mermaid
+flowchart TD
+    subgraph Current ["Current Downscale Baseline (115.2s @ 32 FPS)"]
+        DecA["Qualcomm Venus 4K Decoder"] -->|"C2D Blit to Ashmem (18 ms)"| NV12["Linear NV12 (CPU RAM)"]
+        NV12 -->|"write_texture (7 ms / 12.5 MB bus copy)"| Wgpu["Vulkan VRAM (wgpu::Texture)"]
+        Wgpu -->|"1.5 ms Quad Downscale"| EncA["1080p MediaCodec Encoder Surface"]
+    end
+
+    subgraph PhaseB3 ["Phase B3 Hardware Surface Scaler (~30s @ 100+ FPS — CapCut Parity)"]
+        DecB["Qualcomm Venus 4K Decoder"] -->|"0.0 ms Direct UBWC"| ST["Android ASurfaceTexture (4K)"]
+        ST -->|"0.0 ms updateTexImage() + 0.3 ms GLES Quad"| Scaler["HardwareSurfaceScaler (Adreno 650 ROP)"]
+        Scaler -->|"< 0.1 ms eglSwapBuffers"| EncB["1080p MediaCodec Encoder Surface"]
+    end
+```
+
+### 1. Architectural Strategy
+Phase B3 implements a two-tier hardware scaling architecture:
+1. **Tier 1: Hardware Surface Scaler Bridge (`HardwareSurfaceScaler`)**:
+   - For fullscreen scaled exports (4K $\to$ 1080p, 720p):
+   - MediaCodec decoder outputs directly into an Android native `ASurfaceTexture` / `ANativeWindow` in hardware UBWC compressed mode (zero CPU copies, zero C2D de-tiler overhead).
+   - An isolated background EGL context takes the decoded frame via `ASurfaceTexture_updateTexImage`, binds it to `GL_TEXTURE_EXTERNAL_OES`, and renders a downscaled quad to the 1080p encoder surface in **0.3 ms** using Adreno 650 hardware texture samplers.
+   - `eglSwapBuffers` presents the 1080p frame directly to Qualcomm's video encoder in **< 0.1 ms**.
+   - Total latency per frame: $\sim 7\text{ ms (Decode)} + 0.4\text{ ms (Blit)} + 2.5\text{ ms (Encode)} \approx \mathbf{10\text{ ms/frame}} \implies \mathbf{\sim 30\text{–}35\text{ seconds total export time (100+ FPS)}}!$
+2. **Tier 2: AHardwareBuffer Vulkan Import for Compositor**:
+   - For complex multi-track timelines with titles, transitions, or effects requiring `wgpu::GpuCompositor`.
+   - Decoder outputs to `AImageReader` with `AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE`.
+   - Imports `AHardwareBuffer*` into Vulkan via `VK_ANDROID_external_memory_android_hardware_buffer` and wraps into `wgpu::Texture` via `create_texture_from_hal`.
+
+### 2. Execution Milestones
+- [x] **Architecture & Design**: Documented in `android_filmcraft_phase_b3_plan.md` and roadmap.
+- [ ] **Milestone 1 (M1 - IN PROGRESS)**: Implement `HardwareSurfaceScaler` in `templates/filmcraft/android_mediacodec.rs` using dynamic `dlsym` loading for `libEGL.so` and `libGLESv2.so`, and NDK `ASurfaceTexture`.
+- [ ] **Milestone 2 (M2)**: Wire `HardwareSurfaceScaler` into `Pipeline::bind_surface` in `lib/build-common.sh` whenever `!is_1to1 && can_surface_render()`.
+- [ ] **Milestone 3 (M3)**: Add graceful fallback to `ExportRenderer` (Vulkan) if EGL is ever unavailable on any future device.
