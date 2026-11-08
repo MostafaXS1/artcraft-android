@@ -502,6 +502,8 @@ fn android_main(android_app: AndroidApp) {
     let state = Arc::new(SafState::default());
     install_saf_launcher(bridge.clone_ref(), Arc::clone(&state));
 
+    subcraft_ui::register_gpu_baking();
+
     let options = subcraft_ui::LaunchOptions::default();
 
     let mut native = eframe::NativeOptions {

@@ -4357,11 +4357,19 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-if [[ "$APP" == "subcraft" || "$APP" == "solidcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
+elif [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses storytold egui fork (prepare.sh vendors it at vendor/egui/crates/egui-winit)
+    # Do not copy builder's egui-winit - the fork's egui-winit has clipboard_image() and correct process_viewport_commands()
+    echo "Skipping builder egui-winit copy for $APP (uses storytold fork)"
 else
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
+if [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft prepare.sh handles all egui/egui-winit/egui-wgpu patching
+    echo "Skipping egui patching for $APP (handled by prepare.sh)"
+else
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -4389,6 +4397,7 @@ if "https://github.com/storytold/egui.git" in s:
 tomllib.loads(s)
 p.write_text(s)
 PY
+fi
 
 # Some apps call `rfd` directly from a crate that ends up in the launcher's dependency graph
 # (PDFCraft does, in ~18 files), and rfd 0.17 ships no Android backend, so it fails to compile for
@@ -4442,18 +4451,24 @@ fi
 # longer masquerade as touch) and patch it into the workspace. PDFCraft already ships a
 # forked winit on the same upstream base: only its Android backend directory is
 # overwritten, so its non-Android customizations and its existing patch entry survive.
-echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
-mkdir -p "$SRC/vendor"
-if [[ -d "$SRC/vendor/winit" ]]; then
-    # Upstream ships a storytold winit fork that re-adds `WindowEvent::ImeResetCompleted` /
-    # `reset_ime_with_request` (removed from stock winit 0.30), which the fork's egui-winit 0.37
-    # requires. Keep that fork intact so egui-winit stays compatible, and only refresh its Android
-    # backend with the builder's patched mouse/scroll-aware backend.
-    rm -rf "$SRC/vendor/winit/src/platform_impl/android"
-    cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
+if [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses storytold winit fork (prepare.sh vendors it at vendor/winit)
+    # Do not copy builder's winit - the fork has ImeResetCompleted and reset_ime_with_request
+    echo "Skipping builder winit copy for $APP (uses storytold fork)"
 else
-    rm -rf "$SRC/vendor/winit"
-    cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
+    echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
+    mkdir -p "$SRC/vendor"
+    if [[ -d "$SRC/vendor/winit" ]]; then
+        # Upstream ships a storytold winit fork that re-adds `WindowEvent::ImeResetCompleted` /
+        # `reset_ime_with_request` (removed from stock winit 0.30), which the fork's egui-winit 0.37
+        # requires. Keep that fork intact so egui-winit stays compatible, and only refresh its Android
+        # backend with the builder's patched mouse/scroll-aware backend.
+        rm -rf "$SRC/vendor/winit/src/platform_impl/android"
+        cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
+    else
+        rm -rf "$SRC/vendor/winit"
+        cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
+    fi
 fi
 
 # The storytold winit fork re-adds `WindowEvent::ImeResetCompleted` / `reset_ime_with_request`
@@ -4645,18 +4660,33 @@ if not winit_rs.is_file():
     sys.exit(0)
 text = winit_rs.read_text()
 if "dropping the lost surface" not in text:
+    # SolidCraft's recreate_surface doesn't have Android handling
+    # The original code creates the surface then uses old_state afterwards
+    # We need to: extract fields, check Android, drop old_state, create surface, use extracted fields
     recreate_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
             return Ok(());
         };
 
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+        let surface = self.instance.create_surface(Arc::clone(window))?;
+        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
+        // recreate the streak asked for is done by this one.
+        let mut retry = old_state.retry;
+        retry.recreated();
+        self.install_surface(
+            surface,
+            viewport_id,
+            old_state.requested.0,
+            old_state.requested.1,
+            old_state.resizing,
+            retry,
+        );
+        Ok(())"""
 
     recreate_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
             return Ok(());
         };
 
         let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
-        drop(old_state);
 
         if cfg!(target_os = "android") {
             log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
@@ -4665,57 +4695,41 @@ if "dropping the lost surface" not in text:
 
         self.instance.poll_all(true);
 
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
-
-    lost_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };
-
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
-
-    lost_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };
-
-        let (width, height, resizing) = (old_state.width, old_state.height, old_state.resizing);
         drop(old_state);
 
-        if cfg!(target_os = "android") {
-            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
-            return Ok(());
-        }
-
-        self.instance.poll_all(true);
-
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+        let surface = self.instance.create_surface(Arc::clone(window))?;
+        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
+        // recreate the streak asked for is done by this one.
+        retry.recreated();
+        self.install_surface(
+            surface,
+            viewport_id,
+            requested.0,
+            requested.1,
+            resizing,
+            retry,
+        );
+        Ok(())"""
 
     if "fn recreate_surface" in text and recreate_target in text:
         text = text.replace(recreate_target, recreate_replacement)
-        pre, post = text.split("drop(old_state);", 1)
-        post = post.replace("old_state.requested.0", "requested.0")
-        post = post.replace("old_state.requested.1", "requested.1")
-        post = post.replace("old_state.resizing", "resizing")
-        post = post.replace("let mut retry = old_state.retry;", "")
-        text = pre + "drop(old_state);" + post
         winit_rs.write_text(text)
         print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
-    elif lost_target in text:
-        text = text.replace(lost_target, lost_replacement)
-        pre, post = text.split("drop(old_state);", 1)
-        post = post.replace("old_state.width", "width")
-        post = post.replace("old_state.height", "height")
-        post = post.replace("old_state.resizing", "resizing")
-        text = pre + "drop(old_state);" + post
-        winit_rs.write_text(text)
-        print("  Patched existing vendored egui-wgpu on_surface_lost for Android surface handling")
 PY
-elif [[ "$APP" == "subcraft" || "$APP" == "solidcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
+elif [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
+    # Do not copy builder's egui-wgpu - keep SolidCraft's original
+    echo "Skipping builder egui-wgpu copy for SolidCraft (uses its own vendor/egui-wgpu with custom APIs)"
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
 fi
+
+# Skip egui-wgpu patching for SolidCraft - prepare.sh handles it
+if [[ "$APP" != "solidcraft" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -4739,6 +4753,7 @@ if "https://github.com/storytold/egui.git" in s:
 tomllib.loads(s)
 p.write_text(s)
 PY
+fi
 
 # Every launcher uses the builder's vendored android-activity: the native-activity backend now
 # carries three builder patches the crates.io copy lacks. (1) The sync-picker ANR fix: while a
@@ -4748,10 +4763,16 @@ PY
 # (2) `show_soft_input`/`hide_soft_input` use NativeActivity's native IME calls: egui's TextEdit
 # widgets request the soft keyboard automatically through the standard input method framework.
 # (3) `set_nonblocking_callbacks` is exported for native-activity too (the SAF bridge calls it).
-echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
-rm -rf "$SRC/vendor/android-activity"
-cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
-python3 - "$SRC/Cargo.toml" <<'PY'
+if [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses storytold egui fork with game-activity feature
+    # prepare.sh vendors android-activity with game-activity feature; builder's android-activity
+    # defaults to native-activity and has compile_error! if both features enabled
+    echo "Skipping builder android-activity copy for $APP (uses storytold fork with game-activity)"
+else
+    echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
+    rm -rf "$SRC/vendor/android-activity"
+    cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
+    python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
 p = Path(sys.argv[1])
@@ -4766,6 +4787,7 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
+fi
 
 # sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
 # Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).
@@ -5021,21 +5043,49 @@ python3 "$ROOT/lib/android_project.py" "$ROOT" "$ANDROID_DIR" "$APP" "$APP_VERSI
 # shellcheck source=/dev/null
 source "$ANDROID_DIR/.artcraft-gradle.properties"
 
+# SolidCraft uses storytold egui fork - prepare.sh handles all egui patches
+# No additional patching needed here
+
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
-if [[ "$MODE" == "release" ]]; then
-    if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
-        :
+
+# For SolidCraft, cargo-ndk must run from the workspace root
+# because it uses path dependencies (../../crates/engine) that
+# don't resolve when cargo-ndk runs from the android app subdirectory.
+if [[ "$APP" == "solidcraft" ]]; then
+    NDK_PACKAGE="solidcraft-android"
+    NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
+    if [[ "$MODE" == "release" ]]; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     else
-        status=$?
-        fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     fi
 else
-    if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
-        :
+    # Standard build from android app directory for other apps
+    if [[ "$MODE" == "release" ]]; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     else
-        status=$?
-        fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     fi
 fi
 

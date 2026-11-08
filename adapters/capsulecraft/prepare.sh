@@ -48,14 +48,17 @@ eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc79968157
 EOF
 fi
 
-# Ensure native has a [lib] entry
+# Ensure native has a [lib] entry with rlib support
 if ! grep -q '^\[lib\]' "$SRC_ABS/native/Cargo.toml"; then
     cat >> "$SRC_ABS/native/Cargo.toml" <<'EOF'
 
 [lib]
 name = "capsuleos_native"
 path = "src/main.rs"
+crate-type = ["cdylib", "rlib"]
 EOF
+else
+    sed -i 's/crate-type = \["cdylib"\]/crate-type = ["cdylib", "rlib"]/' "$SRC_ABS/native/Cargo.toml"
 fi
 
 # Make NativeApp public so the Android launcher can instantiate it
@@ -64,6 +67,7 @@ sed -i 's/^    fn new(launch: cli::Launch)/    pub fn new(launch: cli::Launch)/'
 sed -i 's/^mod cli;/pub mod cli;/' "$SRC_ABS/native/src/main.rs"
 sed -i 's/^mod vault;/pub mod vault;/' "$SRC_ABS/native/src/main.rs"
 sed -i 's/^mod theme;/pub mod theme;/' "$SRC_ABS/native/src/main.rs"
+sed -i 's/fn android_main(app: android_activity::AndroidApp)/fn upstream_android_main(app: android_activity::AndroidApp)/' "$SRC_ABS/native/src/main.rs"
 
 # Make trash usage conditional on non-Android (trash crate doesn't support Android)
 python3 - "$SRC_ABS/native/src/main.rs" <<'PY'
