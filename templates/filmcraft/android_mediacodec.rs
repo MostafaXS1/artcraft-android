@@ -1261,13 +1261,16 @@ impl VideoDecoder for MediaCodecDecoder {
             return Ok(frames);
         }
 
-        // 2. Dequeue input buffer with backoff
+        // 2. Dequeue input buffer with zero-latency fast-path & backoff
         let mut input_buf = 'outer: loop {
+            if let Ok(DequeuedInputBufferResult::Buffer(b)) = self.codec.dequeue_input_buffer(Duration::ZERO) {
+                break 'outer b;
+            }
             for _ in 0..150 {
-                match self.codec.dequeue_input_buffer(Duration::from_millis(5)) {
+                match self.codec.dequeue_input_buffer(Duration::from_millis(2)) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
                     _ => {
-                        self.drain_output(Duration::from_millis(10), &mut frames)?;
+                        self.drain_output(Duration::from_millis(5), &mut frames)?;
                     }
                 }
             }
