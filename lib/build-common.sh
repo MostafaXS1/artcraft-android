@@ -703,6 +703,12 @@ PY
 # backends above.
 bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 
+# FigCraft's desktop menus are adapted at build time for Android viewport constraints and touch.
+if [[ "$APP" == "figcraft" ]]; then
+    python3 -m py_compile "$ROOT/lib/figcraft_mobile.py"
+    python3 "$ROOT/lib/figcraft_mobile.py" "$SRC"
+fi
+
 # SubCraft's Android file hand-off (a public `files::deliver_android`) is applied by its own script,
 # so it can be turned off for testing by commenting out the line below. It patches the app's own
 # source at build time; only SubCraft is touched.
@@ -729,7 +735,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "71"
+GENERATOR_VERSION = "74"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -3064,6 +3070,8 @@ intent_filter = {intent_filter_value}
 [[package.metadata.android.uses_permission]]
 name = "android.permission.RECORD_AUDIO"
 """
+    mcp_dep = 'figcraft-mcp = { path = "../../crates/mcp" }' if app == "figcraft" else ""
+    gemini_dep = 'reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots"] }' if app == "figcraft" else ""
 
     manifest = f'''[package]
 name = "{app}-android"
@@ -3077,6 +3085,8 @@ crate-type = ["cdylib"]
 [dependencies]
 {engine_pkg} = {{ path = "../../crates/engine" }}
 {ui_pkg} = {{ path = "../../crates/ui-egui" }}
+{mcp_dep}
+{gemini_dep}
 eframe = {{ workspace = true, default-features = false, features = {eframe_features} }}
 egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
@@ -3196,6 +3206,8 @@ icon = "@mipmap/ic_launcher"
         else:
             inner_logic = "let _ = (ctx, frame);"
         inner_ui = "let _ = frame;\n        self.inner.ui(ui);"
+        if app == "figcraft":
+            inner_ui = "let _ = frame;\n        figcraft_control_bridge::drain(&mut self.inner, ui.ctx());\n        self.inner.ui(ui);\n        figcraft_control_bridge::mobile_controls_ui(&mut self.inner, ui.ctx());\n        figcraft_control_bridge::approval_ui(ui.ctx());"
         if has_raw_hook:
             if re.search(r"pub\s+fn\s+raw_input_hook\s*\(\s*&mut\s+self\s*,\s*raw\s*:", ui_text):
                 inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"
@@ -3705,6 +3717,14 @@ fn install_cadcraft_io() {
         intent_field = ""
         intent_init = ""
 
+    mcp_start = (
+        "        if let Some(dir) = app.internal_data_path() {\n"
+        "            figcraft_control_bridge::start_mcp_if_enabled(&dir);\n"
+        "        }\n"
+        if app == "figcraft" else ""
+    )
+    mcp_drop = "        figcraft_control_bridge::stop_mcp_server();\n" if app == "figcraft" else ""
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -3778,7 +3798,7 @@ struct AndroidShell {{
 
 impl AndroidShell {{
     fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+        {persist_new_body}{mcp_start}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
@@ -3880,7 +3900,7 @@ impl Drop for AndroidShell {{
     fn drop(&mut self) {{
         // The Activity is about to go: stop the watcher before the native thread returns.
         ALIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    }}
+{mcp_drop}    }}
 }}
 
 impl eframe::App for AndroidShell {{
@@ -4161,6 +4181,14 @@ fn android_main(android_app: android_activity::AndroidApp) {{
         src_audio = src / "apps" / app / "src" / filename
         if src_audio.is_file():
             shutil.copy2(src_audio, staging_dir / "src" / filename)
+    if app == "figcraft":
+        # Drain background requests immediately before FigApp::ui on the UI thread.
+        if "figcraft_control_bridge::approval_ui(ui.ctx());" not in entry:
+            raise SystemExit("FigCraft Android bridge/approval hooks were not generated; refusing a partial launcher")
+        entry = entry.replace("mod system_fonts;", "mod system_fonts;\nmod figcraft_control_bridge;", 1)
+        if "mod figcraft_control_bridge;" not in entry:
+            raise SystemExit("Could not install FigCraft Android bridge module")
+        shutil.copy2(root / "templates" / "android" / "figcraft_control_bridge.rs", staging_dir / "src" / "figcraft_control_bridge.rs")
     (staging_dir / "src" / "lib.rs").write_text(entry)
     (staging_dir / ".artcraft-android-builder-generated").write_text(
         GENERATOR_VERSION + "\n"

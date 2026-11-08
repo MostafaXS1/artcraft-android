@@ -120,7 +120,13 @@ def manifest_xml(android_meta):
         '<?xml version="1.0" encoding="utf-8"?>',
         '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
     ]
-    for permission in _as_list(android_meta.get("uses_permission")):
+    permissions = _as_list(android_meta.get("uses_permission"))
+    permission_names = {permission.get("name") for permission in permissions}
+    # Gemini Copilot and the in-app update checker require outbound HTTPS. Android
+    # does not grant network access implicitly, even when the Rust HTTP client builds.
+    if "android.permission.INTERNET" not in permission_names:
+        lines.append('    <uses-permission android:name="android.permission.INTERNET" />')
+    for permission in permissions:
         attrs = f'android:name="{_esc(permission["name"])}"'
         if permission.get("max_sdk_version") is not None:
             attrs += f' android:maxSdkVersion="{_esc(permission["max_sdk_version"])}"'
