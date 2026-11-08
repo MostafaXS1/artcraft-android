@@ -51,6 +51,12 @@ replace(
 )
 replace(
     "menus/tree.rs",
+    "    let SubmenuOptions { area, key, label, gap, constrain, tokens: t } = options;",
+    "    let SubmenuOptions { area, key, label, gap, constrain: _, tokens: t } = options;",
+    "discard desktop-only submenu constraint flag",
+)
+replace(
+    "menus/tree.rs",
     """            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             let key = at_key(ui);
             ui.data_mut(|d| d.insert_temp(key, at));
