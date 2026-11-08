@@ -936,7 +936,20 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
     if !commands.iter().any(|cmd| cmd.get("id").and_then(Value::as_str) == Some("node.set")) {
         return Err("node.set is not available in this FigCraft build".into());
     }
-    let document_json = document.to_string();
+    fn collect_layer_ids(value: &Value, ids: &mut std::collections::HashSet<u64>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(id) = map.get("id").and_then(Value::as_u64) { ids.insert(id); }
+                for child in map.values() { collect_layer_ids(child, ids); }
+            }
+            Value::Array(items) => {
+                for child in items { collect_layer_ids(child, ids); }
+            }
+            _ => {}
+        }
+    }
+    let mut available_ids = std::collections::HashSet::new();
+    collect_layer_ids(document, &mut available_ids);
     let mut validated = Vec::new();
     for action in proposed {
         if action.get("command").and_then(Value::as_str) != Some("node.set") {
@@ -947,7 +960,7 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
         if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
         for id in ids {
             let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
-            if !document_json.contains(&format!(r#""id":{n}"#)) {
+            if !available_ids.contains(&n) {
                 return Err(format!("Layer {n} was not found in the inspected canvas"));
             }
         }
