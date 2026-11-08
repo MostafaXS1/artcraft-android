@@ -20,7 +20,7 @@ flowchart TD
     
     Stage25["Stage 2.5: Fast Buffer & Compositor Squeeze (VERIFIED ON DEVICE)<br/>Contiguous NEON SIMD chroma deinterleave + persistent texture ring<br/>Result: 164.0s (2.73 min, 22.51 FPS)"]
 
-    PhaseB2["Stage 3: Phase B2 — Hardware Decoder Surface Mode (IMPLEMENTED)<br/>Zero-copy hardware decoding via AImageReader / ANativeWindow<br/>Bypasses Qualcomm C2D blitter; target: ~30–45s export"]
+    PhaseB2["Stage 3: Phase B2 — End-to-End Vulkan Gralloc (PLANNED NEXT)<br/>Zero-copy Vulkan import (VK_ANDROID_external_memory)<br/>Direct Adreno UBWC sampling without CPU readback<br/>Target: ~25–35s export (CapCut Parity)"]
 
     Current --> Path1
     Path1 --> Path2
@@ -156,21 +156,17 @@ Before transitioning the decoder architecture to `AHardwareBuffer` in Phase B2, 
 
 ---
 
-## Stage 3: Phase B2 — Hardware Decoder Surface Mode via `AImageReader` (IMPLEMENTED)
+## Stage 3: Phase B2 — Hardware Decoder Surface Mode & Qualcomm UBWC Finding
 
-### Architectural Implementation
-1. **`MediaCodecDecoder` Surface Rendering via `AImageReader`**:
-   - `templates/filmcraft/android_mediacodec.rs`: Added `ImageReader` configured with `ImageFormat::YUV_420_888` and queue depth 4.
-   - Wrapped `ImageReader` in `SendImageReader` with `// SAFETY:` invariant to satisfy `VideoDecoder: Send` across worker threads.
-   - Obtained `NativeWindow` from `AImageReader_getWindow` and passed to `AMediaCodec_configure(format, Some(&window), MediaCodecDirection::Decoder)`.
-   - In Surface mode, Qualcomm Venus decodes directly to the Surface's native graphic buffers, completely eliminating the C2D color conversion blitter (`C2D: Start color convertion`).
-2. **Synchronized Output Buffer Dequeue & Acquisition**:
-   - On frame dequeue: calls `self.codec.release_output_buffer(output_buffer, true)` to render into the surface.
-   - Claims decoded frames via `reader.acquire_next_image()` in FIFO order.
-   - Reads mapped planes directly through `Image::plane_data` and routes through ARM64 NEON SIMD `biplanar::to_frame`.
-   - Automatic `AImage_delete` upon dropping `Image`, returning buffers to the hardware pool.
-3. **Resilient Dual-Mode Fallback**:
-   - If Surface initialization fails on any non-standard device, seamlessly falls back to Buffer mode with zero downtime or crash risk.
-4. **CapCut Parity Target**:
-   - With C2D eliminated, Qualcomm Venus decodes at full hardware speed (60–120+ FPS).
-   - Expected 4K 60fps export duration: **~30 to 45 seconds**.
+### Critical Hardware Finding (Measured on Xiaomi Pad 6)
+When `MediaCodec` is configured with an `ANativeWindow` surface from `AImageReader`, Qualcomm Venus VPU outputs in its native hardware format:
+`QOMX_COLOR_FormatYUV420PackedSemiPlanar32mCompressed` (`0x7fa30c06` / UBWC).
+- **CPU Incompatibility**: Qualcomm `libgralloc` cannot lock UBWC compressed tiles for CPU access (`GraphicBuffer failed (Unknown error -1)`). Calling `AImage_getPlaneData` on UBWC buffers fails at the OS driver level.
+- **Why Buffer Mode is Required for CPU Pipelines**: When `surface = NULL` (Buffer Mode), Qualcomm's driver explicitly invokes its C2D blitter to convert internal UBWC tiles into linear NV12 so the CPU can read it.
+- **Architectural Takeaway**: Decoder Surface mode can **only** be used when the `AHardwareBuffer` is imported directly into the GPU via Vulkan `VK_ANDROID_external_memory_android_hardware_buffer` (where Adreno GPU texture samplers decompress UBWC in hardware ALU). It cannot be used with CPU plane readback.
+- **Current Optimal State (164.0s / 2.73 min, 22.51 FPS)**:
+  - Hardware Decoder: Buffer Mode (`COLOR_FormatYUV420SemiPlanar` / NV12).
+  - CPU Deinterleave: Contiguous ARM64 NEON SIMD `deinterleave_uv` (`vld2q_u8` / `vst1q_u8`).
+  - GPU Compositor: Zero-allocation persistent texture ring (warm pool in VRAM).
+  - Hardware Encoder: Zero-copy Adreno Vulkan swapchain surface render (`AMediaCodec_createInputSurface`).
+  - 100% color accuracy, perfect preview playback, no "MEDIA UNREADABLE" errors.

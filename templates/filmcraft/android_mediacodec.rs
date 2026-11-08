@@ -23,7 +23,6 @@ use filmcraft_export::{
 use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
 use ndk::hardware_buffer_format::HardwareBufferFormat;
-use ndk::media::image_reader::{AcquireResult, ImageFormat, ImageReader};
 use ndk::media::media_codec::{
     DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection,
 };
@@ -916,27 +915,9 @@ pub fn decoder_for(info: &NalStreamInfo) -> bool {
     matches!(info.codec, NalCodec::H264 | NalCodec::Hevc)
 }
 
-struct SendImageReader(ImageReader);
-// SAFETY: Android NDK AImageReader is thread-safe and can be accessed across threads.
-unsafe impl Send for SendImageReader {}
-
-impl std::ops::Deref for SendImageReader {
-    type Target = ImageReader;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for SendImageReader {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /// Android `AMediaCodec` hardware H.264 / HEVC video decoder.
 pub struct MediaCodecDecoder {
     codec: MediaCodec,
-    image_reader: Option<SendImageReader>,
     info: NalStreamInfo,
     name: String,
     crop: (u32, u32, u32, u32),
@@ -967,9 +948,6 @@ impl MediaCodecDecoder {
         };
 
         let (w, h) = info.coded;
-        if w == 0 || h == 0 {
-            return Err("hardware decoding declined: zero dimensions".into());
-        }
 
         let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
@@ -1025,100 +1003,49 @@ impl MediaCodecDecoder {
             format
         };
 
-        // Try initializing in zero-copy Surface mode via AImageReader first.
-        let try_init_surface = |with_operating_rate: bool, with_csd: bool| -> std::result::Result<(MediaCodec, SendImageReader), String> {
-            let reader = ImageReader::new(w as i32, h as i32, ImageFormat::YUV_420_888, 4)
-                .map_err(|e| format!("ImageReader::new failed: {e:?}"))?;
-            let window = reader.window()
-                .map_err(|e| format!("reader.window failed: {e:?}"))?;
-
+        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_decoder_type(mime)
                 .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec decoder surface candidate: {name}");
+                log::info!("MediaCodec decoder candidate: {name}");
                 let lower = name.to_ascii_lowercase();
                 if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
                     return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU decoder)"));
                 }
             }
 
-            // In Surface mode, color-format is handled by AImageReader
-            let format = make_format(with_operating_rate, false, with_csd);
-            codec.configure(&format, Some(&window), MediaCodecDirection::Decoder)
-                .map_err(|e| format!("AMediaCodec_configure surface decoder failed: {e:?}"))?;
+            let format = make_format(with_operating_rate, with_color_format, with_csd);
+            codec.configure(&format, None, MediaCodecDirection::Decoder)
+                .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
             codec.start()
-                .map_err(|e| format!("AMediaCodec_start surface decoder failed: {e:?}"))?;
-            Ok((codec, SendImageReader(reader)))
+                .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
+            Ok(codec)
         };
 
-        let surface_result = try_init_surface(true, true)
+        let codec = try_init(true, true, true)
             .or_else(|e1| {
-                log::warn!("MediaCodec decoder surface init failed ({e1}), retrying without operating rate");
-                try_init_surface(false, true)
+                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                try_init(false, true, true)
             })
             .or_else(|e2| {
-                log::warn!("MediaCodec decoder surface csd init failed ({e2}), retrying with in-band parameter sets");
-                try_init_surface(false, false)
-            });
-
-        let (codec, image_reader) = match surface_result {
-            Ok((codec, reader)) => {
-                let codec_name = codec.name().unwrap_or_else(|_| default_name.to_string());
-                log::info!("MediaCodec decoder initialized in zero-copy Surface mode via AImageReader: {codec_name}");
-                (codec, Some(reader))
-            }
-            Err(e_surface) => {
-                log::warn!("MediaCodec surface mode init failed ({e_surface}), falling back to Buffer mode");
-                let try_init_buffer = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
-                    let codec = MediaCodec::from_decoder_type(mime)
-                        .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
-
-                    if let Ok(name) = codec.name() {
-                        log::info!("MediaCodec decoder candidate: {name}");
-                        let lower = name.to_ascii_lowercase();
-                        if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
-                            return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU decoder)"));
-                        }
-                    }
-
-                    let format = make_format(with_operating_rate, with_color_format, with_csd);
-                    codec.configure(&format, None, MediaCodecDirection::Decoder)
-                        .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
-                    codec.start()
-                        .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
-                    Ok(codec)
-                };
-
-                let codec = try_init_buffer(true, true, true)
-                    .or_else(|e1| {
-                        log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
-                        try_init_buffer(false, true, true)
-                    })
-                    .or_else(|e2| {
-                        log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
-                        try_init_buffer(false, false, true)
-                    })
-                    .or_else(|e3| {
-                        log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
-                        try_init_buffer(false, false, false)
-                    })
-                    .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
-
-                let codec_name = codec.name().unwrap_or_else(|_| default_name.to_string());
-                log::info!("MediaCodec decoder initialized in Buffer mode: {codec_name}");
-                (codec, None)
-            }
-        };
+                log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                try_init(false, false, true)
+            })
+            .or_else(|e3| {
+                log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                try_init(false, false, false)
+            })
+            .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
 
         let name = codec.name().unwrap_or_else(|_| default_name.to_string());
+        log::info!("MediaCodec decoder initialized successfully: {name}");
         let stride = w as usize;
         let slice_height = h as usize;
         let crop = info.crop;
 
         let mut dec = Self {
             codec,
-            image_reader,
             info,
             name,
             crop,
@@ -1183,253 +1110,114 @@ impl MediaCodecDecoder {
                     let flags = info.flags();
                     let pts = info.presentation_time_us();
 
-                    let is_config = (flags & 2) != 0;
-                    if (flags & 4) != 0 {
-                        self.eos_seen = true;
-                    }
+                    if (flags & 2) == 0 && info.size() > 0 {
+                        let buf_data = output_buffer.buffer();
+                        let offset = info.offset() as usize;
+                        let size = info.size() as usize;
+                        if let Some(slice) = buf_data.get(offset..offset.saturating_add(size)) {
+                            let stride = self.stride.max(self.info.coded.0 as usize);
+                            let slice_height = self.slice_height.max(self.info.coded.1 as usize);
 
-                    if let Some(reader) = &self.image_reader {
-                        if !is_config {
-                            // In Surface mode, render buffer to AImageReader's window
-                            let _ = self.codec.release_output_buffer(output_buffer, true);
-
-                            // Acquire rendered frame from AImageReader
-                            let mut acquired_img = None;
-                            for _ in 0..15 {
-                                match reader.acquire_next_image() {
-                                    Ok(AcquireResult::Image(img)) => {
-                                        acquired_img = Some(img);
-                                        break;
-                                    }
-                                    Ok(AcquireResult::NoBufferAvailable) => {
-                                        std::thread::sleep(Duration::from_millis(1));
-                                    }
-                                    Ok(AcquireResult::MaxImagesAcquired) => {
-                                        log::warn!("AImageReader max images acquired, draining queue");
-                                        if let Ok(AcquireResult::Image(old_img)) = reader.acquire_next_image() {
-                                            drop(old_img);
+                            if self.color_format == 19 {
+                                // COLOR_FormatYUV420Planar (I420)
+                                let y_size = stride * slice_height;
+                                let uv_stride = stride / 2;
+                                let uv_rows = slice_height / 2;
+                                let u_size = uv_stride * uv_rows;
+                                if slice.len() >= y_size + u_size * 2 {
+                                    let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
+                                    let mut y_plane = filmcraft_frame::pool::take_u8(cw * ch);
+                                    for r in 0..ch {
+                                        let src_start = (oy + r) * stride + ox;
+                                        if let Some(row) = slice.get(src_start..src_start + cw) {
+                                            y_plane.extend_from_slice(row);
                                         }
                                     }
-                                    Err(e) => {
-                                        log::warn!("AImageReader acquire_next_image error: {e:?}");
-                                        break;
+                                    let u_start = y_size;
+                                    let v_start = y_size + u_size;
+                                    let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
+                                    let mut u_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                    let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                    for r in 0..cuh {
+                                        let u_row = u_start + (coy + r) * uv_stride + cox;
+                                        let v_row = v_start + (coy + r) * uv_stride + cox;
+                                        if let Some(urow) = slice.get(u_row..u_row + cuw) {
+                                            u_plane.extend_from_slice(urow);
+                                        }
+                                        if let Some(vrow) = slice.get(v_row..v_row + cuw) {
+                                            v_plane.extend_from_slice(vrow);
+                                        }
                                     }
-                                }
-                            }
-
-                            if let Some(img) = acquired_img {
-                                let (ox, oy, cw, ch) = match img.crop_rect() {
-                                    Ok(r) if r.right > r.left && r.bottom > r.top => {
-                                        (r.left as u32, r.top as u32, (r.right - r.left) as u32, (r.bottom - r.top) as u32)
-                                    }
-                                    _ => self.crop,
-                                };
-                                let y_stride = img.plane_row_stride(0).map(|s| s as usize).unwrap_or(self.stride).max((ox + cw) as usize);
-                                let img_h = img.height().map(|h| h as usize).unwrap_or(self.slice_height).max((oy + ch) as usize);
-                                let pixel_stride = img.plane_pixel_stride(1).unwrap_or(2);
-
-                                if pixel_stride == 2 {
-                                    // Semi-planar NV12 / NV21
-                                    let is_nv21 = match (img.plane_data(1), img.plane_data(2)) {
-                                        (Ok(p1), Ok(p2)) => p2.as_ptr() < p1.as_ptr(),
-                                        _ => false,
+                                    let data = filmcraft_frame::PixelData::Yuv8 {
+                                        planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
+                                        chroma: filmcraft_frame::Chroma::C420,
+                                        alpha: None,
                                     };
-                                    if let (Ok(luma), Ok(chroma)) = (img.plane_data(0), img.plane_data(1)) {
-                                        let biplanar = biplanar::Biplanar {
-                                            luma,
-                                            chroma,
-                                            stride: y_stride,
-                                            rows: img_h,
-                                        };
-                                        let geometry = biplanar::Geometry {
-                                            crop: (ox, oy, cw, ch),
-                                            bits: 8,
+                                    frames.push(DecodedFrame {
+                                        pts,
+                                        frame: filmcraft_frame::VideoFrame {
+                                            width: self.crop.2,
+                                            height: self.crop.3,
+                                            data,
                                             color: self.info.color,
                                             par: self.info.par,
-                                        };
-
-                                        match biplanar::to_frame(&biplanar, &geometry) {
-                                            Ok(mut frame) => {
-                                                if is_nv21 {
-                                                    if let filmcraft_frame::PixelData::Yuv8 { ref mut planes, .. } = frame.data {
-                                                        planes.swap(1, 2);
-                                                    }
-                                                }
-                                                frames.push(DecodedFrame {
-                                                    pts,
-                                                    frame,
-                                                    draft: false,
-                                                });
-                                            }
-                                            Err(e) => {
-                                                log::warn!("AImageReader biplanar::to_frame failed: {e}");
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Planar I420
-                                    if let (Ok(y_slice), Ok(u_slice), Ok(v_slice)) = (img.plane_data(0), img.plane_data(1), img.plane_data(2)) {
-                                        let u_stride = img.plane_row_stride(1).map(|s| s as usize).unwrap_or(y_stride / 2);
-                                        let v_stride = img.plane_row_stride(2).map(|s| s as usize).unwrap_or(u_stride);
-                                        let (ox_u, oy_u) = ((ox / 2) as usize, (oy / 2) as usize);
-                                        let (cw_u, ch_u) = (cw.div_ceil(2) as usize, ch.div_ceil(2) as usize);
-                                        let (ox_y, oy_y, cw_y, ch_y) = (ox as usize, oy as usize, cw as usize, ch as usize);
-
-                                        let mut y_plane = filmcraft_frame::pool::take_u8(cw_y * ch_y);
-                                        for r in 0..ch_y {
-                                            let row_start = (oy_y + r) * y_stride + ox_y;
-                                            if let Some(row) = y_slice.get(row_start..row_start + cw_y) {
-                                                y_plane.extend_from_slice(row);
-                                            }
-                                        }
-                                        let mut u_plane = filmcraft_frame::pool::take_u8(cw_u * ch_u);
-                                        let mut v_plane = filmcraft_frame::pool::take_u8(cw_u * ch_u);
-                                        for r in 0..ch_u {
-                                            let u_start = (oy_u + r) * u_stride + ox_u;
-                                            let v_start = (oy_u + r) * v_stride + ox_u;
-                                            if let Some(row) = u_slice.get(u_start..u_start + cw_u) {
-                                                u_plane.extend_from_slice(row);
-                                            }
-                                            if let Some(row) = v_slice.get(v_start..v_start + cw_u) {
-                                                v_plane.extend_from_slice(row);
-                                            }
-                                        }
-                                        let data = filmcraft_frame::PixelData::Yuv8 {
-                                            planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
-                                            chroma: filmcraft_frame::Chroma::C420,
-                                            alpha: None,
-                                        };
-                                        frames.push(DecodedFrame {
-                                            pts,
-                                            frame: filmcraft_frame::VideoFrame {
-                                                width: cw,
-                                                height: ch,
-                                                data,
-                                                color: self.info.color,
-                                                par: self.info.par,
-                                                pts: filmcraft_time::Tick::ZERO,
-                                            },
-                                            draft: false,
-                                        });
-                                    }
+                                            pts: filmcraft_time::Tick::ZERO,
+                                        },
+                                        draft: false,
+                                    });
                                 }
-                                // `img` is dropped here, returning the buffer to AImageReader's pool.
-                            }
-                        } else {
-                            let _ = self.codec.release_output_buffer(output_buffer, false);
-                        }
-                    } else {
-                        // Buffer mode fallback
-                        if !is_config && info.size() > 0 {
-                            let buf_data = output_buffer.buffer();
-                            let offset = info.offset() as usize;
-                            let size = info.size() as usize;
-                            if let Some(slice) = buf_data.get(offset..offset.saturating_add(size)) {
-                                let stride = self.stride.max(self.info.coded.0 as usize);
-                                let slice_height = self.slice_height.max(self.info.coded.1 as usize);
+                            } else {
+                                // Default: COLOR_FormatYUV420SemiPlanar (NV12)
+                                let luma_size = stride.saturating_mul(slice_height);
+                                let total_size = luma_size.saturating_add(stride.saturating_mul(slice_height.div_ceil(2)));
 
-                                if self.color_format == 19 {
-                                    // COLOR_FormatYUV420Planar (I420)
-                                    let y_size = stride * slice_height;
-                                    let uv_stride = stride / 2;
-                                    let uv_rows = slice_height / 2;
-                                    let u_size = uv_stride * uv_rows;
-                                    if slice.len() >= y_size + u_size * 2 {
-                                        let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
-                                        let mut y_plane = filmcraft_frame::pool::take_u8(cw * ch);
-                                        for r in 0..ch {
-                                            let src_start = (oy + r) * stride + ox;
-                                            if let Some(row) = slice.get(src_start..src_start + cw) {
-                                                y_plane.extend_from_slice(row);
-                                            }
-                                        }
-                                        let u_start = y_size;
-                                        let v_start = y_size + u_size;
-                                        let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
-                                        let mut u_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
-                                        let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
-                                        for r in 0..cuh {
-                                            let u_row = u_start + (coy + r) * uv_stride + cox;
-                                            let v_row = v_start + (coy + r) * uv_stride + cox;
-                                            if let Some(urow) = slice.get(u_row..u_row + cuw) {
-                                                u_plane.extend_from_slice(urow);
-                                            }
-                                            if let Some(vrow) = slice.get(v_row..v_row + cuw) {
-                                                v_plane.extend_from_slice(vrow);
-                                            }
-                                        }
-                                        let data = filmcraft_frame::PixelData::Yuv8 {
-                                            planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
-                                            chroma: filmcraft_frame::Chroma::C420,
-                                            alpha: None,
-                                        };
-                                        frames.push(DecodedFrame {
-                                            pts,
-                                            frame: filmcraft_frame::VideoFrame {
-                                                width: self.crop.2,
-                                                height: self.crop.3,
-                                                data,
-                                                color: self.info.color,
-                                                par: self.info.par,
-                                                pts: filmcraft_time::Tick::ZERO,
-                                            },
-                                            draft: false,
-                                        });
-                                    }
+                                let (luma, chroma, rows) = if slice.len() >= total_size {
+                                    (&slice[..luma_size], &slice[luma_size..], slice_height)
                                 } else {
-                                    // Default: COLOR_FormatYUV420SemiPlanar (NV12)
-                                    let luma_size = stride.saturating_mul(slice_height);
-                                    let total_size = luma_size.saturating_add(stride.saturating_mul(slice_height.div_ceil(2)));
-
-                                    let (luma, chroma, rows) = if slice.len() >= total_size {
-                                        (&slice[..luma_size], &slice[luma_size..], slice_height)
+                                    let actual_rows = if stride > 0 {
+                                        (slice.len() * 2) / (stride * 3)
                                     } else {
-                                        let actual_rows = if stride > 0 {
-                                            (slice.len() * 2) / (stride * 3)
-                                        } else {
-                                            self.info.coded.1 as usize
-                                        };
-                                        let luma_bytes = stride.saturating_mul(actual_rows);
-                                        if slice.len() >= luma_bytes {
-                                            (&slice[..luma_bytes], &slice[luma_bytes..], actual_rows)
-                                        } else {
-                                            let half = slice.len() * 2 / 3;
-                                            (&slice[..half], &slice[half..], actual_rows)
-                                        }
+                                        self.info.coded.1 as usize
                                     };
+                                    let luma_bytes = stride.saturating_mul(actual_rows);
+                                    if slice.len() >= luma_bytes {
+                                        (&slice[..luma_bytes], &slice[luma_bytes..], actual_rows)
+                                    } else {
+                                        let half = slice.len() * 2 / 3;
+                                        (&slice[..half], &slice[half..], actual_rows)
+                                    }
+                                };
 
-                                    let biplanar = biplanar::Biplanar {
-                                        luma,
-                                        chroma,
-                                        stride,
-                                        rows,
-                                    };
-                                    let geometry = biplanar::Geometry {
-                                        crop: self.crop,
-                                        bits: 8,
-                                        color: self.info.color,
-                                        par: self.info.par,
-                                    };
+                                let biplanar = biplanar::Biplanar {
+                                    luma,
+                                    chroma,
+                                    stride,
+                                    rows,
+                                };
+                                let geometry = biplanar::Geometry {
+                                    crop: self.crop,
+                                    bits: 8,
+                                    color: self.info.color,
+                                    par: self.info.par,
+                                };
 
-                                    match biplanar::to_frame(&biplanar, &geometry) {
-                                        Ok(frame) => {
-                                            frames.push(DecodedFrame {
-                                                pts,
-                                                frame,
-                                                draft: false,
-                                            });
-                                        }
-                                        Err(e) => {
-                                            log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
-                                        }
+                                match biplanar::to_frame(&biplanar, &geometry) {
+                                    Ok(frame) => {
+                                        frames.push(DecodedFrame {
+                                            pts,
+                                            frame,
+                                            draft: false,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
                                     }
                                 }
                             }
                         }
-
-                        let _ = self.codec.release_output_buffer(output_buffer, false);
                     }
 
+                    let _ = self.codec.release_output_buffer(output_buffer, false);
                     if (flags & 4) != 0 {
                         self.eos_seen = true;
                         break;
@@ -1559,11 +1347,6 @@ impl VideoDecoder for MediaCodecDecoder {
     fn reset(&mut self) {
         if let Err(e) = self.codec.flush() {
             log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
-        }
-        if let Some(reader) = &self.image_reader {
-            while let Ok(AcquireResult::Image(img)) = reader.acquire_next_image() {
-                drop(img);
-            }
         }
         self.eos_seen = false;
         self.need_param_sets = true;
