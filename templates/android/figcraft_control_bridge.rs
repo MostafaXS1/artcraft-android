@@ -995,6 +995,21 @@ pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 let has_selection = !app.session.selection().is_empty();
+                                for (label, tool) in [
+                                    ("Move", "move"),
+                                    ("Hand", "hand"),
+                                    ("Frame", "frame"),
+                                    ("Rect", "rectangle"),
+                                    ("Ellipse", "ellipse"),
+                                    ("Text", "text"),
+                                    ("Pen", "pen"),
+                                    ("Comment", "comment"),
+                                ] {
+                                    if ui.add(egui::Button::new(label).min_size(egui::vec2(58.0, 40.0))).clicked() {
+                                        app.run("tool.set", serde_json::json!({"tool": tool}));
+                                    }
+                                }
+                                ui.separator();
                                 for (label, command, needs_selection) in [
                                     ("Undo", "edit.undo", false),
                                     ("Redo", "edit.redo", false),
