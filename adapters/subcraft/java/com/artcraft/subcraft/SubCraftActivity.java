@@ -889,6 +889,19 @@ public final class SubCraftActivity extends NativeActivity {
             try {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                        if (!docsDir.exists()) docsDir.mkdirs();
+                        Uri docsTreeUri = DocumentsContract.buildTreeDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Documents"
+                        );
+                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not set initial tree URI for folder picker", e);
+                    }
+                }
                 requestIds.put(REQ_FOLDER, id);
                 startActivityForResult(intent, REQ_FOLDER);
             } catch (Exception e) {
@@ -897,15 +910,32 @@ public final class SubCraftActivity extends NativeActivity {
         });
     }
 
-    private static String treeToPath(Uri tree) {
+    private String treeToPath(Uri tree) {
         try {
             String documentId = DocumentsContract.getTreeDocumentId(tree);
             if (documentId == null) return null;
             int colon = documentId.indexOf(':');
             if (colon < 0) return null;
-            if (!"primary".equalsIgnoreCase(documentId.substring(0, colon))) return null;
+            String volume = documentId.substring(0, colon);
             String relative = documentId.substring(colon + 1);
-            File base = Environment.getExternalStorageDirectory();
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                base = new File("/storage/" + volume);
+                if (!base.exists()) {
+                    File[] externalDirs = getExternalFilesDirs(null);
+                    if (externalDirs != null) {
+                        for (File f : externalDirs) {
+                            if (f != null && f.getAbsolutePath().contains(volume)) {
+                                int idx = f.getAbsolutePath().indexOf(volume);
+                                base = new File(f.getAbsolutePath().substring(0, idx + volume.length()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             return relative.isEmpty() ? base.getAbsolutePath() : new File(base, relative).getAbsolutePath();
         } catch (Exception e) {
             return null;
@@ -929,7 +959,7 @@ public final class SubCraftActivity extends NativeActivity {
             Uri tree = data.getData();
             String path = tree == null ? null : treeToPath(tree);
             if (path == null) {
-                enqueueError(id, kind, "Only folders on the device's main storage can be opened");
+                enqueueError(id, kind, "Only folders on device storage can be opened");
                 return;
             }
             persistPermission(tree, data);
@@ -951,6 +981,7 @@ public final class SubCraftActivity extends NativeActivity {
             try {
                 String name = displayName(uri);
                 if (name == null || name.trim().isEmpty()) name = suggestedNames.getOrDefault(id, "untitled");
+                name = keepSuggestedExtension(name, suggestedNames.get(id));
                 File stage = newStageFile(name, uri);
                 rememberUri(stage, uri);
                 enqueueSave(id, stage.getAbsolutePath());
@@ -996,22 +1027,66 @@ public final class SubCraftActivity extends NativeActivity {
     public String safCommit(String path) {
         try {
             String uriText = getSharedPreferences(PREFS, MODE_PRIVATE).getString("uri:" + path, null);
+            if (uriText == null) uriText = uriForSibling(path);
             if (uriText == null) return "NONE";
             Uri uri = Uri.parse(uriText);
-            OutputStream out = getContentResolver().openOutputStream(uri, "wt");
-            if (out == null) out = getContentResolver().openOutputStream(uri, "w");
+            File srcFile = new File(path);
+            if (!srcFile.exists()) {
+                return "ERROR: Staged file does not exist: " + path;
+            }
+            // Use binary "w" mode to avoid text translation / truncation causing 0B files
+            OutputStream out = getContentResolver().openOutputStream(uri, "w");
+            if (out == null) out = getContentResolver().openOutputStream(uri, "wt");
             if (out == null) return "ERROR: Android document provider did not open an output stream";
-            try (InputStream in = new FileInputStream(new File(path)); OutputStream target = out) {
+            try (InputStream in = new FileInputStream(srcFile); OutputStream target = out) {
                 byte[] buffer = new byte[64 * 1024];
                 int count;
-                while ((count = in.read(buffer)) != -1) target.write(buffer, 0, count);
+                long total = 0;
+                while ((count = in.read(buffer)) != -1) {
+                    target.write(buffer, 0, count);
+                    total += count;
+                }
                 target.flush();
+                Log.i(TAG, "Committed " + total + " bytes from " + path + " to " + uri);
             }
             return "OK";
         } catch (Exception e) {
             Log.e(TAG, "Could not write a selected document", e);
             return "ERROR: Could not write the selected document: " + e.getMessage();
         }
+    }
+
+    private static String stagedStem(String path) {
+        File file = new File(path);
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        File parent = file.getParentFile();
+        return parent == null ? stem : new File(parent, stem).getAbsolutePath();
+    }
+
+    private String uriForSibling(String path) {
+        String stem = stagedStem(path);
+        try {
+            for (Map.Entry<String, ?> entry : getSharedPreferences(PREFS, MODE_PRIVATE).getAll().entrySet()) {
+                if (!entry.getKey().startsWith("uri:") || !(entry.getValue() instanceof String uriText)) continue;
+                String staged = entry.getKey().substring("uri:".length());
+                if (stagedStem(staged).equals(stem)) return uriText;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look up a staged document", e);
+        }
+        return null;
+    }
+
+    private static String keepSuggestedExtension(String name, String suggested) {
+        if (name == null || suggested == null) return name;
+        int dot = name.lastIndexOf('.');
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (dot > slash + 1 && dot < name.length() - 1) return name;
+        int suggestedDot = suggested.lastIndexOf('.');
+        if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
+        return name + suggested.substring(suggestedDot);
     }
 
     /**
@@ -1076,7 +1151,7 @@ public final class SubCraftActivity extends NativeActivity {
     }
 
     private void rememberUri(File path, Uri uri) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).commit();
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {

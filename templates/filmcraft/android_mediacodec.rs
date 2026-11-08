@@ -29,6 +29,13 @@ use ndk::media::media_codec::{
 use ndk::media::media_format::MediaFormat;
 use ndk::native_window::NativeWindow;
 
+#[cfg(target_os = "android")]
+use jni::{
+    jni_sig, jni_str,
+    objects::{Global, JObject, JValue},
+    JavaVM,
+};
+
 use crate::biplanar;
 use crate::hybrid::HybridDecoder;
 
@@ -156,7 +163,7 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
 
     let (y_plane, uv_plane) = out.split_at_mut(y_len);
     let half_h = h / 2;
-    let half_w = w / 2;
+    let _half_w = w / 2;
 
     for y in 0..half_h {
         let row0 = y * 2;
@@ -570,16 +577,16 @@ impl MediaCodecEncoder {
     }
 }
 
-impl MediaCodecEncoder {
-    pub fn input_surface(&self) -> Option<*mut std::ffi::c_void> {
+impl VideoEncoder for MediaCodecEncoder {
+    fn input_surface(&self) -> Option<*mut std::ffi::c_void> {
         self.surface.as_ref().map(|w| w.ptr().as_ptr() as *mut std::ffi::c_void)
     }
 
-    pub fn fallback_to_buffer(&mut self) -> bool {
+    fn fallback_to_buffer(&mut self) -> bool {
         self.fallback_to_buffer()
     }
 
-    pub fn sample_entry(&self) -> SampleEntry {
+    fn sample_entry(&self) -> SampleEntry {
         let (w, h) = (self.w.min(u32::from(u16::MAX)) as u16, self.h.min(u32::from(u16::MAX)) as u16);
         let sps_list = match &self.sps {
             Some(s) if s.len() >= 4 => vec![s.clone()],
@@ -598,11 +605,11 @@ impl MediaCodecEncoder {
         SampleEntry::avc(AvcConfig::new(sps_list, pps_list, 4), w, h)
     }
 
-    pub fn timescale(&self) -> u32 {
+    fn timescale(&self) -> u32 {
         self.timescale
     }
 
-    pub fn prepare_ahead(&self) -> Option<PrepareAhead> {
+    fn prepare_ahead(&self) -> Option<PrepareAhead> {
         if self.surface.is_some() {
             // In zero-copy surface mode, GPU renders directly into the hardware surface.
             return None;
@@ -618,11 +625,11 @@ impl MediaCodecEncoder {
         }))
     }
 
-    pub fn encode(&mut self, f: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
+    fn encode(&mut self, f: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
-            self.drain_output(Duration::ZERO, &mut packets)?;
+            self.drain_output(Duration::from_millis(10), &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..40 {
@@ -779,7 +786,7 @@ impl MediaCodecEncoder {
         Ok(packets)
     }
 
-    pub fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
+    fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
         let mut packets = Vec::new();
 
         if self.surface.is_some() {
@@ -928,6 +935,8 @@ pub struct MediaCodecDecoder {
     eos_seen: bool,
     need_param_sets: bool,
     input_annex_b: Vec<u8>,
+    is_direct_surface: bool,
+    last_render_pts_ns: i64,
 }
 
 impl MediaCodecDecoder {
@@ -948,6 +957,12 @@ impl MediaCodecDecoder {
         };
 
         let (w, h) = info.coded;
+
+        let direct_window = filmcraft_codecs::hw::direct_surface_for(w, h).and_then(|ptr| {
+            let non_null = std::ptr::NonNull::new(ptr as *mut _)?;
+            Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
+        });
+        let has_direct = direct_window.is_some();
 
         let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
@@ -1003,7 +1018,7 @@ impl MediaCodecDecoder {
             format
         };
 
-        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
+        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool, surface: Option<&NativeWindow>| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_decoder_type(mime)
                 .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
 
@@ -1016,30 +1031,60 @@ impl MediaCodecDecoder {
             }
 
             let format = make_format(with_operating_rate, with_color_format, with_csd);
-            codec.configure(&format, None, MediaCodecDirection::Decoder)
+            codec.configure(&format, surface, MediaCodecDirection::Decoder)
                 .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
             codec.start()
                 .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
             Ok(codec)
         };
 
-        let codec = try_init(true, true, true)
-            .or_else(|e1| {
-                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
-                try_init(false, true, true)
-            })
-            .or_else(|e2| {
-                log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
-                try_init(false, false, true)
-            })
-            .or_else(|e3| {
-                log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
-                try_init(false, false, false)
-            })
-            .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+        let (codec, is_direct_surface) = if has_direct {
+            log::info!("Attempting to initialize MediaCodec decoder with direct surface bridge...");
+            match try_init(true, false, true, direct_window.as_ref()) {
+                Ok(c) => {
+                    log::info!("MediaCodec decoder initialized with direct hardware surface bridge!");
+                    (c, true)
+                }
+                Err(e) => {
+                    log::warn!("Direct surface decoder init failed ({e}), falling back to buffer mode");
+                    filmcraft_codecs::hw::clear_direct_surface();
+                    let c = try_init(true, true, true, None)
+                        .or_else(|e1| {
+                            log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                            try_init(false, true, true, None)
+                        })
+                        .or_else(|e2| {
+                            log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                            try_init(false, false, true, None)
+                        })
+                        .or_else(|e3| {
+                            log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                            try_init(false, false, false, None)
+                        })
+                        .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+                    (c, false)
+                }
+            }
+        } else {
+            let c = try_init(true, true, true, None)
+                .or_else(|e1| {
+                    log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                    try_init(false, true, true, None)
+                })
+                .or_else(|e2| {
+                    log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                    try_init(false, false, true, None)
+                })
+                .or_else(|e3| {
+                    log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                    try_init(false, false, false, None)
+                })
+                .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+            (c, false)
+        };
 
         let name = codec.name().unwrap_or_else(|_| default_name.to_string());
-        log::info!("MediaCodec decoder initialized successfully: {name}");
+        log::info!("MediaCodec decoder initialized successfully: {name} (direct_surface={is_direct_surface})");
         let stride = w as usize;
         let slice_height = h as usize;
         let crop = info.crop;
@@ -1056,6 +1101,8 @@ impl MediaCodecDecoder {
             eos_seen: false,
             need_param_sets: true,
             input_annex_b: Vec::new(),
+            is_direct_surface,
+            last_render_pts_ns: 0,
         };
 
         let out_fmt = dec.codec.output_format();
@@ -1087,7 +1134,7 @@ impl MediaCodecDecoder {
         ) {
             if r >= l && b >= t {
                 let cw = (r - l + 1) as u32;
-                let ch = (b - t + 1) as u32.
+                let ch = (b - t + 1) as u32;
                 if cw > 0 && ch > 0 {
                     self.crop = (l as u32, t as u32, cw, ch);
                 }
@@ -1110,10 +1157,39 @@ impl MediaCodecDecoder {
                     let flags = info.flags();
                     let pts = info.presentation_time_us();
 
-                    if (flags & 2) == 0 && info.size() > 0 {
+                    if (flags & 2) == 0 {
+                        if self.is_direct_surface {
+                            // ZERO-COPY DIRECT SURFACE BRIDGE:
+                            // Commit the decoded frame directly to the encoder's input surface.
+                            if let Err(e) = self.codec.release_output_buffer(output_buffer, true) {
+                                log::warn!("MediaCodecDecoder release_output_buffer failed: {e:?}");
+                            }
+
+                            frames.push(DecodedFrame {
+                                pts,
+                                frame: filmcraft_frame::VideoFrame {
+                                    width: self.crop.2,
+                                    height: self.crop.3,
+                                    data: filmcraft_frame::PixelData::Rgba8(Arc::new(Vec::new())),
+                                    color: self.info.color,
+                                    par: self.info.par,
+                                    pts: filmcraft_time::Tick::ZERO,
+                                },
+                                draft: false,
+                            });
+
+                            if (flags & 4) != 0 {
+                                self.eos_seen = true;
+                                break;
+                            }
+                            timeout = Duration::ZERO;
+                            continue;
+                        }
+
+                        if info.size() > 0 {
                         let buf_data = output_buffer.buffer();
                         let offset = info.offset() as usize;
-                        let size = info.size() as usize.
+                        let size = info.size() as usize;
                         if let Some(slice) = buf_data.get(offset..offset.saturating_add(size)) {
                             let stride = self.stride.max(self.info.coded.0 as usize);
                             let slice_height = self.slice_height.max(self.info.coded.1 as usize);
@@ -1140,7 +1216,7 @@ impl MediaCodecDecoder {
                                     let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
                                     for r in 0..cuh {
                                         let u_row = u_start + (coy + r) * uv_stride + cox;
-                                        let v_row = v_start + (coy + r) * uv_stride + cox.
+                                        let v_row = v_start + (coy + r) * uv_stride + cox;
                                         if let Some(urow) = slice.get(u_row..u_row + cuw) {
                                             u_plane.extend_from_slice(urow);
                                         }
@@ -1215,6 +1291,7 @@ impl MediaCodecDecoder {
                                 }
                             }
                         }
+                        }
                     }
 
                     let _ = self.codec.release_output_buffer(output_buffer, false);
@@ -1244,7 +1321,7 @@ impl MediaCodecDecoder {
 
 impl VideoDecoder for MediaCodecDecoder {
     fn decode(&mut self, sample: &[u8], pts: i64) -> filmcraft_codecs::Result<Vec<DecodedFrame>> {
-        self.fed += 1.
+        self.fed += 1;
         let mut frames = Vec::new();
 
         // 1. Convert AVCC / HVCC sample to Annex B, prepending parameter sets on first frame or seek
@@ -1256,15 +1333,18 @@ impl VideoDecoder for MediaCodecDecoder {
             }
             self.need_param_sets = false;
         }
-        avcc_to_annex_b_append(sample, self.info.length_size, &mut self.input_annex_b).
+        avcc_to_annex_b_append(sample, self.info.length_size, &mut self.input_annex_b);
         if self.input_annex_b.is_empty() {
             return Ok(frames);
         }
 
-        // 2. Dequeue input buffer with backoff
+        // 2. Dequeue input buffer with zero-latency fast-path & backoff
         let mut input_buf = 'outer: loop {
-            for _ in 0..150 {
-                match self.codec.dequeue_input_buffer(Duration::from_millis(5)) {
+            if let Ok(DequeuedInputBufferResult::Buffer(b)) = self.codec.dequeue_input_buffer(Duration::ZERO) {
+                break 'outer b;
+            }
+            for _ in 0..300 {
+                match self.codec.dequeue_input_buffer(Duration::from_millis(2)) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
                     _ => {
                         self.drain_output(Duration::from_millis(10), &mut frames)?;
@@ -1272,7 +1352,7 @@ impl VideoDecoder for MediaCodecDecoder {
                 }
             }
             return Err(CodecError::Decode(
-                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 1.5s".into(),
+                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 3s".into(),
             ));
         };
 
@@ -1341,7 +1421,7 @@ impl VideoDecoder for MediaCodecDecoder {
         }
 
         self.eos_seen = false;
-        self.need_param_sets = true.
+        self.last_render_pts_ns = 0;
         frames
     }
 
@@ -1350,7 +1430,8 @@ impl VideoDecoder for MediaCodecDecoder {
             log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
         }
         self.eos_seen = false;
-        self.need_param_sets = true.
+        self.need_param_sets = true;
+        self.last_render_pts_ns = 0;
     }
 
     fn name(&self) -> &str {
@@ -1369,61 +1450,654 @@ impl VideoDecoder for MediaCodecDecoder {
 // SAFETY: Android AMediaCodec handle can be safely sent to another thread; MediaCodecDecoder owns the codec and accesses it exclusively via &mut self.
 unsafe impl Send for MediaCodecDecoder {}
 
-mod biplanar {
-    use filmcraft_frame::{PixelData, VideoFrame, pool};
-    use std::sync::Arc;
+// ============================================================================
+// Phase B3: Zero-Copy Hardware Surface Scaler Bridge
+// Enables 30-second export for downscaled resolutions (4K -> 1080p, 720p)
+// by blitting directly from ASurfaceTexture to encoder surface via Adreno 650.
+// ============================================================================
 
-    #[derive(Clone, Copy)]
-    pub struct Biplanar {
-        pub luma: Vec<u8>,
-        pub chroma: Vec<u8>,
-        pub stride: usize,
-        pub rows: usize,
+#[cfg(target_os = "android")]
+static ACTIVE_SCALER: Mutex<Option<HardwareSurfaceScaler>> = Mutex::new(None);
+
+#[cfg(target_os = "android")]
+pub fn register_scaler() {
+    filmcraft_codecs::hw::register_surface_scaler(
+        scaler_init,
+        scaler_blit,
+        scaler_check,
+        scaler_clear,
+    );
+    log::info!("Phase B3: HardwareSurfaceScaler registered with filmcraft_codecs");
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn register_scaler() {}
+
+#[cfg(target_os = "android")]
+fn scaler_init(
+    encoder_window: *mut std::ffi::c_void,
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+) -> Option<*mut std::ffi::c_void> {
+    log::info!("Phase B3: Attempting HardwareSurfaceScaler initialization: {src_w}x{src_h} -> {dst_w}x{dst_h}...");
+    let scaler = match HardwareSurfaceScaler::new(encoder_window, src_w, src_h, dst_w, dst_h) {
+        Some(s) => s,
+        None => {
+            log::warn!("Phase B3: HardwareSurfaceScaler failed to initialize, falling back to Vulkan ExportRenderer");
+            return None;
+        }
+    };
+    let decoder_win = scaler.decoder_window();
+    let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    *guard = Some(scaler);
+    log::info!("Phase B3: HardwareSurfaceScaler active! Decoder window = {decoder_win:?}");
+    Some(decoder_win)
+}
+
+#[cfg(target_os = "android")]
+fn scaler_blit() -> bool {
+    let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(scaler) = guard.as_mut() {
+        scaler.blit()
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "android")]
+fn scaler_check() -> bool {
+    let guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    guard.is_some()
+}
+
+#[cfg(target_os = "android")]
+fn scaler_clear() {
+    let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    *guard = None;
+}
+
+#[cfg(target_os = "android")]
+unsafe extern "C" {
+    fn dlopen(filename: *const std::os::raw::c_char, flag: std::os::raw::c_int) -> *mut std::ffi::c_void;
+    fn dlsym(handle: *mut std::ffi::c_void, symbol: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+    fn dlclose(handle: *mut std::ffi::c_void) -> std::os::raw::c_int;
+}
+
+#[cfg(target_os = "android")]
+const EGL_DEFAULT_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
+#[cfg(target_os = "android")]
+const EGL_NO_CONTEXT: *mut std::ffi::c_void = std::ptr::null_mut();
+#[cfg(target_os = "android")]
+const EGL_NO_SURFACE: *mut std::ffi::c_void = std::ptr::null_mut();
+#[cfg(target_os = "android")]
+const EGL_NONE: i32 = 0x3038;
+#[cfg(target_os = "android")]
+const EGL_RED_SIZE: i32 = 0x3024;
+#[cfg(target_os = "android")]
+const EGL_GREEN_SIZE: i32 = 0x3023;
+#[cfg(target_os = "android")]
+const EGL_BLUE_SIZE: i32 = 0x3022;
+#[cfg(target_os = "android")]
+const EGL_ALPHA_SIZE: i32 = 0x3021;
+#[cfg(target_os = "android")]
+const EGL_RENDERABLE_TYPE: i32 = 0x3040;
+#[cfg(target_os = "android")]
+const EGL_OPENGL_ES2_BIT: i32 = 0x0004;
+#[cfg(target_os = "android")]
+const EGL_SURFACE_TYPE: i32 = 0x3033;
+#[cfg(target_os = "android")]
+const EGL_WINDOW_BIT: i32 = 0x0004;
+#[cfg(target_os = "android")]
+const EGL_CONTEXT_CLIENT_VERSION: i32 = 0x3098;
+
+#[cfg(target_os = "android")]
+const GL_TEXTURE_EXTERNAL_OES: u32 = 0x8D65;
+#[cfg(target_os = "android")]
+const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
+#[cfg(target_os = "android")]
+const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+#[cfg(target_os = "android")]
+const GL_TEXTURE_WRAP_S: u32 = 0x2802;
+#[cfg(target_os = "android")]
+const GL_TEXTURE_WRAP_T: u32 = 0x2803;
+#[cfg(target_os = "android")]
+const GL_CLAMP_TO_EDGE: i32 = 0x812F;
+#[cfg(target_os = "android")]
+const GL_LINEAR: i32 = 0x2601;
+#[cfg(target_os = "android")]
+const GL_VERTEX_SHADER: u32 = 0x8B31;
+#[cfg(target_os = "android")]
+const GL_FRAGMENT_SHADER: u32 = 0x8B30;
+#[cfg(target_os = "android")]
+const GL_COMPILE_STATUS: u32 = 0x8B81;
+#[cfg(target_os = "android")]
+const GL_LINK_STATUS: u32 = 0x8B82;
+#[cfg(target_os = "android")]
+const GL_FLOAT: u32 = 0x1406;
+#[cfg(target_os = "android")]
+const GL_TRIANGLE_STRIP: u32 = 0x0005;
+
+#[cfg(target_os = "android")]
+const VS_SRC: &[u8] = b"attribute vec4 aPosition;\n\
+attribute vec4 aTexCoord;\n\
+uniform mat4 uTexMatrix;\n\
+varying vec2 vTexCoord;\n\
+void main() {\n\
+    gl_Position = aPosition;\n\
+    vTexCoord = (uTexMatrix * aTexCoord).xy;\n\
+}\0";
+
+#[cfg(target_os = "android")]
+const FS_SRC: &[u8] = b"#extension GL_OES_EGL_image_external : require\n\
+precision mediump float;\n\
+uniform samplerExternalOES sTexture;\n\
+varying vec2 vTexCoord;\n\
+void main() {\n\
+    gl_FragColor = texture2D(sTexture, vTexCoord);\n\
+}\0";
+
+#[cfg(target_os = "android")]
+fn compile_shader(
+    gl_create_shader: unsafe extern "C" fn(u32) -> u32,
+    gl_shader_source: unsafe extern "C" fn(u32, i32, *const *const std::os::raw::c_char, *const i32),
+    gl_compile_shader: unsafe extern "C" fn(u32),
+    gl_get_shader_iv: unsafe extern "C" fn(u32, u32, *mut i32),
+    shader_type: u32,
+    src: &[u8],
+) -> Option<u32> {
+    unsafe {
+        let shader = gl_create_shader(shader_type);
+        if shader == 0 {
+            return None;
+        }
+        let src_ptr = src.as_ptr() as *const std::os::raw::c_char;
+        let len = src.len().saturating_sub(1) as i32;
+        gl_shader_source(shader, 1, &src_ptr, &len);
+        gl_compile_shader(shader);
+        let mut status = 0i32;
+        gl_get_shader_iv(shader, GL_COMPILE_STATUS, &mut status);
+        if status == 0 {
+            return None;
+        }
+        Some(shader)
+    }
+}
+
+#[cfg(target_os = "android")]
+pub struct HardwareSurfaceScaler {
+    egl_lib: *mut std::ffi::c_void,
+    gles_lib: *mut std::ffi::c_void,
+    android_lib: *mut std::ffi::c_void,
+    display: *mut std::ffi::c_void,
+    context: *mut std::ffi::c_void,
+    surface: *mut std::ffi::c_void,
+    program: u32,
+    tex_id: u32,
+    u_texture_loc: i32,
+    u_tex_matrix_loc: i32,
+    a_position_loc: i32,
+    a_tex_coord_loc: i32,
+    asurface_texture: *mut std::ffi::c_void,
+    decoder_window: *mut std::ffi::c_void,
+    _java_st_ref: Global<JObject<'static>>,
+    // EGL function pointers
+    fn_eglMakeCurrent: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
+    fn_eglSwapBuffers: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
+    fn_eglDestroySurface: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
+    fn_eglDestroyContext: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
+    fn_eglTerminate: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32,
+    fn_eglPresentationTimeANDROID: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, i64) -> u32>,
+    // GLES function pointers
+    fn_glUseProgram: unsafe extern "C" fn(u32),
+    fn_glBindTexture: unsafe extern "C" fn(u32, u32),
+    fn_glUniform1i: unsafe extern "C" fn(i32, i32),
+    fn_glUniformMatrix4fv: unsafe extern "C" fn(i32, i32, u8, *const f32),
+    fn_glViewport: unsafe extern "C" fn(i32, i32, i32, i32),
+    fn_glEnableVertexAttribArray: unsafe extern "C" fn(u32),
+    fn_glVertexAttribPointer: unsafe extern "C" fn(u32, i32, u32, u8, i32, *const std::ffi::c_void),
+    fn_glDrawArrays: unsafe extern "C" fn(u32, i32, i32),
+    fn_glDeleteTextures: unsafe extern "C" fn(i32, *const u32),
+    fn_glDeleteProgram: unsafe extern "C" fn(u32),
+    // NDK function pointers
+    fn_ASurfaceTexture_updateTexImage: unsafe extern "C" fn(*mut std::ffi::c_void) -> i32,
+    fn_ASurfaceTexture_getTransformMatrix: unsafe extern "C" fn(*mut std::ffi::c_void, *mut f32),
+    fn_ASurfaceTexture_getTimestamp: unsafe extern "C" fn(*mut std::ffi::c_void) -> i64,
+    fn_ASurfaceTexture_release: unsafe extern "C" fn(*mut std::ffi::c_void),
+    fn_ANativeWindow_release: unsafe extern "C" fn(*mut std::ffi::c_void),
+    dst_w: u32,
+    dst_h: u32,
+}
+
+#[cfg(target_os = "android")]
+unsafe impl Send for HardwareSurfaceScaler {}
+
+#[cfg(target_os = "android")]
+impl HardwareSurfaceScaler {
+    pub fn decoder_window(&self) -> *mut std::ffi::c_void {
+        self.decoder_window
     }
 
-    pub struct Geometry {
-        pub crop: (u32, u32, u32, u32),
-        pub bits: u8,
-        pub color: filmcraft_color::Color,
-        pub par: filmcraft_project::PixelAspect,
+    pub fn new(
+        encoder_window: *mut std::ffi::c_void,
+        src_w: u32,
+        src_h: u32,
+        dst_w: u32,
+        dst_h: u32,
+    ) -> Option<Self> {
+        if encoder_window.is_null() || src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
+            log::warn!("HardwareSurfaceScaler: invalid arguments");
+            return None;
+        }
+
+        unsafe {
+            // 1. Dynamic load libraries
+            let egl_lib = dlopen(b"libEGL.so\0".as_ptr() as *const _, 2);
+            if egl_lib.is_null() {
+                log::warn!("HardwareSurfaceScaler: failed to dlopen libEGL.so");
+                return None;
+            }
+
+            let gles_lib = dlopen(b"libGLESv2.so\0".as_ptr() as *const _, 2);
+            if gles_lib.is_null() {
+                log::warn!("HardwareSurfaceScaler: failed to dlopen libGLESv2.so");
+                dlclose(egl_lib);
+                return None;
+            }
+
+            let android_lib = dlopen(b"libandroid.so\0".as_ptr() as *const _, 2);
+            if android_lib.is_null() {
+                log::warn!("HardwareSurfaceScaler: failed to dlopen libandroid.so");
+                dlclose(gles_lib);
+                dlclose(egl_lib);
+                return None;
+            }
+
+            let load = |lib: *mut std::ffi::c_void, name: &[u8]| -> Option<*mut std::ffi::c_void> {
+                let p = dlsym(lib, name.as_ptr() as *const _);
+                if p.is_null() {
+                    log::warn!("HardwareSurfaceScaler: missing symbol {}", std::str::from_utf8(name).unwrap_or("?"));
+                    None
+                } else {
+                    Some(p)
+                }
+            };
+
+            // EGL symbols
+            let fn_eglGetDisplay: unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglGetDisplay\0")?);
+            let fn_eglInitialize: unsafe extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> u32 = std::mem::transmute(load(egl_lib, b"eglInitialize\0")?);
+            let fn_eglChooseConfig: unsafe extern "C" fn(*mut std::ffi::c_void, *const i32, *mut *mut std::ffi::c_void, i32, *mut i32) -> u32 = std::mem::transmute(load(egl_lib, b"eglChooseConfig\0")?);
+            let fn_eglCreateContext: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *const i32) -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglCreateContext\0")?);
+            let fn_eglCreateWindowSurface: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *const i32) -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglCreateWindowSurface\0")?);
+            let fn_eglMakeCurrent: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> u32 = std::mem::transmute(load(egl_lib, b"eglMakeCurrent\0")?);
+            let fn_eglSwapBuffers: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32 = std::mem::transmute(load(egl_lib, b"eglSwapBuffers\0")?);
+            let fn_eglDestroySurface: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32 = std::mem::transmute(load(egl_lib, b"eglDestroySurface\0")?);
+            let fn_eglDestroyContext: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32 = std::mem::transmute(load(egl_lib, b"eglDestroyContext\0")?);
+            let fn_eglTerminate: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32 = std::mem::transmute(load(egl_lib, b"eglTerminate\0")?);
+            let fn_eglGetProcAddress: unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglGetProcAddress\0")?);
+
+            let fn_eglPresentationTimeANDROID: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, i64) -> u32> = {
+                let p = fn_eglGetProcAddress(b"eglPresentationTimeANDROID\0".as_ptr() as *const _);
+                if !p.is_null() {
+                    Some(std::mem::transmute(p))
+                } else {
+                    None
+                }
+            };
+
+            // GLES symbols
+            let fn_glGenTextures: unsafe extern "C" fn(i32, *mut u32) = std::mem::transmute(load(gles_lib, b"glGenTextures\0")?);
+            let fn_glBindTexture: unsafe extern "C" fn(u32, u32) = std::mem::transmute(load(gles_lib, b"glBindTexture\0")?);
+            let fn_glTexParameteri: unsafe extern "C" fn(u32, u32, i32) = std::mem::transmute(load(gles_lib, b"glTexParameteri\0")?);
+            let fn_glCreateShader: unsafe extern "C" fn(u32) -> u32 = std::mem::transmute(load(gles_lib, b"glCreateShader\0")?);
+            let fn_glShaderSource: unsafe extern "C" fn(u32, i32, *const *const std::os::raw::c_char, *const i32) = std::mem::transmute(load(gles_lib, b"glShaderSource\0")?);
+            let fn_glCompileShader: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glCompileShader\0")?);
+            let fn_glGetShaderiv: unsafe extern "C" fn(u32, u32, *mut i32) = std::mem::transmute(load(gles_lib, b"glGetShaderiv\0")?);
+            let fn_glCreateProgram: unsafe extern "C" fn() -> u32 = std::mem::transmute(load(gles_lib, b"glCreateProgram\0")?);
+            let fn_glAttachShader: unsafe extern "C" fn(u32, u32) = std::mem::transmute(load(gles_lib, b"glAttachShader\0")?);
+            let fn_glLinkProgram: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glLinkProgram\0")?);
+            let fn_glGetProgramiv: unsafe extern "C" fn(u32, u32, *mut i32) = std::mem::transmute(load(gles_lib, b"glGetProgramiv\0")?);
+            let fn_glUseProgram: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glUseProgram\0")?);
+            let fn_glGetAttribLocation: unsafe extern "C" fn(u32, *const std::os::raw::c_char) -> i32 = std::mem::transmute(load(gles_lib, b"glGetAttribLocation\0")?);
+            let fn_glGetUniformLocation: unsafe extern "C" fn(u32, *const std::os::raw::c_char) -> i32 = std::mem::transmute(load(gles_lib, b"glGetUniformLocation\0")?);
+            let fn_glEnableVertexAttribArray: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glEnableVertexAttribArray\0")?);
+            let fn_glVertexAttribPointer: unsafe extern "C" fn(u32, i32, u32, u8, i32, *const std::ffi::c_void) = std::mem::transmute(load(gles_lib, b"glVertexAttribPointer\0")?);
+            let fn_glUniformMatrix4fv: unsafe extern "C" fn(i32, i32, u8, *const f32) = std::mem::transmute(load(gles_lib, b"glUniformMatrix4fv\0")?);
+            let fn_glUniform1i: unsafe extern "C" fn(i32, i32) = std::mem::transmute(load(gles_lib, b"glUniform1i\0")?);
+            let fn_glViewport: unsafe extern "C" fn(i32, i32, i32, i32) = std::mem::transmute(load(gles_lib, b"glViewport\0")?);
+            let fn_glDrawArrays: unsafe extern "C" fn(u32, i32, i32) = std::mem::transmute(load(gles_lib, b"glDrawArrays\0")?);
+            let fn_glDeleteTextures: unsafe extern "C" fn(i32, *const u32) = std::mem::transmute(load(gles_lib, b"glDeleteTextures\0")?);
+            let fn_glDeleteProgram: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glDeleteProgram\0")?);
+            let fn_glDeleteShader: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glDeleteShader\0")?);
+
+            // NDK symbols
+            let fn_ASurfaceTexture_fromSurfaceTexture: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(load(android_lib, b"ASurfaceTexture_fromSurfaceTexture\0")?);
+            let fn_ASurfaceTexture_acquireANativeWindow: unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(load(android_lib, b"ASurfaceTexture_acquireANativeWindow\0")?);
+            let fn_ASurfaceTexture_updateTexImage: unsafe extern "C" fn(*mut std::ffi::c_void) -> i32 = std::mem::transmute(load(android_lib, b"ASurfaceTexture_updateTexImage\0")?);
+            let fn_ASurfaceTexture_getTransformMatrix: unsafe extern "C" fn(*mut std::ffi::c_void, *mut f32) = std::mem::transmute(load(android_lib, b"ASurfaceTexture_getTransformMatrix\0")?);
+            let fn_ASurfaceTexture_getTimestamp: unsafe extern "C" fn(*mut std::ffi::c_void) -> i64 = std::mem::transmute(load(android_lib, b"ASurfaceTexture_getTimestamp\0")?);
+            let fn_ASurfaceTexture_release: unsafe extern "C" fn(*mut std::ffi::c_void) = std::mem::transmute(load(android_lib, b"ASurfaceTexture_release\0")?);
+            let fn_ANativeWindow_release: unsafe extern "C" fn(*mut std::ffi::c_void) = std::mem::transmute(load(android_lib, b"ANativeWindow_release\0")?);
+
+            // 2. Setup EGL display and context
+            let display = fn_eglGetDisplay(EGL_DEFAULT_DISPLAY);
+            if display.is_null() {
+                log::warn!("HardwareSurfaceScaler: eglGetDisplay failed");
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let mut major = 0i32;
+            let mut minor = 0i32;
+            if fn_eglInitialize(display, &mut major, &mut minor) == 0 {
+                log::warn!("HardwareSurfaceScaler: eglInitialize failed");
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let config_attribs = [
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                EGL_RED_SIZE, 8,
+                EGL_GREEN_SIZE, 8,
+                EGL_BLUE_SIZE, 8,
+                EGL_ALPHA_SIZE, 8,
+                EGL_NONE,
+            ];
+
+            let mut config: *mut std::ffi::c_void = std::ptr::null_mut();
+            let mut num_configs = 0i32;
+            if fn_eglChooseConfig(display, config_attribs.as_ptr(), &mut config, 1, &mut num_configs) == 0 || num_configs == 0 {
+                log::warn!("HardwareSurfaceScaler: eglChooseConfig failed");
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let ctx_attribs = [
+                EGL_CONTEXT_CLIENT_VERSION, 2,
+                EGL_NONE,
+            ];
+
+            let context = fn_eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
+            if context.is_null() {
+                log::warn!("HardwareSurfaceScaler: eglCreateContext failed");
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let surface_attribs = [EGL_NONE];
+            let surface = fn_eglCreateWindowSurface(display, config, encoder_window, surface_attribs.as_ptr());
+            if surface.is_null() {
+                log::warn!("HardwareSurfaceScaler: eglCreateWindowSurface failed");
+                fn_eglDestroyContext(display, context);
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            if fn_eglMakeCurrent(display, surface, surface, context) == 0 {
+                log::warn!("HardwareSurfaceScaler: initial eglMakeCurrent failed");
+                fn_eglDestroySurface(display, surface);
+                fn_eglDestroyContext(display, context);
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            // 3. Compile Shaders and Program
+            let vs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, GL_VERTEX_SHADER, VS_SRC);
+            let fs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, GL_FRAGMENT_SHADER, FS_SRC);
+            let (vs, fs) = match (vs, fs) {
+                (Some(v), Some(f)) => (v, f),
+                _ => {
+                    log::warn!("HardwareSurfaceScaler: shader compilation failed");
+                    fn_eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                    fn_eglDestroySurface(display, surface);
+                    fn_eglDestroyContext(display, context);
+                    fn_eglTerminate(display);
+                    dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                    return None;
+                }
+            };
+
+            let program = fn_glCreateProgram();
+            fn_glAttachShader(program, vs);
+            fn_glAttachShader(program, fs);
+            fn_glLinkProgram(program);
+            let mut link_status = 0i32;
+            fn_glGetProgramiv(program, GL_LINK_STATUS, &mut link_status);
+            fn_glDeleteShader(vs);
+            fn_glDeleteShader(fs);
+
+            if link_status == 0 {
+                log::warn!("HardwareSurfaceScaler: shader link failed");
+                fn_glDeleteProgram(program);
+                fn_eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                fn_eglDestroySurface(display, surface);
+                fn_eglDestroyContext(display, context);
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let a_position_loc = fn_glGetAttribLocation(program, b"aPosition\0".as_ptr() as *const _);
+            let a_tex_coord_loc = fn_glGetAttribLocation(program, b"aTexCoord\0".as_ptr() as *const _);
+            let u_texture_loc = fn_glGetUniformLocation(program, b"sTexture\0".as_ptr() as *const _);
+            let u_tex_matrix_loc = fn_glGetUniformLocation(program, b"uTexMatrix\0".as_ptr() as *const _);
+
+            // 4. Create External Texture
+            let mut tex_id = 0u32;
+            fn_glGenTextures(1, &mut tex_id);
+            fn_glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex_id);
+            fn_glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            fn_glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            fn_glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            fn_glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            // 5. Create SurfaceTexture via JNI
+            let ctx = ndk_context::android_context();
+            let vm_ptr: *mut jni::sys::JavaVM = ctx.vm().cast();
+            if vm_ptr.is_null() {
+                log::warn!("HardwareSurfaceScaler: ndk_context JavaVM is null");
+                fn_glDeleteTextures(1, &tex_id);
+                fn_glDeleteProgram(program);
+                fn_eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                fn_eglDestroySurface(display, surface);
+                fn_eglDestroyContext(display, context);
+                fn_eglTerminate(display);
+                dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                return None;
+            }
+
+            let vm = JavaVM::from_raw(vm_ptr);
+            let jni_res = vm.attach_current_thread(|env| -> jni::errors::Result<(Global<JObject<'static>>, *mut std::ffi::c_void, *mut std::ffi::c_void)> {
+                let st_class = env.find_class(jni_str!("android/graphics/SurfaceTexture"))?;
+                let st_obj = env.new_object(
+                    &st_class,
+                    jni_sig!("(I)V"),
+                    &[JValue::Int(tex_id as i32)],
+                )?;
+                env.call_method(
+                    &st_obj,
+                    jni_str!("setDefaultBufferSize"),
+                    jni_sig!("(II)V"),
+                    &[JValue::Int(src_w as i32), JValue::Int(src_h as i32)],
+                )?;
+                let env_ptr = env.get_raw();
+                let st_raw = st_obj.as_raw();
+                let asurface_texture = fn_ASurfaceTexture_fromSurfaceTexture(env_ptr as *mut _, st_raw as *mut _);
+                if asurface_texture.is_null() {
+                    return Err(jni::errors::Error::NullPtr("ASurfaceTexture_fromSurfaceTexture returned null"));
+                }
+                let decoder_window = fn_ASurfaceTexture_acquireANativeWindow(asurface_texture);
+                if decoder_window.is_null() {
+                    fn_ASurfaceTexture_release(asurface_texture);
+                    return Err(jni::errors::Error::NullPtr("ASurfaceTexture_acquireANativeWindow returned null"));
+                }
+                let global_ref = env.new_global_ref(st_obj)?;
+                Ok((global_ref, asurface_texture, decoder_window))
+            });
+
+            let (_java_st_ref, asurface_texture, decoder_window) = match jni_res {
+                Ok(tuple) => tuple,
+                Err(e) => {
+                    log::warn!("HardwareSurfaceScaler: JNI SurfaceTexture setup failed: {e:?}");
+                    fn_glDeleteTextures(1, &tex_id);
+                    fn_glDeleteProgram(program);
+                    fn_eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                    fn_eglDestroySurface(display, surface);
+                    fn_eglDestroyContext(display, context);
+                    fn_eglTerminate(display);
+                    dlclose(android_lib); dlclose(gles_lib); dlclose(egl_lib);
+                    return None;
+                }
+            };
+
+            log::info!("HardwareSurfaceScaler successfully configured: {src_w}x{src_h} -> {dst_w}x{dst_h}");
+
+            Some(Self {
+                egl_lib,
+                gles_lib,
+                android_lib,
+                display,
+                context,
+                surface,
+                program,
+                tex_id,
+                u_texture_loc,
+                u_tex_matrix_loc,
+                a_position_loc,
+                a_tex_coord_loc,
+                asurface_texture,
+                decoder_window,
+                _java_st_ref,
+                fn_eglMakeCurrent,
+                fn_eglSwapBuffers,
+                fn_eglDestroySurface,
+                fn_eglDestroyContext,
+                fn_eglTerminate,
+                fn_eglPresentationTimeANDROID,
+                fn_glUseProgram,
+                fn_glBindTexture,
+                fn_glUniform1i,
+                fn_glUniformMatrix4fv,
+                fn_glViewport,
+                fn_glEnableVertexAttribArray,
+                fn_glVertexAttribPointer,
+                fn_glDrawArrays,
+                fn_glDeleteTextures,
+                fn_glDeleteProgram,
+                fn_ASurfaceTexture_updateTexImage,
+                fn_ASurfaceTexture_getTransformMatrix,
+                fn_ASurfaceTexture_getTimestamp,
+                fn_ASurfaceTexture_release,
+                fn_ANativeWindow_release,
+                dst_w,
+                dst_h,
+            })
+        }
     }
 
-    pub fn to_frame(b: &Biplanar, g: &Geometry) -> filmcraft_codecs::Result<VideoFrame> {
-        let (ox, oy, cw, ch) = (g.crop.0 as usize, g.crop.1 as usize, g.crop.2 as usize, g.crop.3 as usize);
-        let mut y_plane = pool::take_u8(cw * ch);
-        for r in 0..ch {
-            let src_start = (oy + r) * b.stride + ox;
-            if let Some(row) = b.luma.get(src_start..src_start + cw) {
-                y_plane.extend_from_slice(row);
+    pub fn blit(&mut self) -> bool {
+        unsafe {
+            if (self.fn_eglMakeCurrent)(self.display, self.surface, self.surface, self.context) == 0 {
+                log::warn!("HardwareSurfaceScaler: eglMakeCurrent failed");
+                return false;
+            }
+
+            let update_res = (self.fn_ASurfaceTexture_updateTexImage)(self.asurface_texture);
+            if update_res != 0 {
+                log::warn!("HardwareSurfaceScaler: ASurfaceTexture_updateTexImage failed: {update_res}");
+                return false;
+            }
+
+            let mut mtx = [0.0f32; 16];
+            (self.fn_ASurfaceTexture_getTransformMatrix)(self.asurface_texture, mtx.as_mut_ptr());
+
+            if let Some(set_time) = self.fn_eglPresentationTimeANDROID {
+                let pts_ns = (self.fn_ASurfaceTexture_getTimestamp)(self.asurface_texture);
+                if pts_ns > 0 {
+                    set_time(self.display, self.surface, pts_ns);
+                }
+            }
+
+            (self.fn_glViewport)(0, 0, self.dst_w as i32, self.dst_h as i32);
+            (self.fn_glUseProgram)(self.program);
+
+            (self.fn_glBindTexture)(GL_TEXTURE_EXTERNAL_OES, self.tex_id);
+            (self.fn_glUniform1i)(self.u_texture_loc, 0);
+            (self.fn_glUniformMatrix4fv)(self.u_tex_matrix_loc, 1, 0, mtx.as_ptr());
+
+            const POS: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
+            const UV: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+
+            (self.fn_glEnableVertexAttribArray)(self.a_position_loc as u32);
+            (self.fn_glVertexAttribPointer)(
+                self.a_position_loc as u32,
+                2,
+                GL_FLOAT,
+                0,
+                0,
+                POS.as_ptr() as *const _,
+            );
+
+            (self.fn_glEnableVertexAttribArray)(self.a_tex_coord_loc as u32);
+            (self.fn_glVertexAttribPointer)(
+                self.a_tex_coord_loc as u32,
+                2,
+                GL_FLOAT,
+                0,
+                0,
+                UV.as_ptr() as *const _,
+            );
+
+            (self.fn_glDrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
+
+            let swap_res = (self.fn_eglSwapBuffers)(self.display, self.surface);
+            swap_res != 0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for HardwareSurfaceScaler {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.decoder_window.is_null() {
+                (self.fn_ANativeWindow_release)(self.decoder_window);
+            }
+            if !self.asurface_texture.is_null() {
+                (self.fn_ASurfaceTexture_release)(self.asurface_texture);
+            }
+            if !self.display.is_null() {
+                (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                if self.program != 0 {
+                    (self.fn_glDeleteProgram)(self.program);
+                }
+                if self.tex_id != 0 {
+                    (self.fn_glDeleteTextures)(1, &self.tex_id);
+                }
+                if !self.surface.is_null() {
+                    (self.fn_eglDestroySurface)(self.display, self.surface);
+                }
+                if !self.context.is_null() {
+                    (self.fn_eglDestroyContext)(self.display, self.context);
+                }
+                (self.fn_eglTerminate)(self.display);
+            }
+            if !self.egl_lib.is_null() {
+                dlclose(self.egl_lib);
+            }
+            if !self.gles_lib.is_null() {
+                dlclose(self.gles_lib);
+            }
+            if !self.android_lib.is_null() {
+                dlclose(self.android_lib);
             }
         }
-        let uv_stride = b.stride / 2;
-        let uv_rows = b.rows / 2;
-        let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
-        let mut u_plane = pool::take_u8(cuw * cuh);
-        let mut v_plane = pool::take_u8(cuw * cuh);
-        for r in 0..cuh {
-            let u_row = (oy + r) * uv_stride + cox;
-            let v_row = (oy + r) * uv_stride + cox;
-            if let Some(urow) = b.chroma.get(u_row..u_row + cuw) {
-                u_plane.extend_from_slice(urow);
-            }
-            if let Some(vrow) = b.chroma.get(v_row..v_row + cuw) {
-                v_plane.extend_from_slice(vrow);
-            }
-        }
-        let data = PixelData::Yuv8 {
-            planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
-            chroma: filmcraft_frame::Chroma::C420,
-            alpha: None,
-        };
-        Ok(VideoFrame {
-            width: cw,
-            height: ch,
-            data,
-            color: g.color,
-            par: g.par,
-            pts: filmcraft_time::Tick::ZERO,
-        })
+        log::info!("HardwareSurfaceScaler dropped and all resources released");
     }
 }

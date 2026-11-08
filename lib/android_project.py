@@ -129,8 +129,14 @@ def manifest_xml(android_meta):
     application = android_meta.get("application") or {}
     app_attrs = [
         f'{attr}="{_esc(application[key])}"'
-        for key, attr in (("label", "android:label"), ("theme", "android:theme"), ("icon", "android:icon"))
-        if application.get(key)
+        for key, attr in (
+            ("label", "android:label"),
+            ("theme", "android:theme"),
+            ("icon", "android:icon"),
+            ("large_heap", "android:largeHeap"),
+            ("request_legacy_external_storage", "android:requestLegacyExternalStorage"),
+        )
+        if application.get(key) is not None
     ]
     lines.append(f'    <application {" ".join(app_attrs)}>')
 

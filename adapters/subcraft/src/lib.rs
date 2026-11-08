@@ -515,8 +515,10 @@ fn android_main(android_app: AndroidApp) {
         ..Default::default()
     };
     // Vulkan first, GL as the fallback: some Android GPUs only expose one.
+    native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_ref();
     let result = eframe::run_native(

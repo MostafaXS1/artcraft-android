@@ -1050,13 +1050,19 @@ fn android_main(android_app: AndroidApp) {
     }
     let picks = Arc::new(PickState::default());
     let intent_inbox: Inbox = Arc::new(Mutex::new(Vec::new()));
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("VectorCraft")
             .with_drag_and_drop(true),
+        renderer: eframe::Renderer::Wgpu,
         android_app: Some(android_app),
         ..Default::default()
     };
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
+        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+    }
     let app_bridge = bridge.clone_for_services();
     let app_picks = picks.clone();
     let app_intent_inbox = intent_inbox.clone();

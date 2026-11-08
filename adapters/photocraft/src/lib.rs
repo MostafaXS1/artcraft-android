@@ -229,6 +229,22 @@ impl AndroidFileBridge {
             })
             .map_err(|e| e.to_string())
     }
+
+    pub fn request_folder(&self, id: u64) -> Result<(), String> {
+        self.vm
+            .attach_current_thread(|env| -> jni::errors::Result<()> {
+                let activity_raw = self.app.activity_as_ptr() as jni::sys::jobject;
+                let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+                env.call_method(
+                    &*activity,
+                    jni_str!("pcRequestFolder"),
+                    jni_sig!("(J)V"),
+                    &[JValue::Long(id as i64)],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[derive(Default)]
@@ -266,10 +282,11 @@ impl PickerState {
                 bridge.request_save(id, &name)
             }
             FileDialogRequest::Folder { .. } => {
-                reply.send(Some(FileDialogAnswer::Unavailable(
-                    "Choosing folders is not supported by this Android file picker yet. Use Open or Save As for individual files.".into(),
-                )));
-                return;
+                self.replies
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id, reply);
+                bridge.request_folder(id)
             }
         };
         if let Err(error) = launch_result {
@@ -342,6 +359,10 @@ impl PickerState {
                     .get("path")
                     .and_then(serde_json::Value::as_str)
                     .map(|path| FileDialogAnswer::SaveTo(path.to_owned())),
+                "ok" if kind == "folder" => value
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|path| FileDialogAnswer::FolderTo(path.to_owned())),
                 _ => Some(FileDialogAnswer::Unavailable(
                     value
                         .get("message")
@@ -384,8 +405,19 @@ fn write_mobile(bridge: &AndroidFileBridge, path: &str, bytes: &[u8]) -> Result<
         ));
     }
     match bridge.commit_if_mapped(path)? {
-        state if state == "NONE" || state == "OK" => Ok(()),
-        state if state.starts_with("ERROR:") => Err(state.trim_start_matches("ERROR:").to_owned()),
+        state if state == "NONE" => {
+            log::debug!("File {path} written to internal/private storage (unmapped)");
+            Ok(())
+        }
+        state if state == "OK" => {
+            log::info!("Successfully committed SAF document for {path} ({} bytes)", bytes.len());
+            Ok(())
+        }
+        state if state.starts_with("ERROR:") => {
+            let msg = state.trim_start_matches("ERROR:").trim();
+            log::error!("Failed to commit SAF document for {path}: {msg}");
+            Err(msg.to_owned())
+        }
         state => Err(format!("Unexpected Android save result: {state}")),
     }
 }
@@ -1023,10 +1055,12 @@ fn android_main(android_app: AndroidApp) {
     // The adapter's real texture and buffer limits, so large documents stay on the GPU canvas;
     // Vulkan first, GLES on devices without a usable Vulkan driver — the same setup the desktop
     // app and the generated launchers use.
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     photocraft_ui_egui::gpu_canvas::use_adapter_limits(&mut options.wgpu_options.wgpu_setup);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends =
             eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_for_services();
     let app_picker = picker.clone();

@@ -994,6 +994,19 @@ public final class BIMCraftActivity extends NativeActivity {
             try {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                        if (!docsDir.exists()) docsDir.mkdirs();
+                        Uri docsTreeUri = DocumentsContract.buildTreeDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Documents"
+                        );
+                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not set initial tree URI for folder picker", e);
+                    }
+                }
                 requestIds.put(REQ_FOLDER, id);
                 startActivityForResult(intent, REQ_FOLDER);
             } catch (Exception e) {
@@ -1002,15 +1015,32 @@ public final class BIMCraftActivity extends NativeActivity {
         });
     }
 
-    private static String treeToPath(Uri tree) {
+    private String treeToPath(Uri tree) {
         try {
             String documentId = DocumentsContract.getTreeDocumentId(tree);
             if (documentId == null) return null;
             int colon = documentId.indexOf(':');
             if (colon < 0) return null;
-            if (!"primary".equalsIgnoreCase(documentId.substring(0, colon))) return null;
+            String volume = documentId.substring(0, colon);
             String relative = documentId.substring(colon + 1);
-            File base = Environment.getExternalStorageDirectory();
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                base = new File("/storage/" + volume);
+                if (!base.exists()) {
+                    File[] externalDirs = getExternalFilesDirs(null);
+                    if (externalDirs != null) {
+                        for (File f : externalDirs) {
+                            if (f != null && f.getAbsolutePath().contains(volume)) {
+                                int idx = f.getAbsolutePath().indexOf(volume);
+                                base = new File(f.getAbsolutePath().substring(0, idx + volume.length()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             return relative.isEmpty() ? base.getAbsolutePath() : new File(base, relative).getAbsolutePath();
         } catch (Exception e) {
             return null;
@@ -1034,7 +1064,7 @@ public final class BIMCraftActivity extends NativeActivity {
             Uri tree = data.getData();
             String path = tree == null ? null : treeToPath(tree);
             if (path == null) {
-                enqueueError(id, kind, "Only folders on the device's main storage can be opened");
+                enqueueError(id, kind, "Only folders on device storage can be opened");
                 return;
             }
             persistPermission(tree, data);
@@ -1241,7 +1271,7 @@ public final class BIMCraftActivity extends NativeActivity {
     }
 
     private void rememberUri(File path, Uri uri) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).commit();
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {

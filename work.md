@@ -884,3 +884,154 @@ To resolve this without altering the UI contract or breaking desktop compatibili
    - Signed with persistent keystore `keys/artcraft-builder.jks`.
    - Verified Android Activity: `com.artcraft.notecraft.NoteCraftActivity`.
 
+
+
+---
+
+## 14. Suite-Wide GPU Acceleration, Adreno Vulkan Optimizations & FilmCraft MediaCodec Hardware Encoding
+
+### 14.1 Architecture & Problem Statement
+
+Mobile GPU hardware architectures—specifically Qualcomm Adreno, ARM Mali, and Imagination PowerVR—employ Tile-Based Deferred Rendering (TBDR) pipelines where memory bandwidth between the tile buffer and main unified memory is the primary performance and thermal bottleneck. 
+
+Prior to this implementation:
+1. **Qualcomm Adreno Vulkan Swapchain Driver Latency Inversion**:
+   - The proprietary Qualcomm Adreno Vulkan driver (`libvulkan_adreno.so`) on several modern Android devices returns a `min_image_count = 3` and `max_image_count = 2` under `VkSurfaceCapabilitiesKHR`.
+   - In upstream `wgpu-hal`, swapchain latency was computed as `(caps.min_image_count - 1)..=(max_image_count - 1)`. When `min_image_count > max_image_count`, this generated an invalid, inverted range `2..=1`.
+   - Subsequently, `wgpu-core` invoked `config.desired_maximum_frame_latency.clamp(*caps.maximum_frame_latency.start(), *caps.maximum_frame_latency.end())`, which instantly panicked on release builds with `cannot clamp: start > end`, causing launch crashes across Vulkan-accelerated applications.
+2. **TBDR Unified Memory Bus Saturation During Video Export (FilmCraft)**:
+   - FilmCraft was rendering each composited frame into an RGBAF32 or RGBA8 offscreen target, issuing readback commands across the PCIe/unified bus into host RAM (`wgpu::BufferUsages::MAP_READ`), passing uncompressed pixels through CPU channels, and encoding using CPU-bound open-source encoders.
+   - For a 4K 60fps or 1080p 60fps sequence, this moved over 200 GB of pixel memory across the system RAM bus, causing severe thermal throttling, battery drain, and out-of-memory low memory killer (`LMK`) terminations.
+3. **Power Throttling & Frame Latency Disparities Across the 25-App Suite**:
+   - Several apps lacked explicit `PowerPreference::HighPerformance` configurations, leading the Android OS GPU scheduler to place egui workloads on low-frequency power states or fallback OpenGL ES software emulation.
+   - Default swapchain frame latency was unconstrained, inducing input lag during stylus drawing and interactive manipulation.
+
+---
+
+### 14.2 The Suite-Wide Architectural Solution
+
+#### 1. Universal Adreno Swapchain Driver Patches
+In `lib/build-common.sh`, an automated AST/string patch is injected into all downloaded `wgpu-hal` and `wgpu-core` crates in the local Cargo cache prior to `cargo-ndk` native compilation:
+- **`wgpu-hal` (`src/vulkan/swapchain/native.rs`)**:
+  Computes `min_lat = caps.min_image_count.saturating_sub(1)` and `max_lat = if max_image_count == 0 { min_lat.max(2) } else { max_image_count.saturating_sub(1) }`, and orders them safely: `(lo, hi) = if min_lat <= max_lat { (min_lat, max_lat) } else { (max_lat, min_lat) }; lo..=hi`.
+- **`wgpu-core` (`src/device/resource.rs`)**:
+  Guards the clamp bounds: `let max_lat_hi = (*caps.maximum_frame_latency.end()).max(max_lat_lo);` to guarantee `start <= end`.
+- **`wgpu-hal` (`src/vulkan/adapter.rs`)**:
+  Exposes the `VK_ANDROID_external_memory_android_hardware_buffer` extension to allow zero-copy hardware buffer interop.
+- **Suite-Wide Pre-fetch Hook**:
+  Runs `cargo fetch --manifest-path "$ANDROID_DIR/Cargo.toml" || true` across all 25 applications before compiling, ensuring every vendored wgpu crate is downloaded and patched before native linkage.
+
+#### 2. Suite-Wide GPU Configuration in Adapters & Generated Launchers
+All 25 applications across the ArtCraft Android suite are configured with:
+- `create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;`
+- `native.wgpu_options.desired_maximum_frame_latency = Some(2);`
+- `create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;`
+- Dynamic adapter limit negotiation (`eframe::wgpu::Limits`) to enable full-resolution hardware document canvases up to device limits without software rasterization fallbacks.
+
+#### 3. High-Throughput Release Compilation Profile
+To balance binary size, linkage efficiency, and runtime optimization:
+- `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`
+- `CARGO_PROFILE_RELEASE_LTO=off` (eliminates multi-gigabyte LTO RAM overhead during Android NDK linkage)
+- `CARGO_PROFILE_RELEASE_OPT_LEVEL=2`
+- `CARGO_PROFILE_RELEASE_STRIP=true`
+- `CARGO_PROFILE_RELEASE_DEBUG=false`
+
+#### 4. LightCraft Interactive Draft Scaling
+- Injected `DRAFT_EDGE_MAX = 960px` and `CPU_DRAFT_SCALE = 0.35` into `crates/engine/src/render.rs` and `crates/ui-egui/src/panels/region.rs`.
+- Added dynamic interactive draft deadline (`wait_for_draft(ui.ctx(), &mut app.session, std::time::Duration::from_millis(6))`) in `crates/ui-egui/src/panels/detail.rs` to maintain 60–120 FPS interactive viewport updates during 3D scene editing.
+
+---
+
+### 14.3 FilmCraft Zero-Copy MediaCodec Hardware Acceleration Architecture
+
+FilmCraft v0.18.0 incorporates an end-to-end zero-copy hardware pipeline based on the roadmap in `docs/FILMCRAFT_OPTIMIZATION_ROADMAP.md` and `templates/filmcraft/android_mediacodec.rs`:
+
+1. **Hardware MediaCodec Video Encoder (`AMediaCodec`)**:
+   - Uses Android NDK `AMediaCodec_createEncoderByType("video/avc")` with input surface (`AMediaCodec_createInputSurface`).
+   - Supports adaptive bitrate, baseline/high AVC profiles, keyframe interval regulation, and asynchronous buffer draining.
+2. **Hardware MediaCodec Video Decoder (`AMediaCodec`)**:
+   - Decodes H.264/AVC streams directly into native hardware window surfaces or biplanar NV12/YUV420 buffers.
+   - Provides ARM64 NEON SIMD accelerated chroma deinterleaving (`vld2q_u8`, `vst1q_u8`) for memory copies when decoding directly to CPU memory.
+3. **Direct GPU-to-Encoder Zero-Copy Surface Pipeline**:
+   - Implements `ExportRenderer::bind_surface(window_ptr, w, h)` creating a `wgpu::Surface` directly on top of the encoder's input `ANativeWindow`.
+   - Configures buffer geometry via `ANativeWindow_setBuffersGeometry(window_ptr, w, h, WINDOW_FORMAT_RGBA_8888)`.
+   - Format-aware compositing pipeline: selects `fs_linear` for sRGB surfaces or `fs_full` for linear surfaces in `crates/gpu/src/composite.wgsl`.
+   - Eliminates all CPU readbacks and memory allocations during rendering: composited frames present directly from Vulkan/GLES swapchain to the MediaCodec hardware encoder.
+4. **Hardware Surface Scaler (`HardwareSurfaceScaler`)**:
+   - Provides EGL/GLES external texture zero-copy scaling for non-1:1 aspect ratios and resolutions, rendering decoder output directly into the encoder surface without CPU intermediate frames.
+5. **Mobile Memory Budgeting & Pipeline Safety**:
+   - Limits active GPU frame renderers to 1 on Android to prevent context thrashing.
+   - Reusable texture pool (`plane_pool`) on `GpuCompositor` to eliminate Vulkan image allocations.
+   - In-flight export memory budget bounded to 64 MiB (`1 << 26`) on Android (down from 512 MiB).
+   - GOP decoded frame cache ceiling bounded to 96 MiB (down from 384 MiB).
+   - Full lifecycle cleanup on completion, cancellation, and drop (`filmcraft_codecs::hw::clear_direct_surface()`, `filmcraft_codecs::release_idle()`).
+
+
+---
+
+## 15. SAF Export Pipeline Fixes: 0B Output Resolution & Folder Privacy Bypass
+
+### 15.1 Problem Statement & Reproduction Analysis
+Two critical SAF (Storage Access Framework) failure modes affected apps across the suite on Android 11 through Android 16:
+
+1. **0-Byte Document Exports (e.g., PhotoCraft)**:
+   - When exporting an image or document via SAF (e.g., `Untitled-1.png` saved to `/sdcard/Download/`), a 0-byte file placeholder was created by DocumentsUI, but the app never populated the content.
+   - Live telemetry on the connected tablet revealed that the rendered raster was staged in app-private storage (`/sdcard/Android/data/com.artcraft.photocraft/files/media/Untitled-1.png`, 50,955 bytes), but `/sdcard/Download/Untitled-1.png` remained at 0 bytes.
+
+2. **Folder Picker Privacy Lockout ("Can't choose this folder for your privacy")**:
+   - In apps requesting an export directory or asset folder via `Intent.ACTION_OPEN_DOCUMENT_TREE` (e.g. SubCraft exporting texture maps, TraceDraw, NoteCraft notebooks), DocumentsUI opened to the storage root (`primary:`) or root device view.
+   - The system displayed a persistent privacy banner:
+     `"Can't use this folder: To protect your privacy, choose another folder"`
+   - The `"USE THIS FOLDER"` button was permanently disabled, preventing users from selecting any folder.
+
+---
+
+### 15.2 Root Cause Analysis
+
+#### A. The 0B Export Root Cause
+1. **DocumentsUI Extension Truncation & Sibling URI Desynchronization**:
+   - When a user chooses a file name or confirms an export in DocumentsUI, Android's `Save` picker often returns a display name stripped of its file extension (e.g., `Untitled-1` instead of `Untitled-1.png`).
+   - The Java SAF activity staged the file using this returned name (`.../files/media/Untitled-1`) and stored the mapping in `SharedPreferences` as `uri:.../media/Untitled-1 -> content://...`.
+   - The native Rust rendering engine (e.g. in PhotoCraft or VectorCraft) appends the format extension (`.png`, `.svg`, etc.) and writes to `.../files/media/Untitled-1.png`.
+   - When native code invoked `commit_if_mapped` (or `pcCommitIfMapped`), it queried `SharedPreferences` for `uri:.../files/media/Untitled-1.png`.
+   - Because `PhotoCraftActivity.java` lacked stem-matching logic (`uriForSibling`) and extension preservation (`keepSuggestedExtension`), the query returned `null`, which the bridge mapped to `"NONE"`.
+   - In Rust `write_mobile`, receiving `"NONE"` led the app to treat the file as an unmapped private file rather than a staged SAF export, leaving the SAF content URI untouched at 0 bytes.
+2. **Text Mode ("wt") vs Binary Mode ("w")**:
+   - In earlier iterations, `openOutputStream(uri, "wt")` was used. The `"t"` flag specifies text translation mode, which can truncate binary data at EOF characters or fail on raw image streams.
+3. **Asynchronous Preference Persistence Race Condition**:
+   - `rememberUri` used `SharedPreferences.Editor.apply()`, which writes to in-memory cache immediately but writes to disk asynchronously. When native export routines immediately invoked `commit_if_mapped`, the mapping could occasionally miss resolution.
+4. **Out-of-Memory / Low Memory Killer (LMK)**:
+   - Exporting large multi-megapixel canvases required significant heap memory. Without `android:largeHeap="true"`, backgrounding during DocumentsUI interaction occasionally triggered LMK termination.
+
+#### B. The Folder Picker Privacy Lockout Root Cause
+1. **Scoped Storage Policy in Android 11+ (API 30–36)**:
+   - Android platform security strictly forbids granting directory tree access (`ACTION_OPEN_DOCUMENT_TREE`) to the root of internal storage (`primary:`), the primary SD card root, or sensitive top-level directories like `Download/` or `Android/`.
+2. **Missing `DocumentsContract.EXTRA_INITIAL_URI`**:
+   - When `Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)` was launched without `EXTRA_INITIAL_URI`, DocumentsUI defaulted to opening either `primary:` or the device model root.
+   - Because the initial view was an unselectable root, DocumentsUI immediately triggered the privacy protection block and greyed out "USE THIS FOLDER".
+3. **Volume Inflexibility in `treeToPath`**:
+   - The path translation utility previously enforced:
+     ```java
+     if (!"primary".equalsIgnoreCase(volume)) return null;
+     ```
+     This caused any folder selected on a secondary volume (SD card or USB OTG drive) to fail with `"Only folders on the device's main storage can be opened"`.
+
+---
+
+### 15.3 Implementation & Changes Applied
+
+#### 1. SAF Folder Picker Initial URI & Secondary Storage Resolution
+Updated `templates/android/SafActivity.java` and all custom activity adapters (`PhotoCraftActivity.java`, `SubCraftActivity.java`, `NoteCraftActivity.java`, `DiagramCraftActivity.java`, `PaintCraftActivity.java`, `PicassoSuiteActivity.java`, `CapsuleCraftActivity.java`, `HumanMotionCraftActivity.java`, `BIMCraftActivity.java`, and `TraceDrawActivity.java`):
+- **Targeted Initial URI**: Configured `EXTRA_INITIAL_URI` with `DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Documents")`. DocumentsUI opens directly inside `Documents/`, where Scoped Storage permits full tree selection and eliminates the privacy warning.
+- **Dynamic Volume Path Resolution**: Updated `treeToPath` to inspect volume IDs. If non-primary, it maps `/storage/<volume>/<path>` and checks `getExternalFilesDirs(null)` to accurately resolve paths on removable SD cards and USB OTG storage.
+
+#### 2. Robust Binary Document Commit Pipeline (`safCommit` / `pcCommitIfMapped`)
+- **Preserve Suggested Extensions (`keepSuggestedExtension`)**: Re-attaches the suggested file extension if DocumentsUI stripped it from the chosen name.
+- **Stem-Aware Sibling Matching (`uriForSibling` & `stagedStem`)**: If an app rewrites the extension (e.g. saving `.png` when the user picked without an extension), the staged stem is checked against known URIs to ensure the document is committed.
+- **Binary Write Mode**: Switched `openOutputStream(uri, "w")` to binary write mode with buffered 64 KiB streaming and explicit flush.
+- **Synchronous URI Persistence**: Switched `rememberUri` to `SharedPreferences.Editor.commit()` for immediate, thread-safe synchronization across the JNI bridge.
+- **Heap Expansion**: Added `large_heap = true` (`android:largeHeap="true"`) to `lib/android_project.py` and `Cargo.toml`.
+
+#### 3. Verification & Built Packages
+- **`output/photocraft-0.21.0.apk`** (132M, SHA-256: `f31247433f4eaea4ca3344bad48a76c20868a6c7cabf06b9ce217eba5b6b36e6`): Verified complete binary commit and folder selection support.
+- **`output/subcraft-0.2.1.apk`** (215M, SHA-256: `805c788b6ce63bf7a11fb2bc72b23099695b26146dc6abb5589030a072f0999d`): Verified folder export resolution into `Documents/` without privacy warnings.

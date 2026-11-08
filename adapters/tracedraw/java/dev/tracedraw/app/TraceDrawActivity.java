@@ -378,6 +378,19 @@ public class TraceDrawActivity extends NativeActivity {
                 try {
                     treeRequests.add(request);
                     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        try {
+                            java.io.File docsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS);
+                            if (!docsDir.exists()) docsDir.mkdirs();
+                            android.net.Uri docsTreeUri = android.provider.DocumentsContract.buildTreeDocumentUri(
+                                    "com.android.externalstorage.documents",
+                                    "primary:Documents"
+                            );
+                            intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                        } catch (Exception e) {
+                            Log.w(TAG, "could not set initial tree URI", e);
+                        }
+                    }
                     startActivityForResult(intent, request);
                 } catch (Exception e) {
                     Log.w(TAG, "the folder picker could not open", e);

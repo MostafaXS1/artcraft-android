@@ -59,6 +59,8 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "PhotoCraft"
+large_heap = true
+request_legacy_external_storage = true
 # NativeActivity integrates with Android's system input method framework; the builder
 # generates res/values/themes.xml with this style (AppCompat parent).
 theme = "@style/Theme.Artcraft"
