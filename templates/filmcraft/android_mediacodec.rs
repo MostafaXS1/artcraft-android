@@ -622,7 +622,7 @@ impl VideoEncoder for MediaCodecEncoder {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
-            self.drain_output(Duration::ZERO, &mut packets)?;
+            self.drain_output(Duration::from_millis(10), &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..40 {
@@ -1153,15 +1153,8 @@ impl MediaCodecDecoder {
                         if self.is_direct_surface {
                             // ZERO-COPY DIRECT SURFACE BRIDGE:
                             // Commit the decoded frame directly to the encoder's input surface.
-                            let pts_ns = (pts.max(0) as u64).saturating_mul(1000) as i64;
-                            let render_pts_ns = if pts_ns > self.last_render_pts_ns {
-                                pts_ns
-                            } else {
-                                self.last_render_pts_ns + 1_000
-                            };
-                            self.last_render_pts_ns = render_pts_ns;
-                            if let Err(e) = self.codec.release_output_buffer_at_time(output_buffer, render_pts_ns) {
-                                log::warn!("MediaCodecDecoder release_output_buffer_at_time failed: {e:?}");
+                            if let Err(e) = self.codec.release_output_buffer(output_buffer, true) {
+                                log::warn!("MediaCodecDecoder release_output_buffer failed: {e:?}");
                             }
 
                             frames.push(DecodedFrame {
@@ -1342,16 +1335,16 @@ impl VideoDecoder for MediaCodecDecoder {
             if let Ok(DequeuedInputBufferResult::Buffer(b)) = self.codec.dequeue_input_buffer(Duration::ZERO) {
                 break 'outer b;
             }
-            for _ in 0..150 {
+            for _ in 0..300 {
                 match self.codec.dequeue_input_buffer(Duration::from_millis(2)) {
                     Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
                     _ => {
-                        self.drain_output(Duration::from_millis(5), &mut frames)?;
+                        self.drain_output(Duration::from_millis(10), &mut frames)?;
                     }
                 }
             }
             return Err(CodecError::Decode(
-                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 1.5s".into(),
+                "MediaCodec input buffer dequeue timed out: hardware decoder did not accept new sample within 3s".into(),
             ));
         };
 
