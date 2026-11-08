@@ -973,6 +973,45 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     }
 }
 
+/// Compact Android touch controls for common editing actions. The native desktop toolbar
+/// remains available; this floating strip removes the need for keyboard shortcuts on phones.
+pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
+    let screen = ctx.content_rect();
+    if screen.width() < 520.0 || screen.height() < 520.0 {
+        egui::Area::new(egui::Id::new("figcraft_android_touch_actions"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -104.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::horizontal()
+                        .max_width((screen.width() - 24.0).max(220.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let has_selection = !app.session.selection().is_empty();
+                                for (label, command, needs_selection) in [
+                                    ("Undo", "edit.undo", false),
+                                    ("Redo", "edit.redo", false),
+                                    ("Copy", "edit.copy", true),
+                                    ("Cut", "edit.cut", true),
+                                    ("Duplicate", "edit.duplicate", true),
+                                    ("Delete", "edit.delete", true),
+                                    ("Group", "object.group", true),
+                                    ("Ungroup", "object.ungroup", true),
+                                ] {
+                                    if ui.add_enabled(!needs_selection || has_selection, egui::Button::new(label).min_size(egui::vec2(58.0, 40.0))).clicked() {
+                                        figcraft_ui_egui::menus::invoke(app, command);
+                                    }
+                                }
+                                if ui.button("Actions").min_size(egui::vec2(68.0, 40.0)).clicked() {
+                                    figcraft_ui_egui::menus::toggle_palette(&mut app.ui);
+                                }
+                            });
+                        });
+                });
+            });
+    }
+}
+
 fn gemini_copilot_ui(ctx: &Context) {
     let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut open = state.open || GEMINI_COPILOT_OPEN.load(Ordering::Relaxed);
