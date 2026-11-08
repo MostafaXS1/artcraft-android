@@ -652,7 +652,7 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
 fn run_mcp_connection_test() {
     if MCP_TEST_RUNNING.swap(true, Ordering::SeqCst) { return; }
     let _ = std::thread::Builder::new().name("figcraft-mcp-self-test".into()).spawn(|| {
-        let result = (|| -> Result<(String, Vec<Value>), String> {
+        let result = (|| -> Result<String, String> {
             if !MCP_RUNNING.load(Ordering::SeqCst) {
                 return Err("MCP server is not running".into());
             }
@@ -895,7 +895,7 @@ static GEMINI_COPILOT_OPEN: AtomicBool = AtomicBool::new(false);
 static GEMINI_COPILOT_BUSY: AtomicBool = AtomicBool::new(false);
 
 fn gemini_system_instruction(role: &str, desired_output: &str, context: &str) -> String {
-    format!(r#"You are a professional AI copilot.
+    format!(r##"You are a professional AI copilot.
 ROLE:
 {role}
 
@@ -925,7 +925,7 @@ Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
     }}
   ]
 }}
-For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."#)
+For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."##)
 }
 
 fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> Result<Vec<Value>, String> {
@@ -1091,8 +1091,6 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
     }
 }
 
-/// Compact Android touch controls for common editing actions. The native desktop toolbar
-/// remains available; this floating strip removes the need for keyboard shortcuts on phones.
 /// Compact Android touch controls for common editing actions.
 /// Portrait keeps a horizontal action strip; landscape switches to a vertical,
 /// touch-scrollable rail so every tool remains reachable on short displays.
