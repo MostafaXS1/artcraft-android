@@ -53,6 +53,31 @@ pub fn enqueue(request: ControlRequest) -> Result<(), ControlRequest> {
     result
 }
 
+/// Ask the live FigCraft UI thread for a read-only control result from a background worker.
+fn call_live_read(method: &str, params: Value) -> Result<Value, String> {
+    if !is_read_only_method(method) {
+        return Err(format!("Gemini canvas context cannot call mutating method: {method}"));
+    }
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    let id = Value::from(NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed));
+    let request = ControlRequest {
+        id: id.clone(),
+        method: method.to_owned(),
+        params,
+        reply: reply_tx,
+        state: RequestGate::new(),
+    };
+    enqueue(request).map_err(|_| "FigCraft control queue is full; retry shortly".to_owned())?;
+    match reply_rx.recv_timeout(Duration::from_secs(25)) {
+        Ok(reply) if reply.id == id => reply.result,
+        Ok(_) => Err("FigCraft returned a mismatched canvas-context reply id".into()),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) =>
+            Err("FigCraft did not provide the canvas context within 25 seconds".into()),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) =>
+            Err("FigCraft dropped the canvas-context reply channel".into()),
+    }
+}
+
 /// Transfer pending requests to FigCraft on the UI thread.
 ///
 /// The app's own control::drain then handles cancellation, execution and replies.
@@ -883,8 +908,8 @@ Adapt your expertise, terminology, workflow, depth, and output format to the sel
 
 For visual design tasks, assess composition, hierarchy, alignment, spacing, contrast, consistency, readability, accessibility, and usability. Recommend contextual color palettes with exact HEX values and semantic roles where useful. Explain color psychology as a design heuristic, not a universal scientific guarantee. Use the Golden Ratio (1:1.618) only when it improves proportions or hierarchy; calculate dimensions from supplied canvas dimensions and never force it where usability or platform conventions matter. Give practical typography, asset dimensions, aspect ratios, and responsive guidance when relevant. Offer a coherent creative alternative when useful. Critique weak choices constructively; do not flatter by default.
 
-IMPORTANT FIGCRAFT LIMITATION:
-You are currently a text-only assistant. You cannot inspect the live canvas, read document layers, or apply edits. Never claim you have seen or changed the canvas. If the user asks for canvas edits, provide a conceptual, step-by-step recommendation only. Do not invent FigCraft command IDs or output executable code, shell commands, or file operations.
+FIGCRAFT CANVAS CONTEXT:
+A live, read-only snapshot of the active document may be included in the user's brief. Treat it as the source of truth for the current page, selected layers, geometry, fills, typography, and hierarchy. Distinguish data present in the snapshot from assumptions. You may analyze the actual canvas when this snapshot is present. You cannot apply edits yet: never claim that you changed the document. When asked to make changes, provide a concrete proposed change plan with target layer IDs, property names, and exact values, but do not invent IDs or command names.
 Return the format best suited to the requested deliverable. Avoid generic filler."#)
 }
 
@@ -903,7 +928,11 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .timeout(Duration::from_secs(150))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
-            let instruction = gemini_system_instruction(&role, &desired_output, &context);
+            let canvas_snapshot = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 120000}))
+                .map(|snapshot| serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".into()))
+                .unwrap_or_else(|error| format!("Canvas snapshot unavailable: {error}"));
+            let live_context = format!("{context}\\n\\nLIVE FIGCRAFT CANVAS SNAPSHOT (read-only):\\n{canvas_snapshot}");
+            let instruction = gemini_system_instruction(&role, &desired_output, &live_context);
             let body = serde_json::json!({
                 "systemInstruction": { "parts": [{ "text": instruction }] },
                 "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
