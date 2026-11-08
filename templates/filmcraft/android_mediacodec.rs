@@ -951,7 +951,7 @@ impl MediaCodecDecoder {
 
         let (w, h) = info.coded;
 
-        let direct_window = filmcraft_codecs::hw::direct_surface_for(w, h).and_then(|ptr| {
+        let direct_window = filmcraft_codecs::hw::direct_surface().and_then(|ptr| {
             let non_null = std::ptr::NonNull::new(ptr as *mut _)?;
             Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
         });
@@ -1040,6 +1040,7 @@ impl MediaCodecDecoder {
                 }
                 Err(e) => {
                     log::warn!("Direct surface decoder init failed ({e}), falling back to buffer mode");
+                    filmcraft_codecs::hw::clear_direct_surface();
                     let c = try_init(true, true, true, None)
                         .or_else(|e1| {
                             log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");

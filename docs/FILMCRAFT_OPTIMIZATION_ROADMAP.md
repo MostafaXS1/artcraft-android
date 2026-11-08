@@ -296,3 +296,12 @@ Stage 3 eliminates the remaining 123-second bottleneck by directly coupling the 
      - `compositor.render_to_view` downscales the decoded frame directly to the 1080p surface view on Adreno 650 with zero staging readbacks and zero CPU float conversions.
   4. **Unified Lockstep Surface Batch Execution**:
      - Removed the prefetch worker thread for all surface batches, standardizing on the single-thread lockstep loop with bounded queue depth (1 buffer) and responsive cancel handling across all resolutions.
+
+### Stage 3.3: Direct Surface Bridge for Scaled Exports (Target: ~25–35s)
+- **Investigation of Stage 3.2 Results**:
+  Export time dropped from 300s (5m) to 131s (2m). Encoder finished 3,692 frames in 5.3s (696 FPS). However, `Render` took 93.5s because restricting the direct bridge to 1:1 forced `MediaCodecDecoder` into Buffer Mode, running 3,816 `OMX-VDEC C2DColorConvert` operations and transferring 44 GB of NV12 frame data over system RAM.
+- **Direct Surface Unlocking**:
+  Android's `BufferQueue` and hardware display processor (MDP/SurfaceFlinger) natively support hardware downscaling via `NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW` configured by `ANativeWindow_setBuffersGeometry(1920, 1080)`.
+  1. Removed `is_1to1` restriction in `Pipeline::bind_surface`, allowing direct hardware surface bridge whenever `can_surface_render()` passes.
+  2. The 4K decoder commits frames directly into the 1080p encoder `ANativeWindow` in < 8 ms, bypassing C2D color convert, CPU buffer memory copies, and GPU texture uploads entirely.
+  3. Fail-safe fallback: If `try_init` fails to bind the surface on any device, `clear_direct_surface()` is called to smoothly fall back to GPU/Buffer mode.
