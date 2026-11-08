@@ -1005,13 +1005,21 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
         let result = (|| -> Result<(String, Vec<Value>), String> {
             let client = reqwest::blocking::Client::builder()
                 .connect_timeout(Duration::from_secs(30))
-                .timeout(Duration::from_secs(150))
+                .timeout(Duration::from_secs(100))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
-            let canvas_document = call_live_read("document.inspect", serde_json::json!({"depth": 4, "maxBytes": 180000}))?;
+            // Bound live context for mobile networks; the first editing version only needs node.set.
+            let canvas_document = call_live_read("document.inspect", serde_json::json!({"depth": 3, "maxBytes": 48000}))?;
             let command_list = call_live_read("engine.commands", serde_json::json!({}))?;
             let canvas_snapshot = canvas_document.to_string();
-            let command_registry = command_list.to_string();
+            let command_registry = command_list.as_array()
+                .map(|items| Value::Array(items.iter()
+                    .filter(|item| item.get("id").and_then(Value::as_str) == Some("node.set"))
+                    .cloned().collect()))
+                .unwrap_or_else(|| command_list.clone()).to_string();
+            if canvas_snapshot.len() > 56000 {
+                return Err("Canvas context is too large for a reliable mobile request. Reduce document complexity and retry.".into());
+            }
             let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT:\n{canvas_snapshot}\n\nEXACT FIGCRAFT COMMAND REGISTRY:\n{command_registry}");
             {
                 let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1023,7 +1031,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
                 "generationConfig": {
                     "responseMimeType": "application/json",
-                    "maxOutputTokens": 4096,
+                    "maxOutputTokens": 2048,
                     "thinkingConfig": { "thinkingLevel": "LOW" }
                 }
             });
@@ -1043,7 +1051,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                     if error.is_connect() {
                         format!("Could not connect to Gemini (DNS/TLS/network): {details}")
                     } else if error.is_timeout() {
-                        format!("Gemini could not finish within 150 seconds. Check internet access, DNS, VPN/private DNS, or firewall. Network detail: {details}")
+                        format!("Gemini did not respond within 100 seconds. The request context is now bounded; check connection stability, DNS/private DNS, VPN, or retry. Network detail: {details}")
                     } else if error.is_request() {
                         format!("Gemini request could not be sent: {details}")
                     } else {
