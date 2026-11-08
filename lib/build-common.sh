@@ -703,6 +703,11 @@ PY
 # backends above.
 bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 
+# FigCraft's desktop menus are adapted at build time for Android viewport constraints and touch.
+if [[ "$APP" == "figcraft" ]]; then
+    python3 "$ROOT/lib/figcraft_mobile.py" "$SRC"
+fi
+
 # SubCraft's Android file hand-off (a public `files::deliver_android`) is applied by its own script,
 # so it can be turned off for testing by commenting out the line below. It patches the app's own
 # source at build time; only SubCraft is touched.
