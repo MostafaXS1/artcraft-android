@@ -985,6 +985,36 @@ public final class __CLASS__ extends NativeActivity {
         });
     }
 
+    public void setSurfacePointerIcon(final int pointerIconType) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        runOnUiThread(() -> {
+            try {
+                Window window = getWindow();
+                if (window == null) return;
+                View decor = window.getDecorView();
+                if (decor == null) return;
+                android.view.PointerIcon icon =
+                        android.view.PointerIcon.getSystemIcon(this, pointerIconType);
+                applyPointerIconRecursive(decor, icon);
+            } catch (Throwable error) {
+                Log.w(TAG, "Could not set surface pointer icon", error);
+            }
+        });
+    }
+
+    private static void applyPointerIconRecursive(View root, android.view.PointerIcon icon) {
+        if (root == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return;
+        }
+        root.setPointerIcon(icon);
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyPointerIconRecursive(group.getChildAt(i), icon);
+            }
+        }
+    }
+
     /**
      * Folder picker. SAF hands back a document-tree URI; only a folder on the device's main storage
      * (`primary:…`) maps to a real path the app can use, so other volumes answer with an error.

@@ -32,6 +32,7 @@ App names:
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite
   capsulecraft humanmotioncraft
+  rustgis earthcraft mapcraft prowave transit
 
 Examples:
   bash build.sh -photocraft
@@ -155,6 +156,11 @@ case "$APP" in
     picassosuite) TITLE="PicassoSuite" ;;
     capsulecraft) TITLE="CapsuleCraft" ;;
     humanmotioncraft) TITLE="HumanMotionCraft" ;;
+    rustgis) TITLE="RustGIS" ;;
+    earthcraft) TITLE="EarthCraft" ;;
+    mapcraft) TITLE="MapCraft" ;;
+    prowave) TITLE="ProWave" ;;
+    transit) TITLE="Transit" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -193,6 +199,21 @@ elif [[ "$APP" == "capsulecraft" ]]; then
 elif [[ "$APP" == "humanmotioncraft" ]]; then
     REPO="https://github.com/YalKouassi/HumanMotionCraft.git"
     APP_ORIGIN="https://github.com/YalKouassi/HumanMotionCraft"
+elif [[ "$APP" == "rustgis" ]]; then
+    REPO="https://github.com/opengeos/RustGIS.git"
+    APP_ORIGIN="https://github.com/opengeos/RustGIS"
+elif [[ "$APP" == "earthcraft" ]]; then
+    REPO="https://github.com/therichronicles/EarthCraft.git"
+    APP_ORIGIN="https://github.com/therichronicles/EarthCraft"
+elif [[ "$APP" == "mapcraft" ]]; then
+    REPO="https://github.com/bearlikelion/MapCraft.git"
+    APP_ORIGIN="https://github.com/bearlikelion/MapCraft"
+elif [[ "$APP" == "prowave" ]]; then
+    REPO="https://github.com/fabox-os/Pro-Wave.git"
+    APP_ORIGIN="https://github.com/fabox-os/Pro-Wave"
+elif [[ "$APP" == "transit" ]]; then
+    REPO="https://github.com/transit-audio/transit.git"
+    APP_ORIGIN="https://github.com/transit-audio/transit"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -248,7 +269,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -6045,7 +6066,7 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
 elif [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses storytold egui fork (prepare.sh vendors it at vendor/egui/crates/egui-winit)
@@ -6129,6 +6150,34 @@ if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null; the
     rm -rf "$SRC/vendor/arboard"
     cp -a "$ROOT/vendor/arboard" "$SRC/vendor/arboard"
     python3 "$ROOT/fix_arboard.py" "$SRC/Cargo.toml" "$SRC"
+fi
+
+# midir on Android needs a platform adapter or dummy backend. Vendor the builder's Android-compatible
+# midir stub (with dummy MIDI backend) and patch it into the workspace when midir is in dependencies.
+if [[ -d "$ROOT/vendor/midir" ]] && (grep -rqE '\bmidir\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null || grep -qE '^\s*midir\s*=' "$SRC/Cargo.toml" 2>/dev/null); then
+    echo "Vendoring an Android-compatible midir for $TITLE (dummy MIDI backend)..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/midir"
+    cp -a "$ROOT/vendor/midir" "$SRC/vendor/midir"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'midir = { path = "vendor/midir" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*midir\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
 fi
 
 # winit's stock Android backend only translates touch actions: `handle_input_event` maps
@@ -6408,7 +6457,7 @@ elif [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
     # Do not copy builder's egui-wgpu - keep SolidCraft's original
     echo "Skipping builder egui-wgpu copy for SolidCraft (uses its own vendor/egui-wgpu with custom APIs)"
-elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" ]]; then
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else

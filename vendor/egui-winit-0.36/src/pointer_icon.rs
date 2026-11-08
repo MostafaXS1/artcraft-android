@@ -148,6 +148,19 @@ pub fn apply(cursor: egui::CursorIcon) {
         // borrow it, never delete it.
         let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&activity_raw)? };
 
+        // Prefer dispatching to the Activity on the UI thread across the view hierarchy:
+        match env.call_method(
+            &*activity,
+            jni_str!("setSurfacePointerIcon"),
+            jni_sig!("(I)V"),
+            &[jni::objects::JValue::Int(icon_type)],
+        ) {
+            Ok(_) => return Ok(()),
+            Err(_) => {
+                let _ = env.exception_clear();
+            }
+        }
+
         // `PointerIcon.getSystemIcon(Context, int)` — one shared icon per type, so this is cheap
         // and never needs caching on our side.
         let pointer_icon_class = env.find_class(jni_str!("android/view/PointerIcon"))?;

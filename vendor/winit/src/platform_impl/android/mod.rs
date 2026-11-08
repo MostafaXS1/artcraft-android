@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use android_activity::input::{
-    Axis, Button, Classification, ImeOptions, InputEvent, InputType, KeyAction, Keycode, MetaState,
+    Axis, Classification, ImeOptions, InputEvent, InputType, KeyAction, Keycode, MetaState,
     MotionAction, TextInputAction, ToolType,
 };
 use android_activity::{
@@ -259,6 +259,7 @@ pub struct EventLoop<T: 'static> {
     /// How far apart a hardware touchpad's pinch fingers were when its last event came:
     /// the pinch is reported as two pointers that move apart or together.
     pad_spread: Option<f64>,
+    primary_pointer_down: bool,
     modifiers_state: ModifiersState,
 }
 
@@ -357,6 +358,7 @@ impl<T: 'static> EventLoop<T> {
             gesture_pointer: None,
             pad_position: None,
             pad_spread: None,
+            primary_pointer_down: false,
             modifiers_state: ModifiersState::empty(),
         })
     }
@@ -802,11 +804,24 @@ impl<T: 'static> EventLoop<T> {
 
                 // A hardware touchpad's gesture: a two-finger slide or a pinch.
                 let pad_gesture = match motion_event.classification() {
-                    Classification::TwoFingerSwipe => PadGesture::Scroll,
+                    Classification::TwoFingerSwipe | Classification::MultiFingerSwipe => PadGesture::Scroll,
                     Classification::Pinch => PadGesture::Pinch,
                     _ => PadGesture::None,
                 };
                 if pad_gesture != PadGesture::None {
+                    if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
+                        callback(
+                            event::Event::WindowEvent {
+                                window_id,
+                                event: event::WindowEvent::MouseInput {
+                                    device_id,
+                                    state: event::ElementState::Released,
+                                    button: event::MouseButton::Left,
+                                },
+                            },
+                            self.window_target(),
+                        );
+                    }
                     let position = motion_event
                         .pointers()
                         .next()
@@ -816,10 +831,89 @@ impl<T: 'static> EventLoop<T> {
                             // The gesture starts here: the pointer is where the cursor is.
                             self.pad_position = position;
                             self.pad_spread = None;
+                            if let Some(position) = position {
+                                callback(
+                                    event::Event::WindowEvent {
+                                        window_id,
+                                        event: event::WindowEvent::CursorMoved {
+                                            device_id,
+                                            position,
+                                        },
+                                    },
+                                    self.window_target(),
+                                );
+                            }
+                            match pad_gesture {
+                                PadGesture::Scroll => {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::MouseWheel {
+                                                device_id,
+                                                delta: event::MouseScrollDelta::PixelDelta(
+                                                    PhysicalPosition { x: 0.0, y: 0.0 },
+                                                ),
+                                                phase: event::TouchPhase::Started,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
+                                PadGesture::Pinch => {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::PinchGesture {
+                                                device_id,
+                                                delta: 0.0,
+                                                phase: event::TouchPhase::Started,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
+                                PadGesture::None => {}
+                            }
                         }
                         MotionAction::Up | MotionAction::PointerUp | MotionAction::Cancel => {
                             self.pad_position = None;
                             self.pad_spread = None;
+                            let phase = if motion_event.action() == MotionAction::Cancel {
+                                event::TouchPhase::Cancelled
+                            } else {
+                                event::TouchPhase::Ended
+                            };
+                            match pad_gesture {
+                                PadGesture::Scroll => {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::MouseWheel {
+                                                device_id,
+                                                delta: event::MouseScrollDelta::PixelDelta(
+                                                    PhysicalPosition { x: 0.0, y: 0.0 },
+                                                ),
+                                                phase,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
+                                PadGesture::Pinch => {
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::PinchGesture {
+                                                device_id,
+                                                delta: 0.0,
+                                                phase,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                }
+                                PadGesture::None => {}
+                            }
                         }
                         MotionAction::Move => match pad_gesture {
                             PadGesture::Scroll => {
@@ -827,6 +921,18 @@ impl<T: 'static> EventLoop<T> {
                                 // walked is the scroll — the same pixels, in the same
                                 // direction, as a two-finger drag on the glass.
                                 if let Some(current) = position {
+                                    if self.pad_position.is_none() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::CursorMoved {
+                                                    device_id,
+                                                    position: current,
+                                                },
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
                                     let delta = self.pad_position.map_or(
                                         PhysicalPosition { x: 0.0, y: 0.0 },
                                         |previous| PhysicalPosition {
@@ -923,7 +1029,7 @@ impl<T: 'static> EventLoop<T> {
                                 },
                                 self.window_target(),
                             );
-                            if motion_event.action() == MotionAction::HoverExit {
+                            if motion_event.action() == MotionAction::HoverExit && !pointer_class {
                                 callback(
                                     event::Event::WindowEvent {
                                         window_id,
@@ -955,37 +1061,47 @@ impl<T: 'static> EventLoop<T> {
                     // on after the wheel had stopped — a scroll that felt like it happened
                     // twice.
                     MotionAction::Scroll => {
-                        let (vertical, horizontal) = motion_event
-                            .pointers()
-                            .next()
-                            .map(|pointer| {
-                                (
-                                    pointer.axis_value(Axis::Vscroll),
-                                    pointer.axis_value(Axis::Hscroll),
-                                )
-                            })
-                            .unwrap_or((0.0, 0.0));
-                        if vertical != 0.0 || horizontal != 0.0 {
-                            let delta = if touchpad {
-                                event::MouseScrollDelta::PixelDelta(PhysicalPosition {
-                                    x: f64::from(horizontal) * POINTS_PER_AXIS,
-                                    y: f64::from(vertical) * POINTS_PER_AXIS,
-                                })
-                            } else {
-                                event::MouseScrollDelta::LineDelta(horizontal, vertical)
-                            };
-                            trace!("Scroll {device_id:?} {delta:?}");
+                        let pointer_info = motion_event.pointers().next().map(|pointer| {
+                            (
+                                pointer_position(&pointer),
+                                pointer.axis_value(Axis::Vscroll),
+                                pointer.axis_value(Axis::Hscroll),
+                            )
+                        });
+                        if let Some((position, vertical, horizontal)) = pointer_info {
                             callback(
                                 event::Event::WindowEvent {
                                     window_id,
-                                    event: event::WindowEvent::MouseWheel {
+                                    event: event::WindowEvent::CursorMoved {
                                         device_id,
-                                        delta,
-                                        phase: event::TouchPhase::Moved,
+                                        position,
                                     },
                                 },
                                 self.window_target(),
                             );
+                            if vertical != 0.0 || horizontal != 0.0 {
+                                let scale = MonitorHandle::new(self.android_app.clone()).scale_factor();
+                                let delta = if touchpad {
+                                    event::MouseScrollDelta::PixelDelta(PhysicalPosition {
+                                        x: f64::from(horizontal) * POINTS_PER_AXIS * scale,
+                                        y: f64::from(vertical) * POINTS_PER_AXIS * scale,
+                                    })
+                                } else {
+                                    event::MouseScrollDelta::LineDelta(horizontal, vertical)
+                                };
+                                trace!("Scroll {device_id:?} {delta:?}");
+                                callback(
+                                    event::Event::WindowEvent {
+                                        window_id,
+                                        event: event::WindowEvent::MouseWheel {
+                                            device_id,
+                                            delta,
+                                            phase: event::TouchPhase::Moved,
+                                        },
+                                    },
+                                    self.window_target(),
+                                );
+                            }
                         }
                     }
                     // Secondary/middle/back/forward buttons (the primary one arrives as
@@ -1014,18 +1130,29 @@ impl<T: 'static> EventLoop<T> {
                             );
                         }
                         let button = android_mouse_button(motion_event.action_button());
-                        trace!("Button {device_id:?} {state:?} {button:?}");
-                        callback(
-                            event::Event::WindowEvent {
-                                window_id,
-                                event: event::WindowEvent::MouseInput {
-                                    device_id,
-                                    state,
-                                    button,
+                        let should_send = if button == event::MouseButton::Left {
+                            if state == event::ElementState::Pressed {
+                                device_kind::primary_button_on_press_event(&mut self.primary_pointer_down)
+                            } else {
+                                device_kind::primary_button_on_release_event(&mut self.primary_pointer_down)
+                            }
+                        } else {
+                            true
+                        };
+                        if should_send {
+                            trace!("Button {device_id:?} {state:?} {button:?}");
+                            callback(
+                                event::Event::WindowEvent {
+                                    window_id,
+                                    event: event::WindowEvent::MouseInput {
+                                        device_id,
+                                        state,
+                                        button,
+                                    },
                                 },
-                            },
-                            self.window_target(),
-                        );
+                                self.window_target(),
+                            );
+                        }
                     }
                     // Mouse-class down/up/move/cancel: pointer events, never `Touch` (a
                     // single `Event::Touch` would make egui treat every later mouse move as
@@ -1045,15 +1172,30 @@ impl<T: 'static> EventLoop<T> {
                                 | MotionAction::Up
                                 | MotionAction::PointerUp
                         );
+                        let button_state = motion_event.button_state().0;
                         let state = match motion_event.action() {
                             MotionAction::Down | MotionAction::PointerDown => {
-                                Some(event::ElementState::Pressed)
+                                if device_kind::primary_button_on_down(&mut self.primary_pointer_down, button_state) {
+                                    Some(event::ElementState::Pressed)
+                                } else {
+                                    None
+                                }
                             }
                             MotionAction::Up | MotionAction::PointerUp => {
-                                Some(event::ElementState::Released)
+                                if device_kind::primary_button_on_up(&mut self.primary_pointer_down, button_state) {
+                                    Some(event::ElementState::Released)
+                                } else {
+                                    None
+                                }
                             }
                             // A cancelled gesture must not leave a button logically held.
-                            MotionAction::Cancel => Some(event::ElementState::Released),
+                            MotionAction::Cancel => {
+                                if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
+                                    Some(event::ElementState::Released)
+                                } else {
+                                    None
+                                }
+                            }
                             _ => None,
                         };
                         let pointers: Box<
@@ -1082,27 +1224,18 @@ impl<T: 'static> EventLoop<T> {
                             );
                             if !button_sent {
                                 if let Some(state) = state {
-                                    // Android reports the primary button as plain down/up;
-                                    // anything else arrives via ButtonPress/ButtonRelease above.
-                                    // A PointerDown/Up can also carry a non-primary button
-                                    // (right/middle click); only treat it as Left when the
-                                    // primary button is actually the one pressed.
-                                    if motion_event.action_button() != Button::Primary {
-                                        button_sent = true;
-                                    } else {
-                                        button_sent = true;
-                                        callback(
-                                            event::Event::WindowEvent {
-                                                window_id,
-                                                event: event::WindowEvent::MouseInput {
-                                                    device_id,
-                                                    state,
-                                                    button: event::MouseButton::Left,
-                                                },
+                                    button_sent = true;
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::MouseInput {
+                                                device_id,
+                                                state,
+                                                button: event::MouseButton::Left,
                                             },
-                                            self.window_target(),
-                                        );
-                                    }
+                                        },
+                                        self.window_target(),
+                                    );
                                 }
                             }
                         }
@@ -1858,6 +1991,10 @@ impl Window {
         // IME to reset its state is done by toggling `set_ime_allowed` off and on again.
         self.set_ime_allowed(false);
         self.set_ime_allowed(true);
+    }
+
+    pub fn reset_ime(&self) {
+        self.reset_ime_with_request(0);
     }
 
     pub fn focus_window(&self) {}

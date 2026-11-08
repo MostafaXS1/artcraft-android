@@ -109,3 +109,94 @@ All apps tested compiled cleanly and generated signed release APKs:
   - Supplied `DocumentsContract.EXTRA_INITIAL_URI` pointing to `primary:Documents` across `templates/android/SafActivity.java` and all 10 activity adapters (`PhotoCraftActivity`, `SubCraftActivity`, `NoteCraftActivity`, `DiagramCraftActivity`, `PaintCraftActivity`, `PicassoSuiteActivity`, `CapsuleCraftActivity`, `HumanMotionCraftActivity`, `BIMCraftActivity`, `TraceDrawActivity`).
   - DocumentsUI now opens directly in `Documents/`, where directory picking is fully allowed, removing the privacy warning and enabling the "USE THIS FOLDER" button.
   - Enhanced `treeToPath` to support external SD card and USB storage volumes (`/storage/<volume>/<path>`).
+
+---
+
+## 7. Googlebook (Android Laptop) Trackpad, Cursor & IME Improvements
+
+Implemented full hardware trackpad, dynamic cursor icons, and physical QWERTY keyboard/IME handling across `vendor/winit`, `vendor/android-activity`, `vendor/egui-winit`, `vendor/egui-winit-0.36`, `lib/scrolling.sh`, and all application Activity classes:
+
+1. **Keep `egui` Pointer Position Alive Across Trackpad Gestures & `HoverExit`**:
+   - In `vendor/winit/src/platform_impl/android/mod.rs`: Suppressed `WindowEvent::CursorLeft` on `HoverExit` when `pointer_class == true`.
+   - Emitted `WindowEvent::CursorMoved` at the start of `pad_gesture` and during `MotionAction::Scroll` (scaled by `MonitorHandle::scale_factor()`) so `ui.rect_contains_pointer()` remains valid throughout multi-finger gestures.
+   - Supported `Classification::TwoFingerSwipe` and `Classification::MultiFingerSwipe` as `PadGesture::Scroll`.
+
+2. **Tap-to-Click & Primary Button State Machine**:
+   - In `vendor/winit/src/platform_impl/android/device_kind.rs`: Added bitmask constant `BUTTON_PRIMARY = 1 << 0` and 5 transition helpers (`primary_button_on_down`, `primary_button_on_up`, `primary_button_on_cancel`, `primary_button_on_press_event`, `primary_button_on_release_event`).
+   - Replaced dead `AMotionEvent_getActionButton()` check with dynamic bitmask state tracking `motion_event.button_state().0 & BUTTON_PRIMARY`.
+   - Cancelled held primary button state when a two-finger pad gesture starts to prevent stuck selections.
+
+3. **Complete `TouchPhase` Lifecycle & Catch-to-Stop Momentum**:
+   - `pad_gesture` now emits `TouchPhase::Started` on `Down`/`PointerDown`, `TouchPhase::Moved` on `Move`, and `TouchPhase::Ended`/`Cancelled` on `Up`/`Cancel`.
+   - In `lib/scrolling.sh`: Updated `touch_gesture_active(ui)` to check both `TouchPhase::Cancel` AND `Event::MouseWheel { unit: MouseWheelUnit::Point, .. }`.
+   - Patched `scroll.rs` momentum accumulator to set `stop |= matches!(phase, TouchPhase::Start)` so touching the trackpad catches and stops a coasting document.
+
+4. **Dynamic Pointer Icons with UI Thread Recursion**:
+   - In `vendor/egui-winit/src/pointer_icon.rs` and `vendor/egui-winit-0.36/src/pointer_icon.rs`: Added JNI dispatch to `activity.setSurfacePointerIcon(icon_type)` on the Android UI thread.
+   - Replaced `OnceLock` with `AtomicUsize` in `android_activity.rs` so Activity recreation retains pointer icon dispatch.
+   - Implemented `setSurfacePointerIcon(int)` and recursive `applyPointerIconRecursive(View, PointerIcon)` in `templates/android/__CLASS__.java` and all 16 custom Java Activities, properly resolving dynamic I-beam, pointing hand, resize arrows, and crosshair cursors.
+
+5. **Soft Keyboard Suppression on Hardware Keyboard Laptops**:
+   - In `vendor/android-activity/src/native_activity/mod.rs`: Added `LAST_POINTER_WAS_TOUCH: AtomicBool`.
+   - Input queue iterator clears `LAST_POINTER_WAS_TOUCH` on `ButtonPress` or mouse/stylus/touchpad events.
+   - `show_soft_input` suppresses opening virtual keyboard when a physical QWERTY keyboard is present and the pointer interaction was from a mouse or trackpad.
+
+---
+
+## 8. Porting 5 New Applications (Total 30 Suite Apps)
+
+Added full Android support for 5 new major applications with custom adapters, SAF bridges, immersive mode, and pointer icon support:
+
+1. **`rustgis` (RustGIS)**:
+   - Full GIS application in pure Rust (`rustgis-engine`, `rustgis-ui-egui`, `rustgis-render`, `rustgis-map`).
+   - Adapter: `adapters/rustgis` (`com.artcraft.rustgis.RustGISActivity`).
+   - Uses `eframe 0.37` + `storytold/egui` fork.
+2. **`earthcraft` (EarthCraft)**:
+   - 3D Google Earth-style globe explorer (`earthcraft-core`, `earthcraft-data`, `earthcraft-render`, `apps/earthcraft`).
+   - Adapter: `adapters/earthcraft` (`com.artcraft.earthcraft.EarthCraftActivity`).
+   - Uses `eframe 0.36.2` + `vendor/egui-winit-0.36`.
+3. **`mapcraft` (MapCraft)**:
+   - Level editor and 3D map maker (`mapcraft-ui`, `mapcraft-engine`).
+   - Adapter: `adapters/mapcraft` (`com.artcraft.mapcraft.MapCraftActivity`).
+   - Uses `eframe 0.36` + `vendor/egui-winit-0.36`.
+4. **`prowave` (Pro-Wave)**:
+   - Logic Pro-style clean-room DAW in pure Rust (`prowave-app`, `prowave-engine`, `prowave-project`).
+   - Adapter: `adapters/prowave` (`com.artcraft.prowave.ProWaveActivity`).
+   - Audio permissions (`RECORD_AUDIO`, `INTERNET`), `eframe 0.37` + `storytold/egui`.
+5. **`transit` (Transit DAW)**:
+   - Open-source modular DAW (`transit-engine`, `transit-ui-studio`).
+   - Adapter: `adapters/transit` (`com.artcraft.transit.TransitActivity`).
+   - Full SAF `Services` bridge integration, `eframe 0.36` + `vendor/egui-winit-0.36`.
+
+---
+
+## 9. MCP (Model Context Protocol) Suite Integration Architecture
+
+Integrated pure-Rust Model Context Protocol (MCP) Streamable HTTP transport based on the reference implementation from `Solidcraft-Android-Port`:
+
+1. **Zero-Dependency Pure-Rust HTTP Transport (`templates/android/mcp_http.rs`)**:
+   - Built directly over `std::net::TcpListener` and `std::net::TcpStream` without heavyweight HTTP dependencies.
+   - Speaks MCP Streamable HTTP transport (`POST /mcp`, `DELETE /mcp`) with JSON responses.
+   - Generates and manages `Mcp-Session-Id` headers supporting up to 8 concurrent sessions.
+   - Validates `Authorization: Bearer <token>` in constant time (`same()`).
+2. **Local & Wi-Fi LAN Connectivity**:
+   - Supports loopback binding (`127.0.0.1:27880`) for Termux on-device agents (e.g. Claude Code).
+   - Supports network binding (`0.0.0.0:27880`) with automatic Wi-Fi IP discovery for driving from computers on the local LAN.
+3. **Bridge to App Command Loop**:
+   - Connects JSON-RPC requests (`initialize`, `tools/list`, `tools/call`) to the host app's internal command loop or headless session.
+   - Includes on-screen safety checking (`NOT_ON_SCREEN`) preventing execution while the application is backgrounded by Android.
+
+---
+
+## 10. Ported Apps Verification & Built APK Artifacts
+
+All 5 new applications compiled cleanly and generated signed release APKs with Storage Access Framework (SAF) bridges, adaptive launcher icons, pointer icon integration, and immersive NativeActivity runners:
+
+| Application | APK Output File | Size | SHA-256 Hash | Key Architecture Notes |
+|:---|:---|:---|:---|:---|
+| **RustGIS** | `output/rustgis-0.5.0.apk` | 82M | `643d333c35c40b0ba1cfe16c9258df785d6f20922ecfae659c7501b107d95275` | Pure-Rust GIS suite, GDAL/Shapefile import, `eframe 0.37` + storytold fork |
+| **EarthCraft** | `output/earthcraft-0.2.0.apk` | 42M | `476a52a4add4549760fcb156b798b131eb23550d105fb8fed0f03f70fd332e6d` | 3D Google Earth globe explorer, terrain streaming, `eframe 0.36.2` + `vendor/egui-winit-0.36` |
+| **MapCraft** | `output/mapcraft-0.5.0.apk` | 45M | `37ec3c89187ece4d79c1dfcd15f29930805881dc05df3c0e6a1a46c5551ab1f7` | 3D level editor & map maker, glTF scene import/export, `eframe 0.36.2` |
+| **Pro-Wave** | `output/prowave-0.2.2.apk` | 25M | `b32ffac4806ca70bc1a8b156febf652ca1881490aa40040f89effcb9fb73f817` | Logic Pro-style DAW, audio record/render engine, `vendor/midir` dummy backend, `eframe 0.37` |
+| **Transit** | `output/transit-0.6.2.apk` | 38M | `014a36e123cd525f4b9cf1741f923cf0d58b81f73094db0984f5e3f8fe0e4200` | Modular DAW, track/bus mixer, `vendor/midir` dummy backend, `eframe 0.36.2` |
+

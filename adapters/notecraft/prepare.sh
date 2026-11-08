@@ -37,6 +37,23 @@ if "https://github.com/storytold/egui.git" not in s:
     p.write_text(s)
 PY
 
+python3 - "$SRC_ABS/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+s = p.read_text()
+m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
+if m:
+    inner = m.group(1)
+    if '"apps/notecraft-android"' not in inner:
+        new_inner = inner.rstrip()
+        if not new_inner.endswith(','):
+            new_inner += ','
+        new_inner += ' "apps/notecraft-android"'
+        s = s[:m.start(1)] + new_inner + s[m.end(1):]
+        p.write_text(s)
+PY
+
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"

@@ -9,13 +9,15 @@ ADAPTER="$ROOT/adapters/solidcraft"
 DEST="$SRC_ABS/apps/$APP-android"
 
 # Vendor the storytold egui fork so egui-winit has clipboard_image() and correct process_viewport_commands()
-if [[ ! -d "$SRC_ABS/vendor/egui" ]]; then
+if [[ ! -d "$SRC_ABS/vendor/egui/.git" ]]; then
     echo "Vendoring storytold egui fork..."
-    cd "$SRC_ABS"
-    git clone --depth 1 --branch main https://github.com/storytold/egui.git vendor/egui 2>/dev/null || true
-    cd vendor/egui
-    git fetch --depth 1 origin 6d518fc799681571963842f95b55a6b68431b15a 2>/dev/null || true
-    git checkout 6d518fc799681571963842f95b55a6b68431b15a 2>/dev/null || true
+    rm -rf "$SRC_ABS/vendor/egui"
+    mkdir -p "$SRC_ABS/vendor/egui"
+    cd "$SRC_ABS/vendor/egui"
+    git init
+    git remote add origin https://github.com/storytold/egui.git
+    git fetch --depth 1 origin 6d518fc799681571963842f95b55a6b68431b15a
+    git checkout FETCH_HEAD
     cd "$SRC_ABS"
 fi
 

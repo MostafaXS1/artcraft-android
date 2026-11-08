@@ -1,6 +1,7 @@
 # Build artifacts
 build
 build/
+**/target/
 output/
 logs/
 # keys/ is deliberately tracked to preserve signing identity and Android App UID across updates

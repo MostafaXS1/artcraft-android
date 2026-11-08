@@ -77,6 +77,56 @@ pub(crate) fn classify(source: u32, tool: Tool) -> DeviceKind {
     DeviceKind { pointer, touchpad }
 }
 
+/// Bitmask for `AMOTION_EVENT_BUTTON_PRIMARY` in `MotionEvent.getButtonState()`.
+pub(crate) const BUTTON_PRIMARY: u32 = 1 << 0;
+
+pub(crate) fn primary_button_on_down(primary_down: &mut bool, button_state: u32) -> bool {
+    let is_primary_or_tap = button_state == 0 || (button_state & BUTTON_PRIMARY != 0);
+    if is_primary_or_tap && !*primary_down {
+        *primary_down = true;
+        true
+    } else {
+        false
+    }
+}
+
+pub(crate) fn primary_button_on_up(primary_down: &mut bool, button_state: u32) -> bool {
+    let primary_still_held = (button_state & BUTTON_PRIMARY) != 0;
+    if *primary_down && !primary_still_held {
+        *primary_down = false;
+        true
+    } else {
+        false
+    }
+}
+
+pub(crate) fn primary_button_on_cancel(primary_down: &mut bool) -> bool {
+    if *primary_down {
+        *primary_down = false;
+        true
+    } else {
+        false
+    }
+}
+
+pub(crate) fn primary_button_on_press_event(primary_down: &mut bool) -> bool {
+    if !*primary_down {
+        *primary_down = true;
+        true
+    } else {
+        false
+    }
+}
+
+pub(crate) fn primary_button_on_release_event(primary_down: &mut bool) -> bool {
+    if *primary_down {
+        *primary_down = false;
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

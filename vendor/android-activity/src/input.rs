@@ -423,6 +423,13 @@ pub enum Classification {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ButtonState(pub u32);
 
+impl From<ButtonState> for u32 {
+    #[inline]
+    fn from(state: ButtonState) -> Self {
+        state.0
+    }
+}
+
 impl ButtonState {
     #[inline]
     pub fn primary(self) -> bool {

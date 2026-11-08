@@ -84,6 +84,8 @@ def pick_source(src: Path, app: str, explicit: Path = None) -> Path:
             raise SystemExit(f"App icon not found: {explicit}")
         return explicit
     icon_dirs = [
+        src.resolve().parent.parent / "adapters" / app / "assets" / "app-icon",
+        src.resolve().parent.parent / "adapters" / app / "assets",
         src / "assets" / "app-icon",
         src / "assets" / "icons" / "app",
         src / "assets" / "icons",

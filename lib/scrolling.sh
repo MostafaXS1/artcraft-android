@@ -90,9 +90,13 @@ if app == "wordcraft":
         "/// backend keeps clear, so that egui does not read the same fingers as a pinch).\n"
         "fn touch_gesture_active(ui: &Ui) -> bool {\n"
         "    ui.input(|i| {\n"
-        "        i.events\n"
-        "            .iter()\n"
-        "            .any(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }))\n"
+        "        i.events.iter().any(|e| {\n"
+        "            matches!(\n"
+        "                e,\n"
+        "                egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }\n"
+        "                    | egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, .. }\n"
+        "            )\n"
+        "        })\n"
         "    })\n"
         "}\n"
     )
@@ -504,6 +508,14 @@ if app == "wordcraft":
         without_android,
     ):
         fixed.append("crates/ui-egui/src/scroll.rs (the app makes the coast Android does not send)")
+
+    if fix(
+        "crates/ui-egui/src/scroll.rs",
+        "                    lifted |= matches!(phase, TouchPhase::End | TouchPhase::Cancel);\n",
+        "                    stop |= matches!(phase, TouchPhase::Start);\n"
+        "                    lifted |= matches!(phase, TouchPhase::End | TouchPhase::Cancel);\n",
+    ):
+        fixed.append("crates/ui-egui/src/scroll.rs (touchpad touch-down stops active coast)")
 
     if fix(
         "apps/wordcraft-web/index.html",

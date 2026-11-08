@@ -1282,4 +1282,35 @@ public final class VectorCraftActivity extends NativeActivity {
         if (lower.endsWith(".bmp")) return "image/bmp";
         return "application/octet-stream";
     }
+
+    public void setSurfacePointerIcon(final int pointerIconType) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return;
+        runOnUiThread(() -> {
+            try {
+                android.view.Window window = getWindow();
+                if (window == null) return;
+                android.view.View decor = window.getDecorView();
+                if (decor == null) return;
+                android.view.PointerIcon icon =
+                        android.view.PointerIcon.getSystemIcon(this, pointerIconType);
+                applyPointerIconRecursive(decor, icon);
+            } catch (Throwable error) {
+                android.util.Log.w(TAG, "Could not set surface pointer icon", error);
+            }
+        });
+    }
+
+    private static void applyPointerIconRecursive(android.view.View root, android.view.PointerIcon icon) {
+        if (root == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+            return;
+        }
+        root.setPointerIcon(icon);
+        if (root instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyPointerIconRecursive(group.getChildAt(i), icon);
+            }
+        }
+    }
+
 }

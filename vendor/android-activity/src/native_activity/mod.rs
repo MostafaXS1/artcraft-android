@@ -35,6 +35,7 @@ pub const LOOPER_ID_INPUT: libc::c_int = 2;
 //pub const LOOPER_ID_USER: ::std::os::raw::c_uint = 3;
 
 static WAKER: std::sync::OnceLock<crate::waker::AndroidAppWaker> = std::sync::OnceLock::new();
+static LAST_POINTER_WAS_TOUCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 #[no_mangle]
 pub extern "system" fn Java_com_artcraft_ime_ArtCraftIme_wake(
@@ -378,6 +379,15 @@ impl AndroidAppInner {
 
     // TODO: move into a trait
     pub fn show_soft_input(&self, show_implicit: bool) {
+        if !LAST_POINTER_WAS_TOUCH.load(std::sync::atomic::Ordering::Relaxed) {
+            let cfg = self.config();
+            if cfg.keyboard() == ndk::configuration::Keyboard::Qwerty
+                && cfg.keys_hidden() == ndk::configuration::KeysHidden::No
+            {
+                return;
+            }
+        }
+
         let guard = self.native_activity.mutex.lock().unwrap();
         let na = guard.activity;
         if na.is_null() {
@@ -613,6 +623,33 @@ impl InputIteratorInner<'_> {
                     }
                     _ => todo!("NDK added a new type"),
                 };
+
+                if let input::InputEvent::MotionEvent(ref motion) = event {
+                    match motion.action() {
+                        crate::input::MotionAction::ButtonPress => {
+                            LAST_POINTER_WAS_TOUCH.store(false, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        crate::input::MotionAction::Down => {
+                            let src = u32::from(motion.source());
+                            const SOURCE_MOUSE: u32 = 0x0000_2000;
+                            const SOURCE_STYLUS: u32 = 0x0000_4000;
+                            const SOURCE_BLUETOOTH_STYLUS: u32 = 0x0000_8000;
+                            const SOURCE_TRACKBALL: u32 = 0x0001_0000;
+                            const SOURCE_MOUSE_RELATIVE: u32 = 0x0002_0000;
+                            const SOURCE_TOUCHPAD: u32 = 0x0010_0000;
+                            let is_pointing = src & (SOURCE_MOUSE | SOURCE_TRACKBALL | SOURCE_MOUSE_RELATIVE | SOURCE_TOUCHPAD | SOURCE_STYLUS | SOURCE_BLUETOOTH_STYLUS) != 0;
+                            let tool = if motion.pointer_count() > 0 {
+                                motion.pointer_at_index(0).tool_type()
+                            } else {
+                                crate::input::ToolType::Unknown
+                            };
+                            let is_mouse_or_stylus_tool = matches!(tool, crate::input::ToolType::Mouse | crate::input::ToolType::Stylus | crate::input::ToolType::Eraser);
+                            let was_touch = !is_pointing && !is_mouse_or_stylus_tool;
+                            LAST_POINTER_WAS_TOUCH.store(was_touch, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        _ => {}
+                    }
+                }
 
                 // `finish_event` needs to be called for each event otherwise
                 // the app would likely get an ANR

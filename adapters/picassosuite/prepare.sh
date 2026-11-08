@@ -13,7 +13,20 @@ FFMPEG_DEPS_PREFIX="$SRC_ABS/ffmpeg-deps"
 mkdir -p "$FFMPEG_DEPS_PREFIX"
 
 # Android NDK toolchain setup
-NDK_PATH="$ROOT/android-sdk/ndk/27.2.12479018"
+if [[ -n "${ANDROID_NDK_HOME:-}" && -d "$ANDROID_NDK_HOME" ]]; then
+    NDK_PATH="$ANDROID_NDK_HOME"
+elif [[ -n "${NDK_HOME:-}" && -d "$NDK_HOME" ]]; then
+    NDK_PATH="$NDK_HOME"
+elif [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk" ]]; then
+    NDK_PATH=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+elif [[ -d "$ROOT/android-sdk/ndk/27.2.12479018" ]]; then
+    NDK_PATH="$ROOT/android-sdk/ndk/27.2.12479018"
+elif [[ -d "$ROOT/android-sdk/ndk" ]]; then
+    NDK_PATH=$(find "$ROOT/android-sdk/ndk" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+else
+    echo "ERROR: Could not find Android NDK" >&2
+    exit 1
+fi
 TOOLCHAIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64"
 TARGET_ARCH="aarch64-linux-android"
 API_LEVEL="28"
@@ -212,6 +225,23 @@ if "vendor/ffmpeg-sys-next" not in s:
 
 tomllib.loads(s)
 p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+s = p.read_text()
+m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
+if m:
+    inner = m.group(1)
+    if '"apps/picassosuite-android"' not in inner:
+        new_inner = inner.rstrip()
+        if not new_inner.endswith(','):
+            new_inner += ','
+        new_inner += ' "apps/picassosuite-android"'
+        s = s[:m.start(1)] + new_inner + s[m.end(1):]
+        p.write_text(s)
 PY
 
 mkdir -p "$DEST"
