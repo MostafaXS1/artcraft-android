@@ -1009,6 +1009,9 @@ pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
                                         figcraft_ui_egui::menus::invoke(app, command);
                                     }
                                 }
+                                if ui.add(egui::Button::new("Paste").min_size(egui::vec2(58.0, 40.0))).clicked() {
+                                    figcraft_ui_egui::menus::paste(app, None, None);
+                                }
                                 if ui.add(egui::Button::new("Actions").min_size(egui::vec2(68.0, 40.0))).clicked() {
                                     figcraft_ui_egui::menus::toggle_palette(&mut app.ui);
                                 }
