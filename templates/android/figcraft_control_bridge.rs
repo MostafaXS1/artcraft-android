@@ -1003,7 +1003,7 @@ fn validate_gemini_actions(plan: &Value, document: &Value, editor_state: &Value,
             .or_else(|| if !selected_ids.is_empty() { Some(selected_ids.clone()) } else { None })
             .ok_or("No target layer IDs returned and no selected canvas layer could be resolved. Select an object and retry.")?;
         if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
-        for id in ids {
+        for id in &ids {
             let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
             if !available_ids.contains(&n) {
                 return Err(format!("Layer {n} was not found in the inspected canvas"));
@@ -1274,7 +1274,6 @@ pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
                     .id_salt("figcraft_android_tool_drag_scroll")
                     .max_width((screen.width() - 24.0).max(220.0))
                     .auto_shrink([false, true])
-                    .drag_to_scroll(true)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| draw_controls(ui));
                     });
