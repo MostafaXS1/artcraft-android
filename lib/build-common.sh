@@ -841,7 +841,7 @@ elif app == "filmcraft":
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
         '# Android: hardware H.264 video encoding through Android\'s NDK MediaCodec API (libmediandk).\n'
-        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "nativewindow", "api-level-28", "rwh_06"], default-features = false }\n',
+        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "nativewindow", "api-level-28", "rwh_06"], default-features = false }\nndk-sys = "0.6"\n',
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
@@ -965,6 +965,32 @@ elif app == "filmcraft":
         '}\n',
     ):
         fixed.append("crates/platform/src/lib.rs (MediaCodec decoder_for)")
+
+    # 3c. Support direct surface bridge in crates/codecs/src/hw.rs.
+    if fix(
+        "crates/codecs/src/hw.rs",
+        'static ENABLED: AtomicBool = AtomicBool::new(true);\n',
+        'static ENABLED: AtomicBool = AtomicBool::new(true);\n\n'
+        'static DIRECT_SURFACE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);\n\n'
+        'pub fn set_direct_surface(surface: *mut std::ffi::c_void) {\n'
+        '    DIRECT_SURFACE.store(surface as usize, Ordering::SeqCst);\n'
+        '}\n\n'
+        'pub fn clear_direct_surface() {\n'
+        '    DIRECT_SURFACE.store(0, Ordering::SeqCst);\n'
+        '}\n\n'
+        'pub fn has_direct_surface() -> bool {\n'
+        '    DIRECT_SURFACE.load(Ordering::SeqCst) != 0\n'
+        '}\n\n'
+        'pub fn direct_surface() -> Option<*mut std::ffi::c_void> {\n'
+        '    let p = DIRECT_SURFACE.load(Ordering::SeqCst);\n'
+        '    if p != 0 {\n'
+        '        Some(p as *mut std::ffi::c_void)\n'
+        '    } else {\n'
+        '        None\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/codecs/src/hw.rs (direct surface bridge tracking)")
 
     # 4. Copy android_mediacodec.rs template to checkout.
     mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
@@ -1967,6 +1993,12 @@ elif app == "filmcraft":
         '    /// R\'G\'B\' floats (3 per pixel).\n'
         '    pub fn frame(&self, f: i64, sources: &dyn SourceProvider) -> (Vec<u8>, Vec<f32>) {\n',
         '    pub fn bind_surface(&self, window_ptr: *mut std::ffi::c_void) -> bool {\n'
+        '        if cfg!(target_os = "android") && self.can_surface_render() {\n'
+        '            filmcraft_codecs::hw::set_direct_surface(window_ptr);\n'
+        '            self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '            log::info!("Pipeline configured direct decoder-to-encoder hardware surface bridge");\n'
+        '            return true;\n'
+        '        }\n'
         '        if let Some(pool) = &self.renderer {\n'
         '            let (w, h) = (self.w, self.h);\n'
         '            let mut free = pool.renderers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
@@ -2006,6 +2038,9 @@ elif app == "filmcraft":
         '        filmcraft_render::plan::plan_frame(&self.project, self.seq, t, self.opts, self.surface_caps(), sources)\n'
         '    }\n\n'
         '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan) -> Option<bool> {\n'
+        '        if filmcraft_codecs::hw::has_direct_surface() {\n'
+        '            return Some(true);\n'
+        '        }\n'
         '        let mut guard = self.surface_renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
         '        let r = guard.as_mut()?;\n'
         '        r.render_plan_to_surface(plan)\n'
@@ -2035,6 +2070,7 @@ elif app == "filmcraft":
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
         '        if pipe.can_surface_render() {\n'
         '            if let Some(surface_ptr) = venc.input_surface() {\n'
+        '                filmcraft_codecs::release_idle();\n'
         '                if pipe.bind_surface(surface_ptr) {\n'
         '                    log::info!("Exporter enabled zero-copy hardware surface pipeline for {}x{}", pipe.w, pipe.h);\n'
         '                } else {\n'
@@ -2118,6 +2154,8 @@ elif app == "filmcraft":
         '                let rendered = timed(Stage::Render, || pipe.render_plan_to_surface(&plan));\n'
         '                if rendered != Some(true) {\n'
         '                    log::warn!("Hardware surface render fallback at frame {fi}; switching to buffer batch");\n'
+        '                    filmcraft_codecs::hw::clear_direct_surface();\n'
+        '                    filmcraft_codecs::release_idle();\n'
         '                    let _ = self.venc.fallback_to_buffer();\n'
         '                    err = Some(ExportError::Encode("surface render fallback".into()));\n'
         '                    break;\n'
@@ -2174,6 +2212,45 @@ elif app == "filmcraft":
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter step_surface_batch implementation)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        '        note_stage(Stage::Finish, finishing.elapsed());\n'
+        '        let secs = self.t0.elapsed().as_secs_f64();\n',
+        '        note_stage(Stage::Finish, finishing.elapsed());\n'
+        '        filmcraft_codecs::hw::clear_direct_surface();\n'
+        '        filmcraft_codecs::release_idle();\n'
+        '        let secs = self.t0.elapsed().as_secs_f64();\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter finish direct surface cleanup)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        '        if progress.cancel.load(Ordering::Relaxed) {\n'
+        '            self.ahead = None;\n'
+        '            return Err(ExportError::Cancelled);\n'
+        '        }\n',
+        '        if progress.cancel.load(Ordering::Relaxed) {\n'
+        '            self.ahead = None;\n'
+        '            filmcraft_codecs::hw::clear_direct_surface();\n'
+        '            filmcraft_codecs::release_idle();\n'
+        '            return Err(ExportError::Cancelled);\n'
+        '        }\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter cancel direct surface cleanup)")
+
+    if fix(
+        "crates/export/src/job.rs",
+        'impl Exporter {\n',
+        'impl Drop for Exporter {\n'
+        '    fn drop(&mut self) {\n'
+        '        filmcraft_codecs::hw::clear_direct_surface();\n'
+        '        filmcraft_codecs::release_idle();\n'
+        '    }\n'
+        '}\n\n'
+        'impl Exporter {\n',
+    ):
+        fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")

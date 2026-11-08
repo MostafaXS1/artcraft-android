@@ -928,6 +928,8 @@ pub struct MediaCodecDecoder {
     eos_seen: bool,
     need_param_sets: bool,
     input_annex_b: Vec<u8>,
+    is_direct_surface: bool,
+    last_render_pts_ns: i64,
 }
 
 impl MediaCodecDecoder {
@@ -948,6 +950,12 @@ impl MediaCodecDecoder {
         };
 
         let (w, h) = info.coded;
+
+        let direct_window = filmcraft_codecs::hw::direct_surface().and_then(|ptr| {
+            let non_null = std::ptr::NonNull::new(ptr as *mut _)?;
+            Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
+        });
+        let has_direct = direct_window.is_some();
 
         let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
@@ -1003,7 +1011,7 @@ impl MediaCodecDecoder {
             format
         };
 
-        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
+        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool, surface: Option<&NativeWindow>| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_decoder_type(mime)
                 .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
 
@@ -1016,30 +1024,59 @@ impl MediaCodecDecoder {
             }
 
             let format = make_format(with_operating_rate, with_color_format, with_csd);
-            codec.configure(&format, None, MediaCodecDirection::Decoder)
+            codec.configure(&format, surface, MediaCodecDirection::Decoder)
                 .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
             codec.start()
                 .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
             Ok(codec)
         };
 
-        let codec = try_init(true, true, true)
-            .or_else(|e1| {
-                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
-                try_init(false, true, true)
-            })
-            .or_else(|e2| {
-                log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
-                try_init(false, false, true)
-            })
-            .or_else(|e3| {
-                log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
-                try_init(false, false, false)
-            })
-            .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+        let (codec, is_direct_surface) = if has_direct {
+            log::info!("Attempting to initialize MediaCodec decoder with direct surface bridge...");
+            match try_init(true, false, true, direct_window.as_ref()) {
+                Ok(c) => {
+                    log::info!("MediaCodec decoder initialized with direct hardware surface bridge!");
+                    (c, true)
+                }
+                Err(e) => {
+                    log::warn!("Direct surface decoder init failed ({e}), falling back to buffer mode");
+                    let c = try_init(true, true, true, None)
+                        .or_else(|e1| {
+                            log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                            try_init(false, true, true, None)
+                        })
+                        .or_else(|e2| {
+                            log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                            try_init(false, false, true, None)
+                        })
+                        .or_else(|e3| {
+                            log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                            try_init(false, false, false, None)
+                        })
+                        .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+                    (c, false)
+                }
+            }
+        } else {
+            let c = try_init(true, true, true, None)
+                .or_else(|e1| {
+                    log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                    try_init(false, true, true, None)
+                })
+                .or_else(|e2| {
+                    log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                    try_init(false, false, true, None)
+                })
+                .or_else(|e3| {
+                    log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                    try_init(false, false, false, None)
+                })
+                .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+            (c, false)
+        };
 
         let name = codec.name().unwrap_or_else(|_| default_name.to_string());
-        log::info!("MediaCodec decoder initialized successfully: {name}");
+        log::info!("MediaCodec decoder initialized successfully: {name} (direct_surface={is_direct_surface})");
         let stride = w as usize;
         let slice_height = h as usize;
         let crop = info.crop;
@@ -1056,6 +1093,8 @@ impl MediaCodecDecoder {
             eos_seen: false,
             need_param_sets: true,
             input_annex_b: Vec::new(),
+            is_direct_surface,
+            last_render_pts_ns: 0,
         };
 
         let out_fmt = dec.codec.output_format();
@@ -1110,7 +1149,43 @@ impl MediaCodecDecoder {
                     let flags = info.flags();
                     let pts = info.presentation_time_us();
 
-                    if (flags & 2) == 0 && info.size() > 0 {
+                    if (flags & 2) == 0 {
+                        if self.is_direct_surface {
+                            // ZERO-COPY DIRECT SURFACE BRIDGE:
+                            // Commit the decoded frame directly to the encoder's input surface.
+                            let pts_ns = (pts.max(0) as u64).saturating_mul(1000) as i64;
+                            let render_pts_ns = if pts_ns > self.last_render_pts_ns {
+                                pts_ns
+                            } else {
+                                self.last_render_pts_ns + 1_000
+                            };
+                            self.last_render_pts_ns = render_pts_ns;
+                            if let Err(e) = self.codec.release_output_buffer_at_time(output_buffer, render_pts_ns) {
+                                log::warn!("MediaCodecDecoder release_output_buffer_at_time failed: {e:?}");
+                            }
+
+                            frames.push(DecodedFrame {
+                                pts,
+                                frame: filmcraft_frame::VideoFrame {
+                                    width: self.crop.2,
+                                    height: self.crop.3,
+                                    data: filmcraft_frame::PixelData::Rgba8(Arc::new(Vec::new())),
+                                    color: self.info.color,
+                                    par: self.info.par,
+                                    pts: filmcraft_time::Tick::ZERO,
+                                },
+                                draft: false,
+                            });
+
+                            if (flags & 4) != 0 {
+                                self.eos_seen = true;
+                                break;
+                            }
+                            timeout = Duration::ZERO;
+                            continue;
+                        }
+
+                        if info.size() > 0 {
                         let buf_data = output_buffer.buffer();
                         let offset = info.offset() as usize;
                         let size = info.size() as usize;
@@ -1344,6 +1419,7 @@ impl VideoDecoder for MediaCodecDecoder {
         }
 
         self.eos_seen = false;
+        self.last_render_pts_ns = 0;
         frames
     }
 
@@ -1353,6 +1429,7 @@ impl VideoDecoder for MediaCodecDecoder {
         }
         self.eos_seen = false;
         self.need_param_sets = true;
+        self.last_render_pts_ns = 0;
     }
 
     fn name(&self) -> &str {
