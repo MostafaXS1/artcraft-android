@@ -915,14 +915,21 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .json(&body)
                 .send()
                 .map_err(|error| {
+                    let mut details = error.to_string();
+                    let mut source = std::error::Error::source(&error);
+                    while let Some(cause) = source {
+                        details.push_str(": ");
+                        details.push_str(&cause.to_string());
+                        source = std::error::Error::source(cause);
+                    }
                     if error.is_connect() {
-                        format!("Could not connect to Gemini (DNS/TLS/network): {error}")
+                        format!("Could not connect to Gemini (DNS/TLS/network): {details}")
                     } else if error.is_timeout() {
-                        format!("Gemini request timed out after the configured deadline: {error}")
+                        format!("Gemini request timed out. Network detail: {details}")
                     } else if error.is_request() {
-                        format!("Gemini request could not be sent: {error}")
+                        format!("Gemini request could not be sent: {details}")
                     } else {
-                        format!("Gemini network error: {error}")
+                        format!("Gemini network error: {details}")
                     }
                 })?;
             let status = response.status();
@@ -977,7 +984,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 /// remains available; this floating strip removes the need for keyboard shortcuts on phones.
 pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
     let screen = ctx.content_rect();
-    if screen.width() < 520.0 || screen.height() < 520.0 {
+    {
         egui::Area::new(egui::Id::new("figcraft_android_touch_actions"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -104.0))
             .order(egui::Order::Foreground)
