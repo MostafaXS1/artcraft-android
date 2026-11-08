@@ -951,7 +951,7 @@ impl MediaCodecDecoder {
 
         let (w, h) = info.coded;
 
-        let direct_window = filmcraft_codecs::hw::direct_surface().and_then(|ptr| {
+        let direct_window = filmcraft_codecs::hw::direct_surface_for(w, h).and_then(|ptr| {
             let non_null = std::ptr::NonNull::new(ptr as *mut _)?;
             Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
         });
