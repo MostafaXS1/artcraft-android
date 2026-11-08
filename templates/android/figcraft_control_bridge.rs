@@ -652,7 +652,7 @@ pub fn start_mcp_if_enabled(private_dir: &Path) {
 fn run_mcp_connection_test() {
     if MCP_TEST_RUNNING.swap(true, Ordering::SeqCst) { return; }
     let _ = std::thread::Builder::new().name("figcraft-mcp-self-test".into()).spawn(|| {
-        let result = (|| -> Result<String, String> {
+        let result = (|| -> Result<(String, Vec<Value>), String> {
             if !MCP_RUNNING.load(Ordering::SeqCst) {
                 return Err("MCP server is not running".into());
             }
@@ -875,6 +875,7 @@ struct GeminiCopilotState {
     context: String,
     prompt: String,
     response: String,
+    proposed_actions: Vec<Value>,
     status: String,
     busy: bool,
     open: bool,
@@ -927,6 +928,43 @@ Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
 For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."#)
 }
 
+fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> Result<Vec<Value>, String> {
+    let proposed = plan.get("actions").and_then(Value::as_array)
+        .ok_or("Gemini response is missing the actions array")?;
+    if proposed.len() > 24 { return Err("Gemini proposed more than 24 changes".into()); }
+    let commands = registry.as_array().ok_or("Command registry is unavailable")?;
+    if !commands.iter().any(|cmd| cmd.get("id").and_then(Value::as_str) == Some("node.set")) {
+        return Err("node.set is not available in this FigCraft build".into());
+    }
+    let document_json = document.to_string();
+    let mut validated = Vec::new();
+    for action in proposed {
+        if action.get("command").and_then(Value::as_str) != Some("node.set") {
+            return Err("Only node.set actions are allowed in the first live editing version".into());
+        }
+        let params = action.get("params").ok_or("Action is missing params")?;
+        let ids = params.get("ids").and_then(Value::as_array).ok_or("Action is missing ids")?;
+        if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
+        for id in ids {
+            let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
+            if !document_json.contains(&format!("\\"id\\":{n}")) {
+                return Err(format!("Layer {n} was not found in the inspected canvas"));
+            }
+        }
+        let props = params.get("props").and_then(Value::as_object).ok_or("Action is missing props")?;
+        if props.len() != 1 || !props.contains_key("fill") {
+            return Err("Only a single solid fill property is supported per action".into());
+        }
+        let fill = props.get("fill").and_then(Value::as_str).ok_or("Fill must be a HEX string")?;
+        let hex = fill.strip_prefix('#').ok_or("Fill must begin with #")?;
+        if ![6, 8].contains(&hex.len()) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("Invalid HEX fill: {fill}"));
+        }
+        validated.push(serde_json::json!({"command":"node.set","params":{"ids":ids,"props":{"fill":fill}}}));
+    }
+    Ok(validated)
+}
+
 fn run_gemini_request(api_key: String, role: String, desired_output: String, context: String, prompt: String) {
     if GEMINI_COPILOT_BUSY.swap(true, Ordering::SeqCst) { return; }
     {
@@ -934,6 +972,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
         state.busy = true;
         state.status = "Reading live canvas…".into();
         state.response.clear();
+        state.proposed_actions.clear();
     }
     let spawned = std::thread::Builder::new().name("figcraft-gemini-copilot".into()).spawn(move || {
         let result = (|| -> Result<String, String> {
@@ -942,12 +981,10 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .timeout(Duration::from_secs(150))
                 .build()
                 .map_err(|_| "Could not initialize the Gemini network client".to_owned())?;
-            let canvas_snapshot = call_live_read("document.inspect", serde_json::json!({"depth": 4, "maxBytes": 180000}))
-                .map(|snapshot| serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".into()))
-                .unwrap_or_else(|error| format!("Canvas snapshot unavailable: {error}"));
-            let command_registry = call_live_read("engine.commands", serde_json::json!({}))
-                .map(|commands| serde_json::to_string(&commands).unwrap_or_else(|_| "[]".into()))
-                .unwrap_or_else(|error| format!("Command registry unavailable: {error}"));
+            let canvas_document = call_live_read("document.inspect", serde_json::json!({"depth": 4, "maxBytes": 180000}))?;
+            let command_list = call_live_read("engine.commands", serde_json::json!({}))?;
+            let canvas_snapshot = canvas_document.to_string();
+            let command_registry = command_list.to_string();
             let live_context = format!("{context}\n\nLIVE FIGCRAFT CANVAS SNAPSHOT:\n{canvas_snapshot}\n\nEXACT FIGCRAFT COMMAND REGISTRY:\n{command_registry}");
             {
                 let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1013,11 +1050,18 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
                 .filter_map(|part| part.get("text").and_then(Value::as_str))
                 .collect::<Vec<_>>().join("\n");
             if text.trim().is_empty() { return Err("Gemini returned an empty response.".into()); }
-            Ok(text)
+            let plan: Value = serde_json::from_str(&text)
+                .map_err(|_| "Gemini did not return valid action-plan JSON".to_owned())?;
+            let actions = validate_gemini_actions(&plan, &canvas_document, &command_list)?;
+            Ok((text, actions))
         })();
         let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match result {
-            Ok(answer) => { state.response = answer; state.status = "Response received.".into(); }
+            Ok((answer, actions)) => {
+                state.response = answer;
+                state.status = format!("Response received. {} validated proposed edits.", actions.len());
+                state.proposed_actions = actions;
+            }
             Err(error) => { state.status = error; }
         }
         state.busy = false;
@@ -1095,6 +1139,7 @@ fn gemini_copilot_ui(ctx: &Context) {
     let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut open = state.open || GEMINI_COPILOT_OPEN.load(Ordering::Relaxed);
     let mut pending_request: Option<(String, String, String, String, String)> = None;
+    let mut pending_apply: Option<Vec<Value>> = None;
     egui::Area::new(egui::Id::new("figcraft_gemini_copilot_launcher"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -58.0))
         .show(ctx, |ui| {
@@ -1155,9 +1200,22 @@ fn gemini_copilot_ui(ctx: &Context) {
                         ui.label(egui::RichText::new(&state.response).text_style(egui::TextStyle::Body));
                     });
                     if ui.button("Copy response").clicked() { ctx.copy_text(state.response.clone()); }
+                    if !state.proposed_actions.is_empty() {
+                        ui.separator();
+                        ui.label(format!("Preview: {} validated fill changes", state.proposed_actions.len()));
+                        for action in &state.proposed_actions {
+                            ui.monospace(action.to_string());
+                        }
+                        if ui.add_enabled(!state.busy, egui::Button::new("Apply changes (confirm)")).clicked() {
+                            pending_apply = Some(state.proposed_actions.clone());
+                            state.proposed_actions.clear();
+                            state.status = "Applying approved changes…".into();
+                            state.busy = true;
+                        }
+                    }
                 }
                 ui.separator();
-                ui.small("MVP: text recommendations only. Canvas inspection, action-plan validation, preview, Apply, and undo integration are not implemented yet. API key is not saved and will be lost when the app closes.");
+                ui.small("Live canvas analysis and preview. Apply supports solid HEX fills only; changes are grouped into one undo step. Gemini API key stays in memory.");
                     });
             });
     }
@@ -1168,5 +1226,37 @@ fn gemini_copilot_ui(ctx: &Context) {
     drop(state);
     if let Some((key, role, output, context, prompt)) = pending_request {
         run_gemini_request(key, role, output, context, prompt);
+    }
+    if let Some(actions) = pending_apply {
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Value, String> {
+                let steps = actions;
+                let params = serde_json::json!({"label":"Gemini Copilot fill changes","commands":steps});
+                request_mutation_approval("command.batch", params.clone())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                let id = Value::from(NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed));
+                enqueue(ControlRequest {
+                    id: id.clone(),
+                    method: "engine.execute".into(),
+                    params: serde_json::json!({"command":"command.batch","params":params}),
+                    reply: tx,
+                    state: RequestGate::new(),
+                }).map_err(|_| "FigCraft control queue is full".to_owned())?;
+                let reply = rx.recv_timeout(Duration::from_secs(120))
+                    .map_err(|_| "Canvas apply timed out; inspect the canvas before retrying".to_owned())?;
+                if reply.id != id { return Err("Mismatched apply reply".into()); }
+                reply.result
+            })();
+            let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.status = match result {
+                Ok(_) => "Applied. Use FigCraft Undo to revert the entire batch.".into(),
+                Err(error) => format!("Apply failed or was rejected: {error}"),
+            };
+            state.busy = false;
+            drop(state);
+            if let Some(ctx) = ui_context().lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+                ctx.request_repaint();
+            }
+        });
     }
 }
