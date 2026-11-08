@@ -1,6 +1,6 @@
 # FigCraft Android Gemini Design Copilot
 
-Status: The Android MCP bridge has been device-tested by the user. A first text-only Gemini Copilot UI/client is now implemented in the Android bridge template and committed, but compilation and on-device verification are pending. The API key is session-memory-only (not persisted); Android Keystore storage, live canvas grounding, structured action planning, validation, preview/apply/undo remain outstanding. Do not describe canvas editing as implemented.
+Status: The Android MCP bridge has been device-tested by the user. The Gemini Copilot remains text-only; its panel now adapts to the viewport and scrolls vertically. Network timeout diagnostics include the underlying error chain. Compilation and on-device verification of the latest changes are pending. The API key is session-memory-only (not persisted); Android Keystore storage, live canvas grounding, structured action planning, validation, preview/apply/undo remain outstanding. Do not describe canvas editing as implemented.
 
 ## Role-and-outcome prompt contract
 
@@ -46,6 +46,10 @@ Return the deliverable in the format best suited to the selected role and reques
 ```
 
 ### Copilot UI contract
+
+On Android, the Copilot window is positioned and sized from the current viewport, with vertically scrollable content. It must remain usable in portrait and landscape and must not cover or clip the only way to dismiss it.
+
+The current Gemini request uses the stable `gemini-3.8-flash` model ID. Network failures should preserve the reqwest source chain in the visible error so DNS, TLS, connect, and response-timeout failures can be distinguished. A timeout is not evidence that the model is unavailable.
 
 The initial screen should present:
 1. **As what?** role input (required).
