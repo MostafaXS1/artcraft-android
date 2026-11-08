@@ -955,8 +955,12 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
         if action.get("command").and_then(Value::as_str) != Some("node.set") {
             return Err("Only node.set actions are allowed in the first live editing version".into());
         }
-        let params = action.get("params").ok_or("Action is missing params")?;
-        let ids = params.get("ids").and_then(Value::as_array).ok_or("Action is missing ids")?;
+        // Gemini may place the command payload under "params" (the canonical
+        // contract) or flatten it into the action object. Accept only these
+        // equivalent representations, then normalize to the strict node.set shape.
+        let params = action.get("params").unwrap_or(action);
+        let ids = params.get("ids").or_else(|| action.get("ids"))
+            .and_then(Value::as_array).ok_or("Action is missing target layer ids")?;
         if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
         for id in ids {
             let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
@@ -964,7 +968,17 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
                 return Err(format!("Layer {n} was not found in the inspected canvas"));
             }
         }
-        let props = params.get("props").and_then(Value::as_object).ok_or("Action is missing props")?;
+        // Some model responses use "properties" or put "fill" directly in
+        // params. Convert those aliases to the documented props object.
+        let props_value = params.get("props")
+            .or_else(|| params.get("properties"))
+            .or_else(|| action.get("props"))
+            .or_else(|| action.get("properties"))
+            .cloned()
+            .or_else(|| params.get("fill").or_else(|| action.get("fill"))
+                .map(|fill| serde_json::json!({"fill": fill})))
+            .ok_or("Action is missing props (expected params.props.fill)")?;
+        let props = props_value.as_object().ok_or("Action props must be a JSON object")?;
         if props.len() != 1 || !props.contains_key("fill") {
             return Err("Only a single solid fill property is supported per action".into());
         }
