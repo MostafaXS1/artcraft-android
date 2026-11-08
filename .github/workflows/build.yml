@@ -79,18 +79,24 @@ jobs:
           pip install --upgrade pillow
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
-        with:
-          version: "v0.9.0"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.19.0 -R mozilla/sccache -p 'sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz'
+          tar -xzf sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz --strip-components=1
+          sudo mv sccache /usr/local/bin/sccache
+          chmod +x /usr/local/bin/sccache
+          rm -f sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz
+          sccache --version
 
       - name: Cache sccache compiler artifacts
         uses: actions/cache@v4
         with:
           path: ~/.cache/sccache
-          key: sccache-${{ runner.os }}-${{ matrix.app }}-${{ github.sha }}
+          key: sccache-v19-${{ runner.os }}-${{ matrix.app }}-${{ github.sha }}
           restore-keys: |
-            sccache-${{ runner.os }}-${{ matrix.app }}-
-            sccache-${{ runner.os }}-
+            sccache-v19-${{ runner.os }}-${{ matrix.app }}-
+            sccache-v19-${{ runner.os }}-
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
