@@ -933,7 +933,7 @@ Return ONLY valid JSON, with no Markdown fences or text outside JSON, matching:
 For a request that only asks for critique, return an empty actions array. For edits, prefer a small number of safe node.set actions using exact existing layer IDs and documented properties. Use command.batch only if the registry documents it and every step is valid. Never claim that changes have been applied. Actions are proposals only and require user approval before execution."##)
 }
 
-fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> Result<Vec<Value>, String> {
+fn validate_gemini_actions(plan: &Value, document: &Value, editor_state: &Value, registry: &Value) -> Result<Vec<Value>, String> {
     let proposed = plan.get("actions").and_then(Value::as_array)
         .ok_or("Gemini response is missing the actions array")?;
     if proposed.len() > 24 { return Err("Gemini proposed more than 24 changes".into()); }
@@ -955,6 +955,39 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
     }
     let mut available_ids = std::collections::HashSet::new();
     collect_layer_ids(document, &mut available_ids);
+    // Resolve selection IDs from common editor-state shapes. Only numeric IDs
+    // that also exist in the inspected document are ever accepted.
+    fn collect_selected_ids(value: &Value, in_selection: bool, ids: &mut Vec<Value>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    let key_lc = key.to_ascii_lowercase();
+                    let selected = in_selection || key_lc.contains("selection") || key_lc.contains("selected");
+                    if selected {
+                        match child {
+                            Value::Number(n) if n.as_u64().is_some() => ids.push(child.clone()),
+                            Value::Array(items) => {
+                                for item in items {
+                                    if item.as_u64().is_some() { ids.push(item.clone()); }
+                                    else { collect_selected_ids(item, true, ids); }
+                                }
+                            }
+                            _ => collect_selected_ids(child, true, ids),
+                        }
+                    } else {
+                        collect_selected_ids(child, false, ids);
+                    }
+                }
+            }
+            Value::Array(items) => for item in items { collect_selected_ids(item, in_selection, ids); },
+            _ => {}
+        }
+    }
+    let mut selected_ids = Vec::new();
+    collect_selected_ids(editor_state, false, &mut selected_ids);
+    selected_ids.retain(|id| id.as_u64().map(|n| available_ids.contains(&n)).unwrap_or(false));
+    selected_ids.sort_by_key(|id| id.as_u64().unwrap_or(0));
+    selected_ids.dedup();
     let mut validated = Vec::new();
     for action in proposed {
         if action.get("command").and_then(Value::as_str) != Some("node.set") {
@@ -965,7 +998,10 @@ fn validate_gemini_actions(plan: &Value, document: &Value, registry: &Value) -> 
         // equivalent representations, then normalize to the strict node.set shape.
         let params = action.get("params").unwrap_or(action);
         let ids = params.get("ids").or_else(|| action.get("ids"))
-            .and_then(Value::as_array).ok_or("Action is missing target layer ids")?;
+            .and_then(Value::as_array)
+            .cloned()
+            .or_else(|| if !selected_ids.is_empty() { Some(selected_ids.clone()) } else { None })
+            .ok_or("No target layer IDs returned and no selected canvas layer could be resolved. Select an object and retry.")?;
         if ids.is_empty() || ids.len() > 32 { return Err("Action must target 1-32 layers".into()); }
         for id in ids {
             let n = id.as_u64().ok_or("Layer ID must be a non-negative integer")?;
@@ -1141,7 +1177,7 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
             if text.trim().is_empty() { return Err("Gemini returned an empty response.".into()); }
             let plan: Value = serde_json::from_str(&text)
                 .map_err(|_| "Gemini did not return valid action-plan JSON".to_owned())?;
-            let actions = validate_gemini_actions(&plan, &canvas_document, &command_list)?;
+            let actions = validate_gemini_actions(&plan, &canvas_document, &editor_state, &command_list)?;
             Ok((text, actions))
         })();
         let mut state = gemini_copilot_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1168,8 +1204,8 @@ fn run_gemini_request(api_key: String, role: String, desired_output: String, con
 }
 
 /// Compact Android touch controls for common editing actions.
-/// Portrait keeps a horizontal action strip; landscape switches to a vertical,
-/// touch-scrollable rail so every tool remains reachable on short displays.
+/// Keep a horizontal strip in both orientations; landscape supports finger-drag
+/// scrolling so tools remain reachable without a tiny vertical rail.
 pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
     let screen = ctx.content_rect();
     if app.session.doc().is_err() {
@@ -1226,36 +1262,24 @@ pub fn mobile_controls_ui(app: &mut FigApp, ctx: &Context) {
         }
     };
 
-    if landscape {
-        egui::Area::new(area_id)
-            .anchor(egui::Align2::LEFT_CENTER, egui::vec2(8.0, 0.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_width(100.0);
-                    egui::ScrollArea::vertical()
-                        .max_height((screen.height() - 24.0).max(120.0))
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.vertical(|ui| draw_controls(ui));
-                        });
-                });
+    egui::Area::new(area_id)
+        .anchor(
+            egui::Align2::CENTER_BOTTOM,
+            egui::vec2(0.0, if landscape { -18.0 } else { -104.0 }),
+        )
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("figcraft_android_tool_drag_scroll")
+                    .max_width((screen.width() - 24.0).max(220.0))
+                    .auto_shrink([false, true])
+                    .drag_to_scroll(true)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| draw_controls(ui));
+                    });
             });
-    } else {
-        egui::Area::new(area_id)
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -104.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    egui::ScrollArea::horizontal()
-                        .max_width((screen.width() - 24.0).max(220.0))
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| draw_controls(ui));
-                        });
-                });
-            });
-    }
+        });
 }
 
 fn gemini_copilot_ui(ctx: &Context) {
