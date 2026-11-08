@@ -705,6 +705,7 @@ bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 
 # FigCraft's desktop menus are adapted at build time for Android viewport constraints and touch.
 if [[ "$APP" == "figcraft" ]]; then
+    python3 -m py_compile "$ROOT/lib/figcraft_mobile.py"
     python3 "$ROOT/lib/figcraft_mobile.py" "$SRC"
 fi
 
