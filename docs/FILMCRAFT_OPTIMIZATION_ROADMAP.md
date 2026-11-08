@@ -266,7 +266,7 @@ Stage 3 eliminates the remaining 123-second bottleneck by directly coupling the 
   I/OMX-VENC: venc_dev: stats: avg. fps 101.83, bitrate 22924844
   I/OMX-VENC: venc_dev: stats: avg. fps 96.57, bitrate 23097022
   ```
-  Verified sustained **100+ FPS** hardware encoding speed on 4K 60fps video!
+  Verified sustained **100+ FPS** hardware encoding speed on 4K 60fps video! Export finished in ~30 seconds (down from 17 minutes baseline!).
 - **Deadlock Diagnosis**:
   The background prefetch `worker` thread was running ahead via an 8-frame `sync_channel`, but Qualcomm's hardware `ANativeWindow` surface queue between decoder and encoder holds only 4 buffers. When the queue filled, the decoder blocked inside `dequeue_input_buffer`, preventing the worker from sending to `tx`, while the main export thread blocked on `rx.recv()`. Furthermore, because the main thread was blocked in `rx.recv()`, `progress.cancel` was never evaluated, rendering the cancel button unresponsive.
 - **Lockstep Resolution**:
@@ -274,3 +274,25 @@ Stage 3 eliminates the remaining 123-second bottleneck by directly coupling the 
   2. **Instant Cancellation**: `progress.cancel.load(Ordering::Relaxed)` is evaluated at the start of every frame, terminating cleanly within ~10ms when Cancel is tapped.
   3. **Immediate Buffer Release**: Replaced `release_output_buffer_at_time` with `release_output_buffer(output_buffer, true)` to avoid Venus display timer scheduling and eliminate spurious `set_frame_rate` logging.
   4. **Timed Encoder Drain**: Changed `MediaCodecEncoder::encode` drain timeout from `Duration::ZERO` to `Duration::from_millis(10)` to ensure continuous packet drainage.
+
+### Stage 3.2: Downscaled Export GPU Surface Acceleration (4K -> 1080p / 720p)
+- **Problem**:
+  When downscaling a 4K project to 1080p, `settings.frame_size` is populated with `Some((1920, 1080))`. `Geometry::new` assigns `geom.content = Some((1920, 1080))`. Because `can_surface_render()` checked `self.geom.content.is_none()`, the check evaluated to `false`, silently falling back to CPU Buffer Mode:
+  - Qualcomm Venus decoded 4K frames to linear NV12 (12 MB/frame).
+  - CPU unpacked NV12 into 33 MB of `f32` float arrays.
+  - CPU ran software bilinear resampling across 33 MB of floats.
+  - CPU packed floats back into RGBA8 and converted to NV12.
+  - Result: 5-minute export time due to >2 GB/s CPU memory throughput.
+- **Root Cause & CapCut Architecture**:
+  A hardware video encoder (`OMX.qcom.video.encoder.avc`) cannot downscale internally; direct decoder-to-encoder hardware bridge is valid only for 1:1 matching resolutions. CapCut downscales on the GPU: the 4K decoder produces frames that the GPU draws into the encoder's 1080p input surface in < 0.5 ms with zero CPU copies.
+- **Implementation**:
+  1. **Dimension-Aware Direct Surface Bridge (`direct_surface_for`)**:
+     - `set_direct_surface(surface, w, h)` packs the target surface dimensions into an `AtomicU64`.
+     - `MediaCodecDecoder::new` invokes `direct_surface_for(w, h)`, linking directly to the encoder's surface only when source and export resolutions match 1:1.
+  2. **Resolution-Independent Surface Qualification (`can_surface_render`)**:
+     - Evaluates `is_fullscreen` by checking `cw == self.w && ch == self.h` when `geom.content` is `Some(...)`, properly admitting downscaled exports (1080p, 720p) with matching aspect ratios into hardware surface mode.
+  3. **GPU Surface Scaling via `ExportRenderer`**:
+     - When `is_1to1` is false, `Pipeline::bind_surface` activates `ExportRenderer` (Vulkan `wgpu::Surface`) on the encoder's input surface.
+     - `compositor.render_to_view` downscales the decoded frame directly to the 1080p surface view on Adreno 650 with zero staging readbacks and zero CPU float conversions.
+  4. **Unified Lockstep Surface Batch Execution**:
+     - Removed the prefetch worker thread for all surface batches, standardizing on the single-thread lockstep loop with bounded queue depth (1 buffer) and responsive cancel handling across all resolutions.
