@@ -234,10 +234,71 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+struct UiControlBackend;
+
+impl vectorcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("VectorCraft UI not initialized".to_string());
+        };
+        let (req, rx) = vectorcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+
+    fn has_ui(&self) -> bool {
+        true
+    }
+
+    fn describe(&self) -> String {
+        "VectorCraft Android Live UI".to_string()
+    }
+}
+
+pub struct VectorCraftMcpServer {
+    server: vectorcraft_mcp::Server,
+}
+
+unsafe impl Send for VectorCraftMcpServer {}
+
+impl VectorCraftMcpServer {
+    pub fn new() -> Self {
+        let backend = Box::new(UiControlBackend);
+        Self { server: vectorcraft_mcp::Server::new(backend) }
+    }
+}
+
+impl McpServer for VectorCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        self.server.handle_line(trimmed)
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        Box::new(VectorCraftMcpServer::new())
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

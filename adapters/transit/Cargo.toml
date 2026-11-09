@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 transit-ui-studio = { workspace = true }
 transit-engine = { workspace = true }
+transit-automation = { workspace = true }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "persistence", "android-native-activity"] }
 egui = "0.36"
 egui-winit = { version = "0.36", default-features = false, features = ["android-native-activity", "clipboard", "links"] }

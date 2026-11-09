@@ -234,10 +234,52 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+pub struct MapCraftMcpServer {
+    session: mapcraft_engine::Session,
+}
+
+impl MapCraftMcpServer {
+    pub fn new() -> Self {
+        Self {
+            session: mapcraft_engine::Session::default(),
+        }
+    }
+}
+
+impl McpServer for MapCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let msg: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+        let id = msg.get("id").cloned()?;
+        let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or_default();
+        let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+        let result = match method {
+            "initialize" => serde_json::json!({
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "mapcraft", "version": "0.1.0"},
+                "instructions": "Builds and edits MapCraft .mcmap level maps.",
+            }),
+            "ping" => serde_json::json!({}),
+            "tools/list" => serde_json::json!({"tools": mapcraft_engine::control::tools()}),
+            "tools/call" => {
+                let name = params.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+                let args = params.get("arguments").unwrap_or(&serde_json::Value::Null);
+                mapcraft_engine::control::text_result(mapcraft_engine::control::call(&mut self.session, name, args))
+            }
+            _ => return Some(serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("unknown method `{method}`")}}).to_string()),
+        };
+        Some(serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string())
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        Box::new(MapCraftMcpServer::new())
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

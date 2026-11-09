@@ -234,10 +234,61 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+struct UiControlBackend;
+
+impl notecraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("NoteCraft UI not initialized".to_string());
+        };
+        let (req, rx) = notecraft_ui_egui::control::ControlRequest::new(method, params.clone());
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        res
+    }
+
+    fn has_window(&self) -> bool {
+        true
+    }
+
+    fn describe(&self) -> String {
+        "NoteCraft Android Live UI".to_string()
+    }
+}
+
+pub struct NoteCraftMcpServer {
+    backend: UiControlBackend,
+}
+
+unsafe impl Send for NoteCraftMcpServer {}
+
+impl NoteCraftMcpServer {
+    pub fn new() -> Option<Self> {
+        Some(Self { backend: UiControlBackend })
+    }
+}
+
+impl McpServer for NoteCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        notecraft_mcp::handle_line(&mut self.backend, trimmed)
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        NoteCraftMcpServer::new()
+            .map(|s| Box::new(s) as Box<dyn McpServer>)
+            .unwrap_or_else(|| Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone())))
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

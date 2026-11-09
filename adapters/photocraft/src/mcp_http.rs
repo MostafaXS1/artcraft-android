@@ -234,10 +234,74 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+use photocraft_automation::PhotocraftMcp;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+pub struct PhotocraftMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl PhotocraftMcpServer {
+    pub fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let mcp = if let Some((addr, token)) = crate::CONTROL_INFO.get() {
+            log::info!("Connecting PhotoCraft MCP to live UI bridge at {addr}");
+            match PhotocraftMcp::bridge(addr, token) {
+                Ok(m) => m,
+                Err(e) => {
+                    log::warn!("Failed to bridge PhotoCraft MCP to live UI: {e}; falling back to headless");
+                    PhotocraftMcp::headless()
+                }
+            }
+        } else {
+            log::warn!("CONTROL_INFO not set; falling back to headless");
+            PhotocraftMcp::headless()
+        };
+        rt.spawn(async move {
+            let _ = mcp.serve_io(server_in, server_out).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for PhotocraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let is_notification = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .is_some_and(|v| v.get("id").is_none() || v.get("id").unwrap().is_null());
+
+        self.rt.block_on(async {
+            self.client_in.write_all(format!("{trimmed}\n").as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            if is_notification {
+                None
+            } else {
+                self.lines.next_line().await.ok()?
+            }
+        })
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        if let Some(real) = PhotocraftMcpServer::new() {
+            Box::new(real)
+        } else {
+            Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        }
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

@@ -234,10 +234,40 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+pub struct HumanMotionCraftMcpServer {
+    server: ac_cli::mcp::Server,
+}
+
+unsafe impl Send for HumanMotionCraftMcpServer {}
+
+impl HumanMotionCraftMcpServer {
+    pub fn new() -> Option<Self> {
+        let assets = std::path::PathBuf::from("/sdcard/Android/data/com.artcraft.humanmotioncraft/files/assets");
+        let lib = std::env::temp_dir().join("ac-lib");
+        let session = ac_cli::session(&assets, &lib).unwrap_or_else(|_| {
+            let skel = ac_core::Skeleton::from_json(include_str!("../../../assets/rig/default_rig.json")).expect("default rig parses");
+            ac_core::Session::new(ac_core::Document::new(skel))
+        });
+        Some(Self {
+            server: ac_cli::mcp::Server::new(session, assets),
+        })
+    }
+}
+
+impl McpServer for HumanMotionCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let msg: serde_json::Value = serde_json::from_str(line).ok()?;
+        let res = self.server.handle(&msg)?;
+        serde_json::to_string(&res).ok()
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        HumanMotionCraftMcpServer::new()
+            .map(|s| Box::new(s) as Box<dyn McpServer>)
+            .unwrap_or_else(|| Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone())))
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

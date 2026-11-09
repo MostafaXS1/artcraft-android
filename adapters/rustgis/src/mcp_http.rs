@@ -234,10 +234,34 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+pub struct RustGisMcpServer {
+    server: rustgis_assistant::mcp::Server,
+    session: rustgis_engine::Session,
+}
+
+impl RustGisMcpServer {
+    pub fn new() -> Self {
+        Self {
+            server: rustgis_assistant::mcp::Server::new(true),
+            session: rustgis_engine::Session::default(),
+        }
+    }
+}
+
+impl McpServer for RustGisMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        self.server.handle(&mut self.session, trimmed)
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        Box::new(RustGisMcpServer::new())
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

@@ -234,10 +234,130 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+use bimcraft_core::engine::{Session as BimSession, catalog};
+use serde_json::{Value, json};
+
+pub struct BimCraftMcpServer {
+    session: BimSession,
+}
+
+impl BimCraftMcpServer {
+    pub fn new() -> Self {
+        Self {
+            session: BimSession::new(),
+        }
+    }
+
+    fn tools() -> Value {
+        json!([
+            {"name": "execute", "description": "Run any BIMCraft command with JSON params, e.g. wall {points: [[0,0],[5000,0]]}, door {at: [2500, 0]}, room {point: [x, y], name}, modify {id, …fields}, delete {ids}, undo. list_commands shows them all with their parameters.",
+             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}},
+            {"name": "script", "description": "Run several commands, one per line: `wall {\"points\": [[0,0],[4000,0]]}`. Stops at the first failing line and names it; the lines before it stay done, each its own undo step. With `atomic`, all or nothing.",
+             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "atomic": {"type": "boolean"}}, "required": ["text"]}},
+            {"name": "list_commands", "description": "Every command with its id, label, Revit-style shortcut, parameters and the menu it sits in (`menu`).",
+             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}},
+            {"name": "inspect_model", "description": "The model at a glance: levels, element counts, types, warnings and undo history.",
+             "inputSchema": {"type": "object", "properties": {}}},
+            {"name": "query_elements", "description": "Elements with their six-digit `id` and their `guid`, fields and derived values.",
+             "inputSchema": {"type": "object", "properties": {"category": {"type": "string"}, "level": {"type": ["string", "integer"]}, "limit": {"type": "integer"}, "offset": {"type": "integer"}}}},
+            {"name": "schedule", "description": "A schedule's columns, rows and totals, and the fields it could show.",
+             "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "category": {"type": "string"}}}},
+            {"name": "render", "description": "Look at the model as a PNG.",
+             "inputSchema": {"type": "object", "properties": {"view": {"type": ["string", "integer"]}, "width": {"type": "integer"}, "height": {"type": "integer"}}}},
+            {"name": "new_model", "description": "Start an empty project with Level 1 and Level 2.",
+             "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}},
+            {"name": "open", "description": "Open a .bimcraft project or import an IFC file.",
+             "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+            {"name": "save", "description": "Save to .bimcraft (the project), or export by extension: .ifc, .glb, .svg, .png, .pdf.",
+             "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}}
+        ])
+    }
+}
+
+impl McpServer for BimCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let msg: Value = serde_json::from_str(line).ok()?;
+        let id = msg.get("id").cloned()?;
+        let method = msg.get("method").and_then(Value::as_str)?;
+        let params = msg.get("params").cloned().unwrap_or(Value::Null);
+
+        let result = match method {
+            "initialize" => {
+                let ver = params.get("protocolVersion").and_then(Value::as_str).unwrap_or("2025-06-18");
+                json!({
+                    "protocolVersion": ver,
+                    "capabilities": {"tools": {"listChanged": false}},
+                    "serverInfo": {"name": "bimcraft", "title": "BIMCraft", "version": "0.1.0"},
+                    "instructions": "BIMCraft building modeler. Run commands with execute or script. Check model with inspect_model and query_elements, render to PNG with render."
+                })
+            }
+            "notifications/initialized" => return None,
+            "ping" => json!({}),
+            "tools/list" => json!({ "tools": Self::tools() }),
+            "tools/call" => {
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                let res = match name {
+                    "execute" => {
+                        let cmd = args["command"].as_str().unwrap_or_default();
+                        let p = args.get("params").cloned().unwrap_or_else(|| json!({}));
+                        self.session.execute(cmd, &p)
+                    }
+                    "script" => {
+                        let text = args["text"].as_str().unwrap_or_default();
+                        let atomic = args["atomic"].as_bool().unwrap_or(false);
+                        let r = if atomic { self.session.script_atomic(text) } else { self.session.script(text) };
+                        r.map(|res| json!({"results": res}))
+                    }
+                    "list_commands" => {
+                        let filter = args["filter"].as_str().map(str::to_ascii_lowercase).unwrap_or_default();
+                        let all = catalog();
+                        Ok(all.as_array().map(|cmds| {
+                            cmds.iter().filter(|c| {
+                                let id = c["id"].as_str().unwrap_or_default().to_ascii_lowercase();
+                                let lbl = c["label"].as_str().unwrap_or_default().to_ascii_lowercase();
+                                id.contains(&filter) || lbl.contains(&filter)
+                            }).cloned().collect::<Vec<_>>()
+                        }).map(Value::from).unwrap_or(json!([])))
+                    }
+                    "inspect_model" => self.session.execute("inspect", &json!({})),
+                    "query_elements" => self.session.execute("elements", &args),
+                    "schedule" => self.session.execute("schedule", &args),
+                    "new_model" => self.session.execute("new", &args),
+                    "open" => self.session.execute("open", &args),
+                    "save" => self.session.execute("save", &args),
+                    "render" => self.session.execute("render", &args),
+                    other => Err(format!("unknown tool {other}")),
+                };
+                match res {
+                    Ok(v) => json!({
+                        "content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}]
+                    }),
+                    Err(e) => json!({
+                        "content": [{"type": "text", "text": e}],
+                        "isError": true
+                    }),
+                }
+            }
+            _ => return Some(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32601, "message": format!("method {method} not found")}
+            }).to_string()),
+        };
+
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": result
+        }).to_string())
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        Box::new(BimCraftMcpServer::new())
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

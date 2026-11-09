@@ -53,9 +53,9 @@ static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 /// caches so they stay reachable over USB. This also ensures autosave and crash recovery files are
 /// stored under Android/data/com.artcraft.subcraft/files, where the user can access them via MTP.
 #[allow(unused_unsafe)]
-fn install_persist_env(app: &AndroidApp) {
+fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
     let Some(base) = app.external_data_path().or_else(|| app.internal_data_path()) else {
-        return;
+        return None;
     };
     let config = base.join("config");
     let cache = base.join("cache");
@@ -77,6 +77,7 @@ fn install_persist_env(app: &AndroidApp) {
     log::info!("settings directory: {}", config.display());
     log::info!("autosave directory: {}", autosave.display());
     log::info!("recovery directory: {}", recovery.display());
+    Some(config)
 }
 
 /// Ask the Activity whether the screen is dense enough (>600 dpi) to give the app its own UI scale
@@ -399,6 +400,7 @@ impl eframe::App for SubCraftAndroidApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.inner.save(storage);
+        storage.flush();
     }
 
     // Built with `wgpu` only (no `glow`), so `on_exit` takes no GL context (eframe 0.36).
@@ -492,7 +494,7 @@ fn android_main(android_app: AndroidApp) {
     );
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
-    install_persist_env(&android_app);
+    let config_dir = install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
     let bridge = saf::Bridge::new(&android_app);
     // Ask once for broad storage access so the app's own file browsers can read files beyond the
@@ -514,6 +516,7 @@ fn android_main(android_app: AndroidApp) {
             .with_drag_and_drop(true),
         renderer: eframe::Renderer::Wgpu,
         android_app: Some(android_app.clone()),
+        persistence_path: config_dir.map(|c| c.join("app.ron")),
         ..Default::default()
     };
     // Vulkan first, GL as the fallback: some Android GPUs only expose one.

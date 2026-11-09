@@ -14,6 +14,8 @@ photocraft-io = { path = "../../crates/io" }
 photocraft-doc = { path = "../../crates/doc" }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-format = { path = "../../crates/format" }
+photocraft-automation = { path = "../../crates/automation" }
+tokio = { version = "1", features = ["rt", "sync", "io-util"] }
 eframe = { workspace = true, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }

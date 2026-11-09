@@ -265,7 +265,7 @@ mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
-cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
+[[ -f "$ADAPTER/src/mcp_http.rs" ]] || cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
 
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build
 mkdir -p "$SRC_ABS/.cargo"

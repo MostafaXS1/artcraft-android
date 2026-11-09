@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+rustgis-assistant = { workspace = true }
 rustgis-engine = { workspace = true }
 rustgis-ui-egui = { workspace = true }
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "persistence", "android-native-activity"] }

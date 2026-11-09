@@ -13,6 +13,9 @@ mod system_fonts;
 mod saf;
 mod mcp_http;
 
+pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<transit_ui_studio::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_TRANSIT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_TRANSIT_ANDROID_SHELL_V1";
 
@@ -258,6 +261,11 @@ impl Drop for TransitAndroidApp {
 
 impl EframeApp for TransitAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
         saf_poll(&self.bridge, &self.state);
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.state, &mut self.intent_warmup);
@@ -364,7 +372,9 @@ fn android_main(android_app: AndroidApp) {
         "Transit",
         native,
         Box::new(move |_cc| {
-            let app = StudioApp::new(transit_engine::Engine::default(), None, services);
+            let (control_tx, control_rx) = std::sync::mpsc::channel();
+            let _ = CONTROL_TX.set(control_tx);
+            let app = StudioApp::new(transit_engine::Engine::default(), None, services).with_control(control_rx);
             let _mcp = mcp_http::start_mcp_service(
                 "Transit".to_string(),
                 "0.6.2".to_string(),

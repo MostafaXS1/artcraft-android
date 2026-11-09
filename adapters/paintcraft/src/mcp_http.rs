@@ -234,10 +234,50 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+use rmcp::ServiceExt;
+use paintcraft_cli::commands::mcp::PaintingServer;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+pub struct PaintCraftMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl PaintCraftMcpServer {
+    pub fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let server = PaintingServer::new();
+        rt.spawn(async move {
+            let _ = server.serve((server_in, server_out)).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for PaintCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        PaintCraftMcpServer::new()
+            .map(|s| Box::new(s) as Box<dyn McpServer>)
+            .unwrap_or_else(|| Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone())))
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

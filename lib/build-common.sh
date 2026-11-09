@@ -32,7 +32,7 @@ App names:
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite
   capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit
+  rustgis earthcraft mapcraft prowave transit anicraft
 
 Examples:
   bash build.sh -photocraft
@@ -161,6 +161,7 @@ case "$APP" in
     mapcraft) TITLE="MapCraft" ;;
     prowave) TITLE="ProWave" ;;
     transit) TITLE="Transit" ;;
+    anicraft) TITLE="AniCraft" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -214,6 +215,9 @@ elif [[ "$APP" == "prowave" ]]; then
 elif [[ "$APP" == "transit" ]]; then
     REPO="https://github.com/transit-audio/transit.git"
     APP_ORIGIN="https://github.com/transit-audio/transit"
+elif [[ "$APP" == "anicraft" ]]; then
+    REPO="https://github.com/storytold/AniCraft.git"
+    APP_ORIGIN="https://github.com/storytold/AniCraft"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -269,7 +273,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -2406,7 +2410,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "73"
+GENERATOR_VERSION = "77"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2421,7 +2425,8 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     # device's own fonts in (see templates/android/system_fonts.rs). Kept here rather than inside
     # each adapter so the one copy stays in step with the generator.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", android_dir / "src" / "system_fonts.rs")
-    shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
+    if not (custom / "src" / "mcp_http.rs").is_file():
+        shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2457,7 +2462,7 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs", "mcp_http.rs"):
+            for shared in ("system_fonts.rs",):
                 src_shared = root / "templates" / "android" / shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
@@ -4746,6 +4751,54 @@ else:
     staged_new_init = ""
     staged_methods = ""
     staged_logic = ""
+control_tx_def = ""
+control_init = ""
+ctx_store = ""
+if app in ("cadcraft", "wordcraft", "deckcraft", "designcraft", "lightcraft", "soundcraft"):
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
+        let _ = CONTROL_TX.set(control_tx);
+        inner = inner.with_control(control_rx);
+"""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+"""
+elif app == "gridcraft":
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
+        let _ = CONTROL_TX.set(control_tx);
+        inner.control_rx = Some(control_rx);
+"""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+"""
+elif app == "figcraft":
+    control_tx_def = f"""pub static CONTROL_QUEUE: std::sync::Mutex<Vec<{ui_ident}::ControlRequest>> = std::sync::Mutex::new(Vec::new());
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = ""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+        if let Ok(mut q) = crate::CONTROL_QUEUE.lock() {
+            self.inner.control_queue.extend(q.drain(..));
+        }
+"""
 # A type that does not implement `eframe::App` is an inner app state; its desktop `main.rs` wraps it
 # in a tiny struct that forwards `logic`/`ui`. Emit the same wrapper here.
 has_eframe_app = bool(re.search(r"impl\s+eframe::App\s+for\s+" + re.escape(app_type) + r"\b", ui_text))
@@ -4849,6 +4902,35 @@ try:
         if app == "filmcraft"
         else ''
     )
+    mcp_crates = {
+        "solidcraft": "solidcraft-mcp",
+        "cadcraft": "cadcraft-mcp",
+        "wordcraft": "wordcraft-mcp",
+        "figcraft": "figcraft-mcp",
+        "gridcraft": "gridcraft-mcp",
+        "deckcraft": "deckcraft-mcp",
+        "designcraft": "designcraft-mcp",
+        "lightcraft": "lightcraft-mcp",
+    }
+    automation_crates = {
+        "pdfcraft": "pdfcraft-automation",
+        "soundcraft": "soundcraft-automation",
+        "effectcraft": "effectcraft-automation",
+        "materialcraft": "materialcraft-automation",
+        "texturecraft": "texturecraft-automation",
+        "filmcraft": "filmcraft-automation",
+    }
+    mcp_dep = ""
+    if app in mcp_crates:
+        mcp_dep = f'{mcp_crates[app]} = {{ path = "../../crates/mcp" }}\n'
+    elif app in automation_crates:
+        mcp_dep = f'{automation_crates[app]} = {{ path = "../../crates/automation" }}\n'
+    if app in ("materialcraft", "texturecraft", "filmcraft"):
+        mcp_dep += 'tokio = { version = "1", features = ["rt", "sync", "io-util"] }\n'
+    if app in ("materialcraft", "texturecraft"):
+        mcp_dep += 'rmcp = { workspace = true }\n'
+    if saf or _persist or app in mcp_crates or app in automation_crates:
+        serde_dep = 'serde_json = { workspace = true }\n'
     java_sources = 'java_sources = "java"\n' if saf else ''
     config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
     # Android open/share associations for the app's document types (the MAIN/LAUNCHER entry is always
@@ -4922,7 +5004,7 @@ egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
-{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}{platform_dep}
+{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}{platform_dep}{mcp_dep}
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", default-features = false, features = ["native-activity"] }}
 # Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
@@ -5002,6 +5084,8 @@ icon = "@mipmap/ic_launcher"
         imports.append("use " + ui_ident + "::{" + ", ".join([app_type] + services_syms) + "};")
     else:
         imports.append(f"use {ui_ident}::{app_type};")
+    if app in ("cadcraft", "wordcraft", "deckcraft", "designcraft", "gridcraft", "lightcraft", "soundcraft"):
+        imports.append(f"use {ui_ident}::ControlRequest;")
     use_block = "\n".join(imports)
     saf_block = ""
     if saf:
@@ -5611,7 +5695,7 @@ impl InputProbe {{
 /// cleared when the shell is dropped, which happens before the native thread returns.
 static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-struct AndroidShell {{
+{control_tx_def}struct AndroidShell {{
     inner: {app_type},
     app: AndroidApp,
     modifiers: egui::Modifiers,
@@ -5626,7 +5710,7 @@ struct AndroidShell {{
 
 impl AndroidShell {{
     fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
-        let _mcp = mcp_http::start_mcp_service(
+{control_init}        let _mcp = mcp_http::start_mcp_service(
             "{title}".to_string(),
             "{app_version}".to_string(),
             std::sync::Arc::new(|| ALIVE.load(std::sync::atomic::Ordering::Relaxed)),
@@ -5738,7 +5822,7 @@ impl Drop for AndroidShell {{
 
 impl eframe::App for AndroidShell {{
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {{
-{intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
+{ctx_store}{intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
 {ime_hide_logic}        self.sync_bar_appearance(ctx);
 {quit_check}    }}
 
@@ -6007,7 +6091,529 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
-    shutil.copy2(root / "templates" / "android" / "mcp_http.rs", staging_dir / "src" / "mcp_http.rs")
+    mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
+    suites = {
+        "solidcraft": """
+struct SuiteMcpServer(solidcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let session = solidcraft_engine::Session::default();
+    let backend = Box::new(solidcraft_mcp::Headless::new(session));
+    Box::new(SuiteMcpServer(solidcraft_mcp::Server::new(backend)))
+});
+""",
+        "cadcraft": """
+struct UiControlBackend;
+impl cadcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("CadApp UI not initialized".to_string());
+        };
+        let (req, pending) = cadcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = pending.wait(std::time::Duration::from_secs(30));
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "CADCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(cadcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(cadcraft_mcp::Server::new(backend)))
+});
+""",
+        "wordcraft": """
+struct UiControlBackend;
+impl wordcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("WordCraft UI not initialized".to_string());
+        };
+        let (req, rx) = wordcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "WordCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(wordcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(wordcraft_mcp::Server::new(backend)))
+});
+""",
+        "figcraft": """
+struct UiControlBackend;
+impl figcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        let req = figcraft_ui_egui::ControlRequest {
+            id: serde_json::json!(1),
+            method: method.to_string(),
+            params,
+            reply,
+            state: Default::default(),
+        };
+        if let Ok(mut q) = crate::CONTROL_QUEUE.lock() {
+            q.push(req);
+        } else {
+            return Err("FigCraft UI queue lock failed".to_string());
+        }
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        res.result
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "FigCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(figcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(figcraft_mcp::Server::new(backend)))
+});
+""",
+        "gridcraft": """
+struct UiControlBackend;
+impl gridcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("GridCraft UI not initialized".to_string());
+        };
+        let (req, rx) = gridcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "GridCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(gridcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(gridcraft_mcp::Server::new(backend)))
+});
+""",
+        "deckcraft": """
+struct UiControlBackend;
+impl deckcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("DeckCraft UI not initialized".to_string());
+        };
+        let (req, rx) = deckcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "DeckCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(deckcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(deckcraft_mcp::Server::new(backend)))
+});
+""",
+        "designcraft": """
+struct UiControlBackend;
+impl designcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("DesignCraft UI not initialized".to_string());
+        };
+        let (req, rx) = designcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "DesignCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(designcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(designcraft_mcp::Server::new(backend)))
+});
+""",
+        "lightcraft": """
+struct UiControlBackend;
+impl lightcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("LightCraft UI not initialized".to_string());
+        };
+        let (req, rx) = lightcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "LightCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(lightcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(lightcraft_mcp::Server::new(backend)))
+});
+""",
+        "pdfcraft": """
+struct SuiteMcpServer(pdfcraft_automation::mcp::McpServer);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let auto = pdfcraft_automation::Automation::new();
+    Box::new(SuiteMcpServer(pdfcraft_automation::mcp::McpServer::new(auto)))
+});
+""",
+        "soundcraft": """
+struct UiControlBackend;
+impl soundcraft_automation::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("SoundCraft UI not initialized".to_string());
+        };
+        let (req, rx) = soundcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "SoundCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(soundcraft_automation::mcp::Server<UiControlBackend>);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let msg: serde_json::Value = serde_json::from_str(line).ok()?;
+        let res = self.0.handle(&msg)?;
+        serde_json::to_string(&res).ok()
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = UiControlBackend;
+    Box::new(SuiteMcpServer(soundcraft_automation::mcp::Server { backend }))
+});
+""",
+        "effectcraft": """
+struct SuiteMcpServer(effectcraft_automation::McpServer);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let session = effectcraft_engine::Session::new();
+    let backend = effectcraft_automation::Backend::headless(session);
+    Box::new(SuiteMcpServer(effectcraft_automation::McpServer::new(backend)))
+});
+""",
+        "filmcraft": """
+use filmcraft_automation::FilmcraftMcp;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = filmcraft_engine::Session::new();
+        let mcp = FilmcraftMcp::headless(session);
+        rt.spawn(async move {
+            let _ = mcp.serve_io(server_in, server_out).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+""",
+        "materialcraft": """
+use materialcraft_automation::MaterialCraftMcp;
+use rmcp::ServiceExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = materialcraft_engine::Session::new();
+        let headless = materialcraft_automation::Headless::new(session, materialcraft_automation::Filesystem::Unrestricted);
+        let mcp = MaterialCraftMcp::headless(headless);
+        rt.spawn(async move {
+            let _ = mcp.serve((server_in, server_out)).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+""",
+        "texturecraft": """
+use texturecraft_automation::TexturecraftMcp;
+use rmcp::ServiceExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = texturecraft_engine::Session::new();
+        let headless = texturecraft_automation::Headless::new(session, texturecraft_automation::Filesystem::Unrestricted);
+        let mcp = TexturecraftMcp::headless(headless);
+        rt.spawn(async move {
+            let _ = mcp.serve((server_in, server_out)).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+"""
+    }
+    default_make = '''    let make: MakeServer = Arc::new(move || {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    });'''
+    if app in suites:
+        mcp_code = mcp_code.replace(default_make, suites[app].strip())
+    (staging_dir / "src" / "mcp_http.rs").write_text(mcp_code)
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
 
     # Audio output on Android: the apps get their audio backend from the platform layer (cpal), and
@@ -6088,7 +6694,7 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
 elif [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses storytold egui fork (prepare.sh vendors it at vendor/egui/crates/egui-winit)
@@ -6241,8 +6847,9 @@ fi
 # overwritten, so its non-Android customizations and its existing patch entry survive.
 if [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses storytold winit fork (prepare.sh vendors it at vendor/winit)
-    # Do not copy builder's winit - the fork has ImeResetCompleted and reset_ime_with_request
-    echo "Skipping builder winit copy for $APP (uses storytold fork)"
+    # Keep fork intact and refresh its Android backend with builder's patched mouse/scroll-aware backend
+    rm -rf "$SRC/vendor/winit/src/platform_impl/android"
+    cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
 else
     echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
     mkdir -p "$SRC/vendor"
@@ -6508,7 +7115,7 @@ elif [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
     # Do not copy builder's egui-wgpu - keep SolidCraft's original
     echo "Skipping builder egui-wgpu copy for SolidCraft (uses its own vendor/egui-wgpu with custom APIs)"
-elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" ]]; then
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else

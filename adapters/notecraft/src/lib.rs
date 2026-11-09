@@ -13,6 +13,9 @@ mod system_fonts;
 mod saf;
 mod mcp_http;
 
+pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<notecraft_ui_egui::control::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_NOTECRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_NOTECRAFT_ANDROID_SHELL_V1";
 
@@ -172,6 +175,11 @@ impl Drop for NoteCraftAndroidApp {
 
 impl eframe::App for NoteCraftAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
         self.state.mirror.sync(&self.bridge);
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&mut self.inner, &self.bridge, &self.state, &mut self.intent_warmup);
@@ -299,7 +307,16 @@ fn android_main(android_app: AndroidApp) {
             let _ = std::fs::create_dir_all(&notebooks);
             let session = Session::new(&notebooks, notecraft_store::settings::Settings::default_location())
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to initialize NoteCraft session: {e}")))?;
-            let inner = NoteCraftApp::new(session).with_clipboard(clipboard);
+            let (control_tx, control_rx) = std::sync::mpsc::channel();
+            let _ = CONTROL_TX.set(control_tx);
+            let control_server = notecraft_ui_egui::control::ControlServer {
+                port: 0,
+                key_file: PathBuf::new(),
+                key: String::new(),
+            };
+            let inner = NoteCraftApp::new(session)
+                .with_clipboard(clipboard)
+                .with_control(control_server, control_rx);
             let _mcp = mcp_http::start_mcp_service(
                 "NoteCraft".to_string(),
                 "0.0.9".to_string(),

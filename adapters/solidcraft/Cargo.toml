@@ -1,0 +1,84 @@
+[package]
+name = "solidcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+solidcraft-engine = { path = "../../crates/engine" }
+solidcraft-mcp = { path = "../../crates/mcp" }
+solidcraft-ui-egui = { path = "../../crates/ui-egui" }
+eframe = { workspace = true, default-features = false, features = ["wgpu", "persistence"] }
+egui = { workspace = true }
+egui-winit = { workspace = true }
+log = { workspace = true }
+jni = "0.22"
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+# Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
+# in the launcher and the SAF bridge vanished silently on device.
+android_logger = "0.15"
+
+[package.metadata.android]
+package = "com.artcraft.solidcraft"
+apk_name = "solidcraft-0.40.0-rc.3"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+# Let the app's own file browsers read and write files on the device (see
+# templates/android/SafActivity.java: safRequestStoragePermission). Legacy permissions cover
+# Android 12 and older; "All files access" covers Android 11+.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+# The update checker asks GitHub for a newer release of the builder (see
+# templates/android/UpdateCheck.java). Without this the request fails and no update is offered.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+# Audio input for recording (SoundCraft only). Required at runtime;
+# cpal's AAudio backend requests the input stream only if the app opens it, but Android rejects
+# the stream without the manifest permission.
+
+
+[package.metadata.android.application]
+label = "SolidCraft"
+# NativeActivity integrates with Android's system input method framework: the soft keyboard
+# appears automatically for focused egui text fields, no EditText bridge or manual IME polling
+# needed. The Gradle step below generates res/values/themes.xml with this style.
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".SolidCraftActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+label = "SolidCraft"
+launch_mode = "singleTask"
+orientation = "sensor"
+exported = true
+# The MAIN/LAUNCHER filter that gives the APK a launcher icon; the remaining filters register
+# the app for its document types so the system can open and share them with it. Keep it inline:
+# lib/file_associations.py rewrites the single `intent_filter = ...` line in place.
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/x-solidcraft" }, { mime_type = "application/step" }, { mime_type = "model/step" }, { mime_type = "model/stl" }, { mime_type = "application/sla" }, { mime_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml" }, { mime_type = "image/vnd.dxf" }, { mime_type = "model/obj" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"], data = [{ scheme = "http", mime_type = "application/x-solidcraft" }, { scheme = "https", mime_type = "application/x-solidcraft" }, { scheme = "http", mime_type = "application/step" }, { scheme = "https", mime_type = "application/step" }, { scheme = "http", mime_type = "model/step" }, { scheme = "https", mime_type = "model/step" }, { scheme = "http", mime_type = "model/stl" }, { scheme = "https", mime_type = "model/stl" }, { scheme = "http", mime_type = "application/sla" }, { scheme = "https", mime_type = "application/sla" }, { scheme = "http", mime_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml" }, { scheme = "https", mime_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml" }, { scheme = "http", mime_type = "image/vnd.dxf" }, { scheme = "https", mime_type = "image/vnd.dxf" }, { scheme = "http", mime_type = "model/obj" }, { scheme = "https", mime_type = "model/obj" }] }, { actions = ["android.intent.action.SEND", "android.intent.action.SEND_MULTIPLE"], categories = ["android.intent.category.DEFAULT"], data = [{ mime_type = "application/x-solidcraft" }, { mime_type = "application/step" }, { mime_type = "model/step" }, { mime_type = "model/stl" }, { mime_type = "application/sla" }, { mime_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml" }, { mime_type = "image/vnd.dxf" }, { mime_type = "model/obj" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ scheme = "content", host = "*", path_pattern = ".*\\\\.sc" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.sc" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.solidcraft" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.solidcraft" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.step" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.step" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.stp" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.stp" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.stl" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.stl" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.3mf" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.3mf" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dxf" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dxf" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.obj" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.obj" }] }, { actions = ["android.intent.action.VIEW"], categories = ["android.intent.category.DEFAULT"], data = [{ scheme = "content", host = "*", path_pattern = ".*\\\\.sc", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.sc", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.solidcraft", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.solidcraft", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.step", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.step", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.stp", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.stp", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.stl", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.stl", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.3mf", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.3mf", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.dxf", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.dxf", mime_type = "*/*" }, { scheme = "content", host = "*", path_pattern = ".*\\\\.obj", mime_type = "*/*" }, { scheme = "file", host = "*", path_pattern = ".*\\\\.obj", mime_type = "*/*" }] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "solidcraft_android"

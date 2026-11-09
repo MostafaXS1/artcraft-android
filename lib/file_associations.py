@@ -245,6 +245,10 @@ EXT_MIME = {
     # Transit
     "transit": ("application/x-transit",),
     "dawproject": ("application/x-dawproject+zip",),
+    # AniCraft
+    "anicraft": ("application/x-anicraft",),
+    "fla": ("application/x-shockwave-flash", "application/octet-stream"),
+    "xfl": ("application/vnd.adobe.xfl", "application/xml", "text/xml"),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -300,6 +304,7 @@ ASSOCIATIONS = {
     "mapcraft": ["mcmap", "mcpck", "mcshader", "gltf", "glb"],
     "prowave": ["prowave", "mid", "midi", "smf", "wav", "sf2"],
     "transit": ["transit", "dawproject", "mid", "midi", "wav", "wave", "aif", "aiff", "flac", "ogg", "opus", "mp3"],
+    "anicraft": ["anicraft", "fla", "xfl", "svg", "png", "gif", "json"],
 }
 
 MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }'

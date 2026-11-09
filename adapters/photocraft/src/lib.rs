@@ -29,6 +29,9 @@ use std::sync::{Arc, Mutex};
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 mod mcp_http;
+mod control_server;
+
+pub static CONTROL_INFO: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
 
 /// Emitted at startup so a device log (and the packaged `.so` strings) can confirm this shell —
 /// including the Android modifier-key fix and immersive fullscreen — is the one that is running.
@@ -1087,6 +1090,22 @@ fn android_main(android_app: AndroidApp) {
                 ),
             );
             app.background_jobs = true;
+            let control_rx = match std::net::TcpListener::bind("127.0.0.1:0") {
+                Ok(listener) => {
+                    let addr = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| "127.0.0.1:0".to_string());
+                    let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string();
+                    let rx = control_server::start(listener, token.clone(), cc.egui_ctx.clone());
+                    let _ = CONTROL_INFO.set((addr, token));
+                    Some(rx)
+                }
+                Err(e) => {
+                    log::warn!("Could not bind PhotoCraft control server: {e}");
+                    None
+                }
+            };
+            if let Some(rx) = control_rx {
+                app = app.with_control(rx);
+            }
             // A high-density screen gets the app's 150 % UI scale; every other screen keeps its own
             // default, Auto. Applied once (`device_scale_first_time`), which covers a first launch
             // and an upgrade from a build without this bootstrap; a user who sets the scale by hand

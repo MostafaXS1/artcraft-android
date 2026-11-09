@@ -234,10 +234,32 @@ impl McpServer for DefaultMcpServer {
     }
 }
 
+pub struct CapsuleCraftMcpServer {
+    state: capsuleos_native::mcp::McpHandler,
+}
+
+impl CapsuleCraftMcpServer {
+    pub fn new() -> Self {
+        Self {
+            state: capsuleos_native::mcp::McpHandler::new(None),
+        }
+    }
+}
+
+impl McpServer for CapsuleCraftMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        self.state.handle_message(trimmed)
+    }
+}
+
 /// Convenience launcher for starting an MCP Streamable HTTP service in the background.
 pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
     let make: MakeServer = Arc::new(move || {
-        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+        Box::new(CapsuleCraftMcpServer::new())
     });
     let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
     let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());

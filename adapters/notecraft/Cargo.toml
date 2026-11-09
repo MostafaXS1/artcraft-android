@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 notecraft-engine = { path = "../../crates/engine" }
+notecraft-mcp = { path = "../../crates/mcp" }
 notecraft-store = { path = "../../crates/store" }
 notecraft-ui-egui = { path = "../../crates/ui-egui" }
 eframe = { workspace = true, features = ["wgpu", "persistence"] }

@@ -12,6 +12,9 @@ paintcraft = { path = "../../apps/paintcraft" }
 paintcraft-formats = { path = "../../crates/services/paintcraft-formats" }
 paintcraft-platform = { path = "../../crates/services/paintcraft-platform" }
 paintcraft-ui = { path = "../../crates/presentation/paintcraft-ui" }
+paintcraft-cli = { path = "../../apps/paintcraft-cli" }
+tokio = { workspace = true, features = ["rt", "sync", "io-util"] }
+rmcp = { workspace = true }
 eframe = { workspace = true, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }
