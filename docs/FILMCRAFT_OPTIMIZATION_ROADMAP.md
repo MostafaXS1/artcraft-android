@@ -421,7 +421,7 @@ Phase B3 implements a two-tier hardware scaling architecture:
    - Added surface draining to `MediaCodecDecoder::reset`, `flush`, and `Drop`.
 2. **Strictly Monotonic Sequence PTS (`eglPresentationTimeANDROID`)**:
    - Replaced fluctuating `ASurfaceTexture_getTimestamp` with exact sequence presentation timestamps calculated from the frame index:
-     $$\text{pts\_ns} = (\text{fi} - \text{f0}) \times \frac{1\,000\,000\,000 \times \text{rate.denom}}{\text{rate.numer}}$$
+     $$\text{pts\_ns} = (\text{fi} - \text{f0}) \times \frac{1\,000\,000\,000 \times \text{rate.den}}{\text{rate.num}}$$
    - Guarantees strictly increasing timestamps ($0, 33.3\text{ ms}, 66.6\text{ ms}, \dots$).
    - `GraphicBufferSource` will never drop a single frame for "going backward in time".
 3. **Instant Cancellation & Clean Finish**:
