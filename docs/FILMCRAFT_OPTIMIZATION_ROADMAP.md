@@ -495,7 +495,3 @@ Phase B3 implements a two-tier hardware scaling architecture:
    - In `MediaCodecDecoder::flush`: guarded EOS buffer injection strictly to `is_direct_surface` (export EOF mode). In preview buffer mode, pending frames are safely drained without queuing EOS or disturbing decoder state.
    - Prevents `gop.rs` from entering the flush/seek loop, enabling sequential 60 FPS playback.
 
-3. **Immediate UI Repaint on Parameter Edits**:
-   - In `panels/effect_controls.rs:run`: calls `ctx.request_repaint()` whenever actions are executed (`wrote || any_actions`).
-   - In `panels/lumetri.rs`: calls `ui.ctx().request_repaint()` on section toggles and LUT changes.
-
