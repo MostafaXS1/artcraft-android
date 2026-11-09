@@ -242,7 +242,7 @@ pub fn show_text_bar(ctx: &Context) {
     let mut new_buttons = Vec::with_capacity(actions.len());
 
     // Use non-interactable Area with Order::Tooltip to float above everything without stealing focus
-    Area::new(Id::unique("artcraft_mobile_text_bar"))
+    Area::new(Id::new("artcraft_mobile_text_bar"))
         .order(Order::Tooltip)
         .fixed_pos(pos2(x, y))
         .interactable(false)
