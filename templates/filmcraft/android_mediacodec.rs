@@ -1350,7 +1350,6 @@ impl MediaCodecDecoder {
                 Ok(DequeuedOutputBufferInfoResult::OutputFormatChanged) => {
                     let fmt = self.codec.output_format();
                     self.update_format(&fmt);
-                    timeout = Duration::ZERO;
                 }
                 Ok(DequeuedOutputBufferInfoResult::TryAgainLater)
                 | Ok(DequeuedOutputBufferInfoResult::OutputBuffersChanged) => {
@@ -1429,8 +1428,13 @@ impl VideoDecoder for MediaCodecDecoder {
         // 5. Drain ready output frames
         self.drain_output(Duration::ZERO, &mut frames)?;
         if frames.is_empty() && !self.is_direct_surface {
-            // Buffer mode (preview): allow hardware decoder a brief window to complete frame
-            self.drain_output(Duration::from_millis(10), &mut frames)?;
+            // Buffer mode: poll hardware decoder in 10ms slices up to 200ms so 4K frames never time out
+            for _ in 0..20 {
+                self.drain_output(Duration::from_millis(10), &mut frames)?;
+                if !frames.is_empty() {
+                    break;
+                }
+            }
         }
 
         Ok(frames)
@@ -1479,7 +1483,7 @@ impl VideoDecoder for MediaCodecDecoder {
             drain_surface_scaler_texture();
         } else {
             // Buffer mode (preview): drain pending in-flight frames without queuing EOS
-            for _ in 0..10 {
+            for _ in 0..15 {
                 let count_before = frames.len();
                 if self.drain_output_inner(Duration::from_millis(15), &mut frames, false).is_err() {
                     break;
