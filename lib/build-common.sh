@@ -2366,6 +2366,18 @@ elif app == "filmcraft":
 
     if fix(
         "crates/ui-egui/src/panels/lumetri.rs",
+        '    // a dragged value is one undo step, as in Effect Controls\n'
+        '    crate::panels::effect_controls::run(app, ui.ctx(), actions.into_iter().map(|a| ("effects.setParam".to_string(), a)).collect());\n'
+        '    for sec in sections {\n',
+        '    // a dragged value is one undo step, as in Effect Controls\n'
+        '    crate::panels::effect_controls::run(app, ui.ctx(), actions.into_iter().map(|a| ("effects.setParam".to_string(), a)).collect());\n'
+        '    let lumetri_modified = !sections.is_empty() || !lut_actions.is_empty();\n'
+        '    for sec in sections {\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/lumetri.rs (lumetri_modified flag)")
+
+    if fix(
+        "crates/ui-egui/src/panels/lumetri.rs",
         '        p["clip"] = json!(clip.0);\n'
         '        if let Err(err) = app.session.execute(cmd, p) {\n'
         '            app.ui.status = err.to_string();\n'
@@ -2377,7 +2389,7 @@ elif app == "filmcraft":
         '            app.ui.status = err.to_string();\n'
         '        }\n'
         '    }\n'
-        '    if !sections.is_empty() || !lut_actions.is_empty() {\n'
+        '    if lumetri_modified {\n'
         '        ui.ctx().request_repaint();\n'
         '    }\n'
         '}\n',
