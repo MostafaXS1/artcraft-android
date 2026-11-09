@@ -42,6 +42,7 @@ jobs:
       RUSTC_WRAPPER: "sccache"
       SCCACHE_DIR: "/home/runner/.cache/sccache"
       SCCACHE_CACHE_SIZE: "2G"
+      GIT_LFS_SKIP_SMUDGE: "1"
     strategy:
       fail-fast: false
       matrix:

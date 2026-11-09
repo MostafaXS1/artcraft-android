@@ -38,22 +38,22 @@ The pipeline unifies 25 distinct applications spanning digital painting, CAD/CAM
 ## 2. Core Architecture & Build Orchestration
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                ArtCraft Builder Pipeline                                │
-└────────────────────────────────────┬───────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        ArtCraft Builder Pipeline                        │
+└────────────────────────────────────┬────────────────────────────────────┘
                                      │
          ┌───────────────────────────┴───────────────────────────┐
          ▼                                                       ▼
-┌─────────────────────────────────┐             ┌─────────────────────────────────┐
-│ Tier 1: Native Engine (Rust)    │             │ Tier 2: Android Glue & Package  │
-├─────────────────────────────────┤             ├─────────────────────────────────┤
-│ • cargo-ndk (aarch64, API 28)   │             │ • Gradle 8.11 + AGP 8.7.3       │
-│ • eframe / egui 0.36 & 0.37     │             │ • Temurin JDK 21 (hermetic)     │
-│ • wgpu (Vulkan / GLES3 backends)│             │ • GameActivity / NativeActivity │
-│ • Patched sys-locale / rfd      │             │ • App icons (adaptive mipmaps)  │
-│ • Embedded craft-fonts & i18n   │             │ • JNI SAF Activity integration  │
-│ • lib<app_name>.so cdylib       │             │ • Persistent signing key (JKS)  │
-└─────────────────────────────────┘             └─────────────────────────────────┘
+┌─────────────────────────────────┐          ┌─────────────────────────────────┐
+│ Tier 1: Native Engine (Rust)    │          │ Tier 2: Android Glue & Package  │
+├─────────────────────────────────┤          ├─────────────────────────────────┤
+│ • cargo-ndk (aarch64, API 28)   │          │ • Gradle 8.11 + AGP 8.7.3       │
+│ • eframe / egui 0.36 & 0.37     │          │ • Temurin JDK 21 (hermetic)     │
+│ • wgpu (Vulkan / GLES3 backends)│          │ • GameActivity / NativeActivity │
+│ • Patched sys-locale / rfd      │          │ • App icons (adaptive mipmaps)  │
+│ • Embedded craft-fonts & i18n   │          │ • JNI SAF Activity integration  │
+│ • lib<app_name>.so cdylib       │          │ • Persistent signing key (JKS)  │
+└─────────────────────────────────┘          └─────────────────────────────────┘
 ```
 
 ### 2.1 The Zero-Touch Upstream Source Principle

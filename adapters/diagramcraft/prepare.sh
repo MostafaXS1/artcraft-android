@@ -148,6 +148,7 @@ if [[ -d "$ADAPTER/assets" && ! -d "$SRC_ABS/assets" ]]; then
     cp -a "$ADAPTER/assets" "$SRC_ABS/"
 fi
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
+cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 [[ -f "$ADAPTER/src/mcp_http.rs" ]] || cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
 
 python3 "$ROOT/lib/app_icons.py" --src "$SRC_ABS" --app "$APP" --dest "$DEST/res" || true

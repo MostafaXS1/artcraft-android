@@ -21,7 +21,7 @@ use crate::error;
 use crate::error::EventLoopError;
 use crate::event::{self, Force, Ime, InnerSizeWriter, StartCause};
 use crate::event_loop::{self, ActiveEventLoop as RootAEL, ControlFlow, DeviceEvents};
-use crate::keyboard::ModifiersState;
+use crate::keyboard::{self, ModifiersState};
 use crate::platform::pump_events::PumpStatus;
 use crate::platform_impl::Fullscreen;
 use crate::window::{
@@ -261,7 +261,22 @@ pub struct EventLoop<T: 'static> {
     pad_spread: Option<f64>,
     primary_pointer_down: bool,
     modifiers_state: ModifiersState,
+    touch_seq: Option<TouchSequence>,
+    last_stylus_seen: Option<std::time::Instant>,
+    stylus_down: bool,
 }
+
+#[derive(Clone, Debug)]
+struct TouchSequence {
+    start_time: std::time::Instant,
+    max_pointers: usize,
+    moved: bool,
+    gestured: bool,
+    start_positions: Vec<(i32, PhysicalPosition<f64>)>,
+}
+
+const TAP_SLOP_PX: f64 = 28.0;
+const TAP_MAX_DURATION: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// What a multi-finger gesture has been recognised as.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -294,6 +309,8 @@ enum GestureStep {
     Pan(PhysicalPosition<f64>),
     /// A pinch: the fingers spread (or closed) by this factor since the last step.
     Pinch(f64),
+    /// A quick tap with 2 or 3 fingers: 2 fingers = Undo (Ctrl+Z), 3 fingers = Redo (Ctrl+Shift+Z).
+    Tap(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -360,6 +377,9 @@ impl<T: 'static> EventLoop<T> {
             pad_spread: None,
             primary_pointer_down: false,
             modifiers_state: ModifiersState::empty(),
+            touch_seq: None,
+            last_stylus_seen: None,
+            stylus_down: false,
         })
     }
 
@@ -570,14 +590,19 @@ impl<T: 'static> EventLoop<T> {
         motion_event: &android_activity::input::MotionEvent<'_>,
     ) -> GestureStep {
         match motion_event.action() {
-            MotionAction::Down
-            | MotionAction::PointerDown
-            | MotionAction::Up
-            | MotionAction::PointerUp
-            | MotionAction::Cancel => {
-                // A finger went down or up: the gesture starts over. Rebuild the set of fingers
-                // from the event (a `Down` carries every active pointer; an `Up` carries the
-                // finger that is leaving as well, and that one is gone).
+            MotionAction::Down => {
+                let id = motion_event.pointer_at_index(0).pointer_id();
+                let pos = PhysicalPosition {
+                    x: motion_event.pointer_at_index(0).x() as f64,
+                    y: motion_event.pointer_at_index(0).y() as f64,
+                };
+                self.touch_seq = Some(TouchSequence {
+                    start_time: Instant::now(),
+                    max_pointers: 1,
+                    moved: false,
+                    gestured: false,
+                    start_positions: vec![(id, pos)],
+                });
                 let previous = std::mem::replace(
                     &mut self.touch_points,
                     remaining_touch_points(motion_event),
@@ -585,12 +610,86 @@ impl<T: 'static> EventLoop<T> {
                 self.gesture = Gesture::Undecided;
                 self.gesture_origin = None;
                 self.gesture_spread = None;
-                // The finger that was already on the glass when this one joined: the one whose
-                // touch has to be cancelled when the gesture takes over.
+                self.gesture_pointer = previous.first().copied();
+                GestureStep::None
+            }
+            MotionAction::PointerDown => {
+                let count = motion_event.pointer_count();
+                if let Some(seq) = &mut self.touch_seq {
+                    let idx = motion_event.pointer_index();
+                    let p = motion_event.pointer_at_index(idx);
+                    seq.start_positions.push((
+                        p.pointer_id(),
+                        PhysicalPosition {
+                            x: p.x() as f64,
+                            y: p.y() as f64,
+                        },
+                    ));
+                    seq.max_pointers = seq.max_pointers.max(count);
+                }
+                let previous = std::mem::replace(
+                    &mut self.touch_points,
+                    remaining_touch_points(motion_event),
+                );
+                self.gesture = Gesture::Undecided;
+                self.gesture_origin = None;
+                self.gesture_spread = None;
+                self.gesture_pointer = previous.first().copied();
+                GestureStep::None
+            }
+            MotionAction::Up | MotionAction::PointerUp => {
+                let remaining = remaining_touch_points(motion_event);
+                let tap_step = if remaining.is_empty() {
+                    if let Some(seq) = self.touch_seq.take() {
+                        if !seq.moved && !seq.gestured && seq.start_time.elapsed() <= TAP_MAX_DURATION {
+                            if seq.max_pointers == 2 || seq.max_pointers == 3 {
+                                Some(GestureStep::Tap(seq.max_pointers))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let previous = std::mem::replace(
+                    &mut self.touch_points,
+                    remaining,
+                );
+                self.gesture = Gesture::Undecided;
+                self.gesture_origin = None;
+                self.gesture_spread = None;
+                self.gesture_pointer = previous.first().copied();
+                tap_step.unwrap_or(GestureStep::None)
+            }
+            MotionAction::Cancel => {
+                self.touch_seq = None;
+                let previous = std::mem::replace(
+                    &mut self.touch_points,
+                    remaining_touch_points(motion_event),
+                );
+                self.gesture = Gesture::Undecided;
+                self.gesture_origin = None;
+                self.gesture_spread = None;
                 self.gesture_pointer = previous.first().copied();
                 GestureStep::None
             }
             MotionAction::Move => {
+                if let Some(seq) = &mut self.touch_seq {
+                    for pointer in motion_event.pointers() {
+                        if let Some((_, start)) = seq.start_positions.iter().find(|(id, _)| *id == pointer.pointer_id()) {
+                            let dx = pointer.x() as f64 - start.x;
+                            let dy = pointer.y() as f64 - start.y;
+                            if (dx * dx + dy * dy).sqrt() > TAP_SLOP_PX {
+                                seq.moved = true;
+                            }
+                        }
+                    }
+                }
                 // The number of fingers this event carries, and the number we were tracking. A
                 // change in either (a third finger landing, one of two lifting) ends the gesture.
                 if self.touch_points.len() != 2 || motion_event.pointer_count() != 2 {
@@ -654,6 +753,9 @@ impl<T: 'static> EventLoop<T> {
 
                 match self.gesture {
                     Gesture::Pinch => {
+                        if let Some(seq) = &mut self.touch_seq {
+                            seq.gestured = true;
+                        }
                         // The zoom is relative to the last step, so a pinch that starts at the
                         // deadzone's edge does not jump: the spread change that got us here is
                         // the deadzone's, and the zoom starts from where the fingers are now.
@@ -662,6 +764,9 @@ impl<T: 'static> EventLoop<T> {
                         GestureStep::Pinch(factor)
                     }
                     Gesture::Pan => {
+                        if let Some(seq) = &mut self.touch_seq {
+                            seq.gestured = true;
+                        }
                         // The fingers' midpoint moved: that is the scroll. The delta is signed
                         // the way a wheel event is (positive = the content moves down/right) and
                         // the content follows the fingers, so it is their own motion.
@@ -1004,6 +1109,11 @@ impl<T: 'static> EventLoop<T> {
                     | MotionAction::HoverEnter
                     | MotionAction::HoverExit =>
                     {
+                        if let Some(p) = motion_event.pointers().next() {
+                            if matches!(p.tool_type(), ToolType::Stylus | ToolType::Eraser) {
+                                self.last_stylus_seen = Some(Instant::now());
+                            }
+                        }
                         let position = motion_event
                             .pointers()
                             .next()
@@ -1253,92 +1363,163 @@ impl<T: 'static> EventLoop<T> {
                     | MotionAction::PointerUp
                     | MotionAction::Move
                     | MotionAction::Cancel => {
-                        match self.recognise_touch_gesture(motion_event) {
-                            GestureStep::Pan(delta) => {
-                                trace!("Two-finger scroll {device_id:?} {delta:?}");
-                                if let Some(midpoint) = self.touch_midpoint() {
-                                    callback(
-                                        event::Event::WindowEvent {
-                                            window_id,
-                                            event: event::WindowEvent::CursorMoved {
-                                                device_id,
-                                                position: midpoint,
-                                            },
-                                        },
-                                        self.window_target(),
-                                    );
-                                }
-                                callback(
-                                    event::Event::WindowEvent {
-                                        window_id,
-                                        event: event::WindowEvent::MouseWheel {
-                                            device_id,
-                                            delta: event::MouseScrollDelta::PixelDelta(delta),
-                                            phase: event::TouchPhase::Moved,
-                                        },
-                                    },
-                                    self.window_target(),
-                                );
-                                return input_status;
+                        let any_stylus = motion_event.pointers().any(|p| matches!(p.tool_type(), ToolType::Stylus | ToolType::Eraser));
+                        if any_stylus {
+                            self.last_stylus_seen = Some(Instant::now());
+                            match motion_event.action() {
+                                MotionAction::Down | MotionAction::PointerDown | MotionAction::Move => self.stylus_down = true,
+                                MotionAction::Up | MotionAction::PointerUp | MotionAction::Cancel => self.stylus_down = false,
+                                _ => {}
                             }
-                            GestureStep::Pinch(factor) => {
-                                trace!("Two-finger pinch {device_id:?} {factor:?}");
-                                if let Some(midpoint) = self.touch_midpoint() {
-                                    callback(
-                                        event::Event::WindowEvent {
-                                            window_id,
-                                            event: event::WindowEvent::CursorMoved {
-                                                device_id,
-                                                position: midpoint,
-                                            },
-                                        },
-                                        self.window_target(),
-                                    );
-                                }
-                                callback(
-                                    event::Event::WindowEvent {
-                                        window_id,
-                                        event: event::WindowEvent::PinchGesture {
-                                            device_id,
-                                            // The log of the factor: `egui` turns it back into
-                                            // the factor itself.
-                                            delta: factor.ln(),
-                                            phase: event::TouchPhase::Moved,
-                                        },
-                                    },
-                                    self.window_target(),
-                                );
-                                return input_status;
-                            }
-                            GestureStep::None => {}
-                        }
-                        // Two or more fingers on the glass: the gesture belongs to the backend
-                        // (a scroll or a zoom), so the fingers are not reported as touches —
-                        // egui would read them as a drag, or as a pinch of its own.
-                        if self.touch_points.len() >= 2 {
-                            // A second finger just landed: the first finger's touch, which egui
-                            // took for a pointer press, is cancelled, so the gesture does not
-                            // start a text selection. The finger is still on the glass, so the
-                            // pointer keeps its place: the canvas only takes the scroll while
-                            // the pointer is over it.
-                            if motion_event.action() == MotionAction::PointerDown {
-                                if let Some((id, location)) = self.gesture_pointer.take() {
-                                    callback(
-                                        event::Event::WindowEvent {
-                                            window_id,
-                                            event: event::WindowEvent::Touch(event::Touch {
-                                                device_id,
-                                                phase: event::TouchPhase::Cancelled,
-                                                location,
-                                                id: id as u64,
-                                                force: None,
-                                            }),
-                                        },
-                                        self.window_target(),
-                                    );
-                                }
-                            }
+                        } else if self.stylus_down || self.last_stylus_seen.as_ref().map_or(false, |t| t.elapsed() < Duration::from_millis(500)) {
+                            trace!("Palm rejection: dropping finger touch while stylus is active/near");
                             return input_status;
+                        }
+
+                        if !any_stylus {
+                            match self.recognise_touch_gesture(motion_event) {
+                                GestureStep::Pan(delta) => {
+                                    trace!("Two-finger scroll {device_id:?} {delta:?}");
+                                    if let Some(midpoint) = self.touch_midpoint() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::CursorMoved {
+                                                    device_id,
+                                                    position: midpoint,
+                                                },
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::MouseWheel {
+                                                device_id,
+                                                delta: event::MouseScrollDelta::PixelDelta(delta),
+                                                phase: event::TouchPhase::Moved,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                    return input_status;
+                                }
+                                GestureStep::Pinch(factor) => {
+                                    trace!("Two-finger pinch {device_id:?} {factor:?}");
+                                    if let Some(midpoint) = self.touch_midpoint() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::CursorMoved {
+                                                    device_id,
+                                                    position: midpoint,
+                                                },
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::PinchGesture {
+                                                device_id,
+                                                // The log of the factor: `egui` turns it back into
+                                                // the factor itself.
+                                                delta: factor.ln(),
+                                                phase: event::TouchPhase::Moved,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                    return input_status;
+                                }
+                                GestureStep::Tap(count) => {
+                                    trace!("Multi-finger tap gesture: {count} fingers");
+                                    let (ctrl, shift) = match count {
+                                        2 => (true, false), // 2 fingers = Undo (Ctrl+Z)
+                                        3 => (true, true),  // 3 fingers = Redo (Ctrl+Shift+Z)
+                                        _ => (false, false),
+                                    };
+                                    if ctrl {
+                                        let emit_key = |cb: &mut F, st: event::ElementState| {
+                                            cb(
+                                                event::Event::WindowEvent {
+                                                    window_id,
+                                                    event: event::WindowEvent::KeyboardInput {
+                                                        device_id,
+                                                        event: event::KeyEvent {
+                                                            state: st,
+                                                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyZ),
+                                                            logical_key: keyboard::Key::Character(smol_str::SmolStr::new(if shift { "Z" } else { "z" })),
+                                                            location: keyboard::KeyLocation::Standard,
+                                                            repeat: false,
+                                                            text: None,
+                                                            platform_specific: KeyEventExtra {},
+                                                        },
+                                                        is_synthetic: true,
+                                                    },
+                                                },
+                                                self.window_target(),
+                                            );
+                                        };
+
+                                        let mut tap_mods = ModifiersState::CONTROL;
+                                        if shift {
+                                            tap_mods |= ModifiersState::SHIFT;
+                                        }
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::ModifiersChanged(tap_mods.into()),
+                                            },
+                                            self.window_target(),
+                                        );
+
+                                        emit_key(callback, event::ElementState::Pressed);
+                                        emit_key(callback, event::ElementState::Released);
+
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::ModifiersChanged(self.modifiers_state.into()),
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                    return input_status;
+                                }
+                                GestureStep::None => {}
+                            }
+
+                            // Two or more fingers on the glass: the gesture belongs to the backend
+                            // (a scroll or a zoom), so the fingers are not reported as touches —
+                            // egui would read them as a drag, or as a pinch of its own.
+                            if self.touch_points.len() >= 2 {
+                                // A second finger just landed: the first finger's touch, which egui
+                                // took for a pointer press, is cancelled, so the gesture does not
+                                // start a text selection. The finger is still on the glass, so the
+                                // pointer keeps its place: the canvas only takes the scroll while
+                                // the pointer is over it.
+                                if motion_event.action() == MotionAction::PointerDown {
+                                    if let Some((id, location)) = self.gesture_pointer.take() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::Touch(event::Touch {
+                                                    device_id,
+                                                    phase: event::TouchPhase::Cancelled,
+                                                    location,
+                                                    id: id as u64,
+                                                    force: None,
+                                                }),
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                }
+                                return input_status;
+                            }
                         }
                         let phase = match motion_event.action() {
                             MotionAction::Down | MotionAction::PointerDown => {
@@ -1374,17 +1555,37 @@ impl<T: 'static> EventLoop<T> {
                                     "Input event {device_id:?}, {phase:?}, loc={location:?}, \
                                      pointer={pointer:?}"
                                 );
+                                let is_stylus_pointer = matches!(pointer.tool_type(), ToolType::Stylus | ToolType::Eraser);
+                                let touch_id = if is_stylus_pointer {
+                                    (pointer.pointer_id() as u64) | (1u64 << 32)
+                                } else {
+                                    pointer.pointer_id() as u64
+                                };
                                 let event = event::Event::WindowEvent {
                                     window_id,
                                     event: event::WindowEvent::Touch(event::Touch {
                                         device_id,
                                         phase,
                                         location,
-                                        id: pointer.pointer_id() as u64,
+                                        id: touch_id,
                                         force: Some(Force::Normalized(pointer.pressure() as f64)),
                                     }),
                                 };
                                 callback(event, self.window_target());
+                                if is_stylus_pointer && (motion_event.button_state().stylus_primary() || motion_event.button_state().secondary()) {
+                                    let button_event = event::Event::WindowEvent {
+                                        window_id,
+                                        event: event::WindowEvent::MouseInput {
+                                            device_id,
+                                            state: match phase {
+                                                event::TouchPhase::Started | event::TouchPhase::Moved => event::ElementState::Pressed,
+                                                event::TouchPhase::Ended | event::TouchPhase::Cancelled => event::ElementState::Released,
+                                            },
+                                            button: event::MouseButton::Right,
+                                        },
+                                    };
+                                    callback(button_event, self.window_target());
+                                }
                             }
                         }
                     }

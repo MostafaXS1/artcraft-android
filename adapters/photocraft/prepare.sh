@@ -14,9 +14,6 @@ if [[ -e "$DEST" && ! -f "$DEST/.artcraft-android-builder-generated" ]]; then
   exit 1
 fi
 if [[ -d "$DEST" ]]; then
-  stamp="$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$ROOT/backups"
-  cp -a "$DEST" "$ROOT/backups/photocraft-android.before-saf-adapter.$stamp"
   rm -rf -- "$DEST"
 fi
 mkdir -p "$DEST"
@@ -25,6 +22,7 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 # Ship the shared Android system-font module next to the adapter sources; its launcher references
 # `mod system_fonts;` (see templates/android/system_fonts.rs, shared with the generated launchers).
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
+cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 # The soft keyboard uses android-activity's native IME (the launcher polls `text_input_state`);
 # there is no ime_bridge module to copy.
 # Launcher icons: density mipmaps plus the API 26+ adaptive layers, from the same shared module

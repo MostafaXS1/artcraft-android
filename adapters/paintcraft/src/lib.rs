@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod system_fonts;
+mod mobile_text_bar;
 mod saf;
 mod mcp_http;
 
@@ -255,6 +256,7 @@ impl eframe::App for PaintCraftAndroidApp {
             self.synced_lang = true;
         }
         self.inner.ui(ui);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 }
 

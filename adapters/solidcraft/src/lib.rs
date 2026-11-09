@@ -3,6 +3,7 @@
 //! shared Android platform shell (immersive fullscreen and the Ctrl/Alt modifier-key fix).
 
 mod system_fonts;
+mod mobile_text_bar;
 mod mcp_http;
 use solidcraft_engine::Session;
 use solidcraft_ui_egui::{SolveApp, Services};
@@ -1455,6 +1456,7 @@ impl eframe::App for AndroidShell {
         system_fonts::install_system_fonts(ui.ctx());
         let _ = frame;
         self.inner.ui(ui);
+        mobile_text_bar::show_text_bar(ui.ctx());
         if self.back_pending {
             self.back_pending = false;
             // A back press was mapped onto Escape. If the app consumed that Escape (a dialog

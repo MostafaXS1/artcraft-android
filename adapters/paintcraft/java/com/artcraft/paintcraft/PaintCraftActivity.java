@@ -1527,15 +1527,46 @@ public final class PaintCraftActivity extends NativeActivity {
         }
     }
 
+    private static final int SAMSUNG_PEN_DOWN = 211;
+    private boolean sideButtonHeld = false;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e == null) return super.dispatchTouchEvent(e);
+        int samsung = e.getActionMasked() - SAMSUNG_PEN_DOWN;
+        sideButtonHeld = samsung >= 0 && samsung <= 3;
+        if (sideButtonHeld) {
+            int[] standard = {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL};
+            e.setAction(standard[samsung] | (e.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK));
+        }
+
+        int action = e.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            int i = e.getActionIndex();
+            int tool = e.getToolType(i);
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(e);
+                }
+            }
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        // Trackpad/touchpad/mouse/stylus should go through native handling (enables tap-to-click)
-        if (event != null && (
-            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
-        )) {
-            return super.dispatchGenericMotionEvent(event);
+        if (event != null) {
+            int tool = event.getToolType(event.getActionIndex());
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(event);
+                }
+            }
+            if (event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)) {
+                return super.dispatchGenericMotionEvent(event);
+            }
         }
         return super.dispatchGenericMotionEvent(event);
     }

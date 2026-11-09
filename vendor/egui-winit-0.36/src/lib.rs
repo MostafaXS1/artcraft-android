@@ -117,6 +117,41 @@ impl HoldToRightClick {
     }
 }
 
+/// Pending finger touch waiting to become a pointer down.
+/// Deferring pointer down by a brief window (60ms) allows multi-finger gestures
+/// (such as pinch-to-zoom) to be recognised before an accidental brush stroke or
+/// dab is drawn on canvas. If a second finger lands or a gesture starts during this window,
+/// the pending press is cancelled with no brush mark ever emitted. Quick taps
+/// emit Pressed+Released immediately on lift.
+#[derive(Clone, Copy, Debug)]
+struct PendingFingerDown {
+    touch_id: u64,
+    location: winit::dpi::PhysicalPosition<f64>,
+    started: web_time::Instant,
+}
+
+impl PendingFingerDown {
+    const HOLD_DELAY_MS: u64 = 60;
+    const SLOP_PX: f64 = 10.0;
+
+    fn new(touch_id: u64, location: winit::dpi::PhysicalPosition<f64>) -> Self {
+        Self {
+            touch_id,
+            location,
+            started: web_time::Instant::now(),
+        }
+    }
+
+    fn should_commit(&self, current_pos: winit::dpi::PhysicalPosition<f64>) -> bool {
+        let dx = current_pos.x - self.location.x;
+        let dy = current_pos.y - self.location.y;
+        if dx * dx + dy * dy > Self::SLOP_PX * Self::SLOP_PX {
+            return true;
+        }
+        self.started.elapsed().as_millis() >= Self::HOLD_DELAY_MS as u128
+    }
+}
+
 #[must_use]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EventResponse {
@@ -190,6 +225,7 @@ pub struct State {
     /// Hold-to-right-click: tracks a single finger hold for configurable duration before emitting
     /// a right-click. Cancelled by movement beyond slop, second finger, or lift.
     hold_to_right_click: Option<HoldToRightClick>,
+    pending_finger_down: Option<PendingFingerDown>,
 
     #[cfg(feature = "accesskit")]
     pub accesskit: Option<accesskit_winit::Adapter>,
@@ -243,6 +279,7 @@ impl State {
             pointer_touch_id: None,
             gesture_touch_ids: Vec::new(),
             hold_to_right_click: None,
+            pending_finger_down: None,
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
@@ -389,6 +426,7 @@ impl State {
             }
         }
         self.check_hold_to_right_click_timer();
+        self.check_pending_finger_down(window);
 
         // On Windows, a minimized window will have 0 width and height.
         // See: https://github.com/rust-windowing/winit/issues/208
@@ -684,6 +722,14 @@ impl State {
             },
 
             WindowEvent::PinchGesture { delta, .. } => {
+                self.pending_finger_down = None;
+                if self.pointer_touch_id.is_some() {
+                    self.pointer_touch_id = None;
+                    self.on_mouse_button_input(
+                        winit::event::ElementState::Released,
+                        winit::event::MouseButton::Left,
+                    );
+                }
                 // Positive delta values indicate magnification (zooming in).
                 // Negative delta values indicate shrinking (zooming out).
                 let zoom_factor = (*delta as f32).exp();
@@ -1061,6 +1107,30 @@ impl State {
         }
     }
 
+    fn check_pending_finger_down(&mut self, window: &Window) {
+        if let Some(pending) = self.pending_finger_down.take() {
+            if pending.started.elapsed().as_millis() >= PendingFingerDown::HOLD_DELAY_MS as u128 {
+                self.commit_finger_down(window, pending);
+            } else {
+                self.pending_finger_down = Some(pending);
+            }
+        }
+    }
+
+    fn commit_finger_down(&mut self, window: &Window, pending: PendingFingerDown) {
+        self.pointer_touch_id = Some(pending.touch_id);
+        self.on_cursor_moved(window, pending.location);
+        self.on_mouse_button_input(
+            winit::event::ElementState::Pressed,
+            winit::event::MouseButton::Left,
+        );
+        self.hold_to_right_click = Some(HoldToRightClick::new(
+            pending.touch_id,
+            pending.location,
+        ));
+        self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(HoldToRightClick::HOLD_DURATION_MS + 20));
+    }
+
     fn on_touch(&mut self, window: &Window, touch: &winit::event::Touch) {
         let pixels_per_point = pixels_per_point(&self.egui_ctx, window);
 
@@ -1112,8 +1182,9 @@ impl State {
         // We deliberately keep `pointer_pos_in_points` so the canvas knows the pointer is over it
         // and egui delivers two-finger scroll and pinch-zoom events to the right widget!
         if self.gesture_touch_ids.len() > 1 {
-            // Cancel any pending hold-to-right-click when a second finger joins
+            // Cancel any pending hold-to-right-click and pending finger down when a second finger joins
             self.hold_to_right_click = None;
+            self.pending_finger_down = None;
             if self.pointer_touch_id.is_some() {
                 self.pointer_touch_id = None;
                 self.on_mouse_button_input(
@@ -1144,21 +1215,34 @@ impl State {
                     }
                 }
                 winit::event::TouchPhase::Started => {
-                    self.pointer_touch_id = Some(touch.id);
-                    // First move the pointer to the right location
-                    self.on_cursor_moved(window, touch.location);
-                    self.on_mouse_button_input(
-                        winit::event::ElementState::Pressed,
-                        winit::event::MouseButton::Left,
-                    );
-                    // Start hold-to-right-click timer for this single finger
-                    self.hold_to_right_click = Some(HoldToRightClick::new(
-                        touch.id,
-                        touch.location,
-                    ));
-                    self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(HoldToRightClick::HOLD_DURATION_MS + 20));
+                    let is_stylus = (touch.id & (1u64 << 32)) != 0;
+                    if is_stylus {
+                        self.pending_finger_down = None;
+                        self.pointer_touch_id = Some(touch.id);
+                        self.on_cursor_moved(window, touch.location);
+                        self.on_mouse_button_input(
+                            winit::event::ElementState::Pressed,
+                            winit::event::MouseButton::Left,
+                        );
+                        self.hold_to_right_click = Some(HoldToRightClick::new(
+                            touch.id,
+                            touch.location,
+                        ));
+                        self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(HoldToRightClick::HOLD_DURATION_MS + 20));
+                    } else {
+                        // Defer finger down by 60ms to reject pinch-to-zoom brush strokes
+                        self.on_cursor_moved(window, touch.location);
+                        self.pending_finger_down = Some(PendingFingerDown::new(touch.id, touch.location));
+                        self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(PendingFingerDown::HOLD_DELAY_MS + 10));
+                    }
                 }
                 winit::event::TouchPhase::Moved => {
+                    if let Some(pending) = self.pending_finger_down {
+                        if pending.touch_id == touch.id && pending.should_commit(touch.location) {
+                            self.pending_finger_down = None;
+                            self.commit_finger_down(window, pending);
+                        }
+                    }
                     self.on_cursor_moved(window, touch.location);
                     // Check hold-to-right-click: fire right-click if hold duration exceeded
                     if let Some(hold) = self.hold_to_right_click {
@@ -1170,6 +1254,25 @@ impl State {
                     }
                 }
                 winit::event::TouchPhase::Ended => {
+                    if let Some(pending) = self.pending_finger_down.take() {
+                        if pending.touch_id == touch.id {
+                            // Quick tap: commit Pressed and Released immediately
+                            self.pointer_touch_id = Some(touch.id);
+                            self.on_cursor_moved(window, touch.location);
+                            self.on_mouse_button_input(
+                                winit::event::ElementState::Pressed,
+                                winit::event::MouseButton::Left,
+                            );
+                            self.on_mouse_button_input(
+                                winit::event::ElementState::Released,
+                                winit::event::MouseButton::Left,
+                            );
+                            self.pointer_touch_id = None;
+                            self.pointer_pos_in_points = None;
+                            self.egui_input.events.push(egui::Event::PointerGone);
+                            return;
+                        }
+                    }
                     let was_hold_fired = self.hold_to_right_click.as_ref().map_or(false, |h| h.fired);
                     self.hold_to_right_click = None;
                     self.pointer_touch_id = None;
@@ -1185,12 +1288,13 @@ impl State {
                     self.egui_input.events.push(egui::Event::PointerGone);
                 }
                 winit::event::TouchPhase::Cancelled => {
+                    self.pending_finger_down = None;
+                    self.hold_to_right_click = None;
                     // The touch was cancelled: the backend took the gesture over (a two-finger
                     // pan becomes a scroll, a two-finger pinch a zoom). The finger may still be
                     // on the glass, so the pointer keeps its place — the canvas only takes the
                     // scroll while the pointer is over it — but the button is released, so the
                     // gesture does not drag a text selection along with it.
-                    self.hold_to_right_click = None;
                     if was_pointer {
                         self.on_mouse_button_input(
                             winit::event::ElementState::Released,

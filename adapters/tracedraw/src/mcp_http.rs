@@ -238,6 +238,8 @@ pub struct TraceDrawMcpServer {
     app: tracedraw::app::App,
 }
 
+unsafe impl Send for TraceDrawMcpServer {}
+
 impl TraceDrawMcpServer {
     pub fn new() -> Self {
         Self {

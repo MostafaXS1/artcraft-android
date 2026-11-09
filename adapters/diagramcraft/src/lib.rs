@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod system_fonts;
+mod mobile_text_bar;
 mod saf;
 mod mcp_http;
 
@@ -187,6 +188,7 @@ impl eframe::App for DiagramCraftApp {
 
         // Delegate to the upstream dc-ui App (start screen when no document is open).
         self.dc_app.ui(ui, frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 }
 

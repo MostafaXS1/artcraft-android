@@ -10,6 +10,7 @@ use std::sync::Arc;
 use transit_ui_studio::{Services, StudioApp};
 
 mod system_fonts;
+mod mobile_text_bar;
 mod saf;
 mod mcp_http;
 
@@ -281,6 +282,7 @@ impl EframeApp for TransitAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn on_exit(&mut self) {

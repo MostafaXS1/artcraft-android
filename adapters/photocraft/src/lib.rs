@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 mod mcp_http;
+mod mobile_text_bar;
 mod control_server;
 
 pub static CONTROL_INFO: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
@@ -956,10 +957,12 @@ impl eframe::App for PhotoCraftAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui, _frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         apply_android_modifiers(&mut self.modifiers, raw);
+        photocraft_ui_egui::topbar_modifiers::apply_to_raw_input(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }

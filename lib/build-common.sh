@@ -4,6 +4,7 @@ set -Eeuo pipefail
 MODE="${1:-}"
 shift || true
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export GIT_LFS_SKIP_SMUDGE=1
 cd "$ROOT"
 
 usage() {
@@ -2445,10 +2446,16 @@ bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 # source at build time; only SubCraft is touched.
 bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 
+# Topbar modifiers (Shift, Ctrl, Alt toggle buttons integrated into topbar/ribbon for 6 apps).
+bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE"
+
 say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
+    if [[ -f "$ROOT/templates/android/mobile_text_bar.rs" && -d "$SRC/apps/$APP-android/src" ]]; then
+        cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+    fi
 else
     python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" <<'PY'
 from pathlib import Path
@@ -2483,6 +2490,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", android_dir / "src" / "system_fonts.rs")
     if not (custom / "src" / "mcp_http.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
+    shutil.copy2(root / "templates" / "android" / "mobile_text_bar.rs", android_dir / "src" / "mobile_text_bar.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2518,7 +2526,7 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs",):
+            for shared in ("system_fonts.rs", "mobile_text_bar.rs"):
                 src_shared = root / "templates" / "android" / shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
@@ -5145,6 +5153,7 @@ icon = "@mipmap/ic_launcher"
     # launcher can fall back to the device's own fonts for scripts the app's fonts do not cover.
     imports.append("mod system_fonts;")
     imports.append("mod mcp_http;")
+    imports.append("mod mobile_text_bar;")
     # The custom IME bridge is removed: reference Android apps use egui's native IME via
     # android-activity + eframe, without an EditText bridge. The custom bridge conflicts with
     # egui's IMEOutput handling and breaks input.
@@ -5708,6 +5717,10 @@ fn install_cadcraft_io() {
         intent_field = ""
         intent_init = ""
 
+    topbar_modifier_hook = ""
+    if app in ("designcraft", "wordcraft", "gridcraft", "deckcraft"):
+        topbar_modifier_hook = f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&mut self.modifiers, raw);\n"
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -5901,6 +5914,7 @@ impl eframe::App for AndroidShell {{
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {{
         system_fonts::install_system_fonts(ui.ctx());
         {inner_ui}
+        mobile_text_bar::show_text_bar(ui.ctx());
         if self.back_pending {{
             self.back_pending = false;
             // A back press was mapped onto Escape. If the app consumed that Escape (a dialog
@@ -5922,7 +5936,7 @@ impl eframe::App for AndroidShell {{
         self.probe.observe(raw);
         self.refresh_fullscreen(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
-        self.map_android_back(raw);
+{topbar_modifier_hook}        self.map_android_back(raw);
         self.handle_clipboard_shortcuts(raw);
 {persist_hook}        {inner_hook}
     }}
@@ -6173,6 +6187,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
+    shutil.copy2(root / "templates" / "android" / "mobile_text_bar.rs", staging_dir / "src" / "mobile_text_bar.rs")
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {
         "solidcraft": """
@@ -6927,25 +6942,18 @@ fi
 # longer masquerade as touch) and patch it into the workspace. PDFCraft already ships a
 # forked winit on the same upstream base: only its Android backend directory is
 # overwritten, so its non-Android customizations and its existing patch entry survive.
-if [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft uses storytold winit fork (prepare.sh vendors it at vendor/winit)
-    # Keep fork intact and refresh its Android backend with builder's patched mouse/scroll-aware backend
+echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
+mkdir -p "$SRC/vendor"
+if [[ -d "$SRC/vendor/winit" ]]; then
+    # Upstream ships a storytold winit fork that re-adds `WindowEvent::ImeResetCompleted` /
+    # `reset_ime_with_request` (removed from stock winit 0.30), which the fork's egui-winit 0.37
+    # requires. Keep that fork intact so egui-winit stays compatible, and only refresh its Android
+    # backend with the builder's patched mouse/scroll-aware backend.
     rm -rf "$SRC/vendor/winit/src/platform_impl/android"
     cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
 else
-    echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
-    mkdir -p "$SRC/vendor"
-    if [[ -d "$SRC/vendor/winit" ]]; then
-        # Upstream ships a storytold winit fork that re-adds `WindowEvent::ImeResetCompleted` /
-        # `reset_ime_with_request` (removed from stock winit 0.30), which the fork's egui-winit 0.37
-        # requires. Keep that fork intact so egui-winit stays compatible, and only refresh its Android
-        # backend with the builder's patched mouse/scroll-aware backend.
-        rm -rf "$SRC/vendor/winit/src/platform_impl/android"
-        cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$SRC/vendor/winit/src/platform_impl/android"
-    else
-        rm -rf "$SRC/vendor/winit"
-        cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
-    fi
+    rm -rf "$SRC/vendor/winit"
+    cp -a "$ROOT/vendor/winit" "$SRC/vendor/winit"
 fi
 
 # The storytold winit fork re-adds `WindowEvent::ImeResetCompleted` / `reset_ime_with_request`
@@ -7673,19 +7681,20 @@ else
 fi
 
 echo "  -> packaging and signing with Gradle ($GRADLE_TASK)"
-if (
-    cd "$ANDROID_DIR/android" &&
+(
+    cd "$ANDROID_DIR/android" && \
     JAVA_HOME="$GRADLE_JDK" \
     ARTCRAFT_KEYSTORE="$ROOT/$KEY" \
     ARTCRAFT_KEYSTORE_PASSWORD="$KEY_PASSWORD" \
     ARTCRAFT_KEY_ALIAS="artcraftbuilder" \
     ARTCRAFT_KEY_PASSWORD="$KEY_PASSWORD" \
     ./gradlew --console=plain "$GRADLE_TASK"
-) 2>&1 | tee -a "$ROOT/$LOG"; then
+) 2>&1 | tee -a "$ROOT/$LOG"
+gradle_status="${PIPESTATUS[0]}"
+if [[ "$gradle_status" -eq 0 ]]; then
     :
 else
-    status=$?
-    fail "Gradle $GRADLE_TASK failed (exit $status). Log: $ROOT/$LOG"
+    fail "Gradle $GRADLE_TASK failed (exit $gradle_status). Log: $ROOT/$LOG"
 fi
 
 # A single-module root project writes build/outputs/apk/<variant>/<rootProject.name>-<variant>.apk;

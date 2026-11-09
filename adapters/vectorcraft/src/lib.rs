@@ -32,6 +32,7 @@ use vectorcraft_ui_egui::{FilePick, Inbox, Services, VectorcraftApp};
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 mod mcp_http;
+mod mobile_text_bar;
 
 pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<vectorcraft_ui_egui::ControlRequest>> = std::sync::OnceLock::new();
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
@@ -1019,6 +1020,7 @@ impl eframe::App for VectorCraftAndroidApp {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         apply_android_modifiers(&mut self.modifiers, raw);
+        vectorcraft_ui_egui::topbar_modifiers::apply_to_raw_input(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }
@@ -1028,6 +1030,7 @@ impl eframe::App for VectorCraftAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn on_exit(&mut self) {

@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod system_fonts;
+mod mobile_text_bar;
 mod saf;
 mod mcp_http;
 
@@ -184,6 +185,7 @@ impl eframe::App for HumanMotionCraftAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui, frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn on_exit(&mut self) {

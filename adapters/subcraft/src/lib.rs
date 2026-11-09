@@ -27,6 +27,7 @@ use std::sync::Arc;
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mobile_text_bar;
 mod mcp_http;
 
 // The SAF bridge, inlined so the adapter is self-contained (a custom adapter is copied verbatim and
@@ -396,6 +397,7 @@ impl eframe::App for SubCraftAndroidApp {
         // SubCraft does all of its per-frame work (input, picker delivery, autosave) in `ui`, so
         // there is nothing to forward to `logic` — calling it would run the frame twice.
         self.inner.ui(ui, frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

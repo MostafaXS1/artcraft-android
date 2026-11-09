@@ -56,6 +56,11 @@
 - [52. Contributing Guidelines](#52-contributing-guidelines)
 - [53. Appendix](#53-appendix)
 - [54. Model Context Protocol (MCP) Suite Architecture](#54-model-context-protocol-mcp-suite-architecture)
+- [55. Stylus & Digitizer Subsystem](#55-stylus--digitizer-subsystem)
+- [56. Gesture Engine & Touch Rejection](#56-gesture-engine--touch-rejection)
+- [57. Mobile Text Selection Context Bar](#57-mobile-text-selection-context-bar)
+- [58. Integrated Topbar Modifier Controls](#58-integrated-topbar-modifier-controls)
+- [59. Platform Hardening & Build Reliability](#59-platform-hardening--build-reliability)
 
 ## 1. Project Overview
 
@@ -1994,4 +1999,141 @@ The suite employs two distinct MCP operational architectures depending on whethe
   On startup, the app logs:
   `MCP HTTP service started on http://127.0.0.1:<PORT>/ (LAN: http://<IP>:<PORT>/)`
   allowing discovery via logcat or adb port forwarding.
+
+## 55. Stylus & Digitizer Subsystem
+
+ArtCraft Android provides hardware-accelerated, high-fidelity active and passive stylus input across all 28 applications, matching desktop drawing tablet precision and latency.
+
+### 55.1 Unbuffered Touch & Digitizer Sampling
+- **Latency Elimination**: Standard Android view pipelines buffer and batch touch events to match display VSYNC (16ms or 8ms frame boundaries), introducing perceptible stroke drag during rapid drawing or sketching.
+- **Java Layer Dispatch**: In `SafActivity.java`, `__CLASS__.java`, and custom adapter activities (`adapters/*/java/com/artcraft/*/*.java`), unbuffered dispatch is explicitly enabled during window attachment:
+  ```java
+  public void setupStylusDispatch() {
+      View decor = getWindow().getDecorView();
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          decor.requestUnbufferedDispatch(
+              MotionEvent.TOOL_TYPE_STYLUS | MotionEvent.TOOL_TYPE_ERASER
+          );
+      }
+  }
+  ```
+- This forces the Linux kernel and `InputReader` to bypass intermediate window manager batching and deliver raw digitizer coordinates directly to the native `android_main` event loop as soon as digitizer hardware reports them.
+
+### 55.2 Samsung S-Pen & Vendor Action Code Normalization
+- **Proprietary Action Codes**: Samsung S-Pen devices frequently emit vendor-specific action codes (e.g. `211` for pen down, `212` for pen up, `213` for pen hover move, `214` for pen move with button depressed) that standard Android NDK `AMOTION_EVENT_ACTION` enums do not map, leading standard GameActivity/winit apps to drop stylus strokes.
+- **Winit Translation**: In `vendor/winit/src/platform_impl/android/mod.rs`, incoming motion events are intercepted and normalized:
+  ```rust
+  let normalized_action = match raw_action {
+      211 => AMOTION_EVENT_ACTION_DOWN,
+      212 => AMOTION_EVENT_ACTION_UP,
+      213 | 214 => AMOTION_EVENT_ACTION_MOVE,
+      other => other,
+  };
+  ```
+
+### 55.3 Barrel Button & Secondary Action Mapping
+- **Stylus Button Right-Click**: When the barrel button on an active pen (Apple Pencil double-tap on supported bridges, Samsung S-Pen button, or universal USI stylus side button) is pressed (`BUTTON_STYLUS_PRIMARY = 0x20` or `BUTTON_SECONDARY = 0x40`), `winit` synthesizes a right-click mouse input event (`MouseButton::Right`):
+  ```rust
+  let is_barrel_pressed = (button_state & (AMOTION_EVENT_BUTTON_STYLUS_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY)) != 0;
+  if is_barrel_pressed {
+      // Synthesize right-click down for tool context menus, eraser switching, or canvas panning
+  }
+  ```
+- This gives mobile and tablet users instant access to contextual menus, secondary brush tools, and pan/zoom toggles without needing to hunt for desktop-style menu bars.
+
+### 55.4 Palm Rejection & Tool Identity
+- **Active Palm Suppression**: Resting a palm on the tablet screen while sketching with a stylus commonly generates stray touch events. The vendored winit implementation maintains a sliding timestamp (`LAST_STYLUS_MS`). When an active stylus event is processed:
+  1. Any finger touch (`TOOL_TYPE_FINGER`) occurring within 500ms of active stylus input is discarded at the NDK event queue level.
+  2. Stylus touch IDs are marked with bit 32 set (`(pointer_id as u64) | (1 << 32)`), ensuring downstream UI frameworks immediately identify the pointer as a precision instrument rather than a capacitive finger contact.
+
+---
+
+## 56. Gesture Engine & Touch Rejection
+
+### 56.1 Multi-Finger Tap Gesture Synthesis (Undo / Redo)
+To match modern touch-first digital art workflows, ArtCraft apps support multi-finger tap gestures for instantaneous undo and redo:
+- **Two-Finger Tap -> Undo (`Ctrl + Z`)**:
+  - Detected when exactly two fingers contact the screen, remain stationary within a small tolerance (24 logical pixels), and release within 350 milliseconds without initiating a pinch or scroll.
+  - Synthesizes `VirtualKeyCode::LControl` + `VirtualKeyCode::Z` key press and release events directly into the window event stream.
+- **Three-Finger Tap -> Redo (`Ctrl + Shift + Z`)**:
+  - Detected when exactly three fingers tap simultaneously within 350 milliseconds.
+  - Synthesizes `VirtualKeyCode::LControl` + `VirtualKeyCode::LShift` + `VirtualKeyCode::Z`.
+- **Global App Coverage**: Because this gesture recognizer operates inside the vendored `winit` platform implementation, it functions consistently across all 28 applications without requiring per-app canvas modifications.
+
+### 56.2 Pinch-to-Zoom Brush Dab Rejection
+- **The Problem**: In desktop egui apps running on touchscreen Android devices, a multi-touch pinch-to-zoom gesture typically begins with one finger touching the screen slightly before the second finger (e.g. 10–30ms difference). Standard event dispatchers immediately fire a `PointerButton::Primary` down event for the first touch, causing painting and drawing apps (PhotoCraft, VectorCraft, DesignCraft, PaintCraft, etc.) to paint unwanted dots, dabs, or brush strokes right where the user began zooming.
+- **The Solution (`PendingFingerDown`)**:
+  - Implemented in `vendor/egui-winit/src/lib.rs` and `vendor/egui-winit-0.36/src/lib.rs`.
+  - Precision stylus input (`TOOL_TYPE_STYLUS` / bit 32 set) dispatches immediately with zero delay.
+  - Capacitive finger touches (`TOOL_TYPE_FINGER`) enter a pending state:
+    ```rust
+    struct PendingFingerDown {
+        pos: egui::Pos2,
+        time: std::time::Instant,
+        touch_id: u64,
+    }
+    ```
+  - **Grace Window & Movement Threshold**: The pointer down event is held for 60ms or until the finger moves beyond 10.0 logical pixels.
+  - **Cancellation on Multi-Touch**: If a second finger touches the screen, or if a pinch/zoom gesture is detected within the grace window, the pending pointer down event is aborted cleanly. The canvas never receives a button-down event, preventing accidental brush strokes during zoom and pan operations.
+  - **Atomic UI Click Synthesis**: If the finger is lifted within the threshold (a regular single-finger tap on a UI button, checkbox, or text field), both pointer-down and pointer-up events are emitted atomically on release, ensuring crisp, responsive UI interaction.
+
+---
+
+## 57. Mobile Text Selection Context Bar
+
+Desktop text editing widgets in `egui::TextEdit` assume the presence of a hardware keyboard or a right-click mouse for clipboard interactions. On Android, users require an immediate floating context bar above or below focused text selections.
+
+### 57.1 Module Architecture (`templates/android/mobile_text_bar.rs`)
+- **Inspection**: On each frame of the application UI loop, `mobile_text_bar::show_text_bar(ctx)` queries `ctx.memory(|m| m.focus())` to determine if a text editing widget holds keyboard focus.
+- **Selection State**: Retrieves `egui::text_edit::CCursorRange` via `TextEdit::load_state(ctx, focused_id)`.
+- **Dynamic Action Visibility**:
+  - **Select all**: Selects the full range `[0, text.len()]`.
+  - **Cut**: Copies selection to system clipboard via `ctx.copy_text(...)` and removes selected characters (only visible when a selection range is active).
+  - **Copy**: Copies selection to system clipboard (only visible when text is selected).
+  - **Paste**: Reads clipboard text from `ctx.input(|i| i.clipboard_text())` and inserts at the cursor position.
+  - **Delete**: Clears selected characters immediately (dynamically hidden when no text is selected; appears only when text is actively highlighted).
+- **Native UI Styling**: The context bar is rendered via `egui::Area` at `Order::Tooltip` using the app's native `egui::Visuals` (matching active window frames, corner rounding, drop shadows, and typography).
+- **Focus Preservation**: Button clicks within the context bar explicitly restore and preserve widget focus on the parent `TextEdit`, preventing Android's virtual keyboard from dismissing unexpectedly.
+
+---
+
+## 58. Integrated Topbar Modifier Controls
+
+Desktop creative tools rely heavily on keyboard modifier keys (`Shift` for aspect-ratio locking and multi-selection, `Ctrl` for duplication and grid snapping, `Alt` for eyedropper sampling and alternate tool modes).
+
+### 58.1 Native Topbar Integration vs. Screen Overlays
+Rather than employing floating button overlays that obscure canvas artwork, ArtCraft integrates toggleable modifier buttons directly into the primary application topbar or ribbon header next to native menus:
+- **Target Applications**:
+  1. `photocraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  2. `vectorcraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  3. `designcraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  4. `wordcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+  5. `gridcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+  6. `deckcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+
+### 58.2 Shared Implementation (`templates/android/topbar_modifiers.rs`)
+- **Visual Design**: Renders compact, high-contrast toggle buttons with standard Unicode modifier glyphs:
+  - `⇧ Shift`
+  - `⌃ Ctrl`
+  - `⌥ Alt`
+- **Toggle State Persistence**: Modifiers can be latched on or off with a tap. When active, buttons display an accented highlight fill.
+- **Event Injection (`apply_to_raw_input`)**: Prior to passing `egui::RawInput` to the application UI framework, active modifier flags are OR-ed into `raw_input.modifiers`, allowing native tool logic, canvas shortcuts, and transform handles to respond exactly as if physical keys were held down.
+- **Automated Build Integration (`lib/topbar_modifiers.sh`)**: Automatically invoked during launcher generation and adapter preparation to safely insert modifier UI calls into the upstream topbar render hierarchy.
+
+---
+
+## 59. Platform Hardening & Build Reliability
+
+### 59.1 Upstream Git LFS Smudge Bypass
+- **The Issue**: Certain upstream repositories (notably NoteCraft) introduce binary test fixtures tracked under Git LFS whose remote storage pointers may become unavailable (returning HTTP 404 during clone), aborting CI checkout pipelines with fatal git exit code 128.
+- **The Mitigation**: `export GIT_LFS_SKIP_SMUDGE=1` is enforced in `lib/build-common.sh` and `.github/workflows/build.yml`. This allows the repository to clone cleanly without failing on orphaned third-party binary fixtures while preserving all application source and build assets.
+
+### 59.2 Non-Rooted Scratch Disk & Tile Cache Configuration
+- **The Issue**: Desktop image engines (such as GEGL or custom tile managers) default scratch file allocation to `/data/local/tmp` on POSIX systems. On standard Android devices without root privileges, application sandboxes are strictly prohibited from writing to `/data/local/tmp`, triggering:
+  `could not create a scratch file in /data/local/tmp: Permission denied (os error 13); spilling is paused (tiles stay in memory)`
+- **The Mitigation**: The Android build harness configures `TMPDIR`, `TEMP`, and `GEGL_SWAP_DIR` environment variables to point exclusively to the application's private internal cache directory (`context.getCacheDir().getAbsolutePath()`, e.g. `/data/data/<package>/cache`), ensuring compliant, high-speed tile spilling without permission violations.
+
+### 59.3 AniCraft Brand Identity Refresh
+- **Upstream Asset Sync**: AniCraft upstream introduced an updated official engraved rabbit mascot icon across high-resolution tile formats.
+- **Asset Pipeline**: Master vector and raster assets (`adapters/anicraft/assets/app-icon/`) are processed via `lib/app_icons.py` to generate full-bleed adaptive vector layers (`res/mipmap-*/ic_launcher.png`, `ic_launcher_foreground.xml`) and legacy mipmaps, ensuring consistent presentation across modern Android launcher grids.
 
