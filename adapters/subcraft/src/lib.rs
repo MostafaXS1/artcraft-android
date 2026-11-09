@@ -27,6 +27,7 @@ use std::sync::Arc;
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mcp_http;
 
 // The SAF bridge, inlined so the adapter is self-contained (a custom adapter is copied verbatim and
 // does not receive templates/android/saf_bridge.rs).
@@ -301,6 +302,7 @@ struct SubCraftAndroidApp {
     // has finished its own start-up, and goes negative (stop polling) if the host has no intent
     // bridge.
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl SubCraftAndroidApp {
@@ -526,6 +528,11 @@ fn android_main(android_app: AndroidApp) {
         native,
         Box::new(move |cc| {
             let inner = subcraft_ui::SubcraftApp::new(cc, options);
+            let _mcp = mcp_http::start_mcp_service(
+                "SubCraft".to_string(),
+                "0.2.5".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(SubCraftAndroidApp {
                 inner,
                 app: app_bridge.android_app().clone(),
@@ -536,6 +543,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

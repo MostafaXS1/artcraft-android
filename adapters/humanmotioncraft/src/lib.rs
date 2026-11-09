@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_HUMANMOTIONCRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_HUMANMOTIONCRAFT_ANDROID_SHELL_V1";
@@ -159,6 +160,7 @@ struct HumanMotionCraftAndroidApp {
     bridge: saf::Bridge,
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for HumanMotionCraftAndroidApp {
@@ -239,12 +241,18 @@ fn android_main(android_app: AndroidApp) {
         native,
         Box::new(move |cc| {
             let inner = ac_app::App::new(cc, args).map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+            let _mcp = mcp_http::start_mcp_service(
+                "HumanMotionCraft".to_string(),
+                "0.3.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(HumanMotionCraftAndroidApp {
                 inner,
                 app: app_bridge.android_app().clone(),
                 bridge: app_bridge.clone_ref(),
                 state: Arc::clone(&state),
                 modifiers: egui::Modifiers::default(),
+                _mcp,
             }))
         }),
     );

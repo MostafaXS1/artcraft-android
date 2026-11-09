@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_PAINTCRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_PAINTCRAFT_ANDROID_SHELL_V1";
@@ -226,6 +227,7 @@ struct PaintCraftAndroidApp {
     modifiers: egui::Modifiers,
     intent_warmup: i64,
     synced_lang: bool,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for PaintCraftAndroidApp {
@@ -341,6 +343,11 @@ fn android_main(android_app: AndroidApp) {
             let app = App::new_with_settings(None, paintcraft_formats::recovery::default_dir())
                 .with_native_services(cc)
                 .with_recovery(paintcraft_formats::recovery::default_dir());
+            let _mcp = mcp_http::start_mcp_service(
+                "PaintCraft".to_string(),
+                "0.1.1".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(PaintCraftAndroidApp {
                 inner: app,
                 app: app_bridge.android_app().clone(),
@@ -349,6 +356,7 @@ fn android_main(android_app: AndroidApp) {
                 intent_warmup: 2,
                 synced_lang: false,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

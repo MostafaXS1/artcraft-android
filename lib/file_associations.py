@@ -218,6 +218,33 @@ EXT_MIME = {
     "motion": ("application/x-humanmotioncraft",),
     "bvh": ("application/x-bvh",),
     "acproj": ("application/x-artcraft-project",),
+    # RustGIS
+    "rgis": ("application/x-rustgis",),
+    "rgisx": ("application/x-rustgis",),
+    "rgispkg": ("application/x-rustgis-package",),
+    "rgismap": ("application/x-rustgis-map",),
+    "rgismpk": ("application/x-rustgis-map-package",),
+    "rgislyr": ("application/x-rustgis-layer",),
+    "rgislayout": ("application/x-rustgis-layout",),
+    "geojson": ("application/geo+json", "application/json"),
+    "gpkg": ("application/geopackage+sqlite3", "application/x-sqlite3"),
+    "shp": ("application/x-shapefile", "application/x-esri-shapefile"),
+    "fgb": ("application/octet-stream",),
+    "kml": ("application/vnd.google-earth.kml+xml",),
+    "kmz": ("application/vnd.google-earth.kmz",),
+    "gpx": ("application/gpx+xml",),
+    # EarthCraft
+    "earthplanet": ("application/x-earthcraft-planet",),
+    # MapCraft
+    "mcmap": ("application/x-mapcraft-map",),
+    "mcpck": ("application/x-mapcraft-pack",),
+    "mcshader": ("application/x-mapcraft-shader",),
+    # ProWave
+    "prowave": ("application/x-prowave",),
+    "sf2": ("audio/x-soundfont",),
+    # Transit
+    "transit": ("application/x-transit",),
+    "dawproject": ("application/x-dawproject+zip",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -268,6 +295,11 @@ ASSOCIATIONS = {
     "picassosuite": ["drp", "aaf", "mp4", "mov", "mkv", "wav", "mp3"],
     "capsulecraft": ["eml", "capsule", "txt", "md", "ics"],
     "humanmotioncraft": ["motion", "bvh", "fbx", "acproj"],
+    "rustgis": ["rgis", "rgisx", "rgispkg", "rgismap", "rgismpk", "rgislyr", "rgislayout", "geojson", "gpkg", "shp", "fgb", "kml", "gpx", "tif", "tiff"],
+    "earthcraft": ["kml", "kmz", "earthplanet", "gpx", "geojson"],
+    "mapcraft": ["mcmap", "mcpck", "mcshader", "gltf", "glb"],
+    "prowave": ["prowave", "mid", "midi", "smf", "wav", "sf2"],
+    "transit": ["transit", "dawproject", "mid", "midi", "wav", "wave", "aif", "aiff", "flac", "ogg", "opus", "mp3"],
 }
 
 MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }'

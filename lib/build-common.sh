@@ -2406,7 +2406,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "72"
+GENERATOR_VERSION = "73"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2421,6 +2421,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     # device's own fonts in (see templates/android/system_fonts.rs). Kept here rather than inside
     # each adapter so the one copy stays in step with the generator.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", android_dir / "src" / "system_fonts.rs")
+    shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2456,7 +2457,7 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs",):
+            for shared in ("system_fonts.rs", "mcp_http.rs"):
                 src_shared = root / "templates" / "android" / shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
@@ -3938,6 +3939,19 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
         "poll": RFD_SAF_POLL,
         "setup": RFD_SAF_SETUP,
         "construct_expr": "PdfCraftApp::new()",
+        "post_construct": """    let print_bridge = saf_bridge.clone_ref();
+    inner.printer_source = Some(std::sync::Arc::new(|| vec![
+        pdfcraft_engine::print::spool::Printer {
+            name: "Android print system".to_owned(),
+            default: true,
+            two_sided: None,
+            description: "System print spooler".to_owned(),
+        }
+    ]));
+    inner.print_handler = Some(std::sync::Arc::new(move |title: &str, bytes: &[u8]| {
+        print_bridge.print_document(title, bytes)
+    }));
+""",
     },
     # ---- figcraft: a Services trait (not a struct) injected as Box<dyn Services>. ----
     # figcraft's Services::pick_open/pick_save/pick_folder return DialogFuture (async futures),
@@ -4976,6 +4990,7 @@ icon = "@mipmap/ic_launcher"
     # Pull in the shared Android system-font module (written next to our rust source below) so the
     # launcher can fall back to the device's own fonts for scripts the app's fonts do not cover.
     imports.append("mod system_fonts;")
+    imports.append("mod mcp_http;")
     # The custom IME bridge is removed: reference Android apps use egui's native IME via
     # android-activity + eframe, without an EditText bridge. The custom bridge conflicts with
     # egui's IMEOutput handling and breaks input.
@@ -5605,12 +5620,18 @@ struct AndroidShell {{
     bars_theme: Option<bool>,
     back_pending: bool,
     closing: bool,
-    close_asked: bool,{saf_fields}{intent_field}{persist_fields}{staged_fields}
+    close_asked: bool,
+    _mcp: Option<mcp_http::Endpoint>,{saf_fields}{intent_field}{persist_fields}{staged_fields}
 }}
 
 impl AndroidShell {{
     fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+        let _mcp = mcp_http::start_mcp_service(
+            "{title}".to_string(),
+            "{app_version}".to_string(),
+            std::sync::Arc::new(|| ALIVE.load(std::sync::atomic::Ordering::Relaxed)),
+        );
+        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
@@ -5986,6 +6007,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
+    shutil.copy2(root / "templates" / "android" / "mcp_http.rs", staging_dir / "src" / "mcp_http.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
 
     # Audio output on Android: the apps get their audio backend from the platform layer (cpal), and
@@ -6172,6 +6194,35 @@ if header in s:
     patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
     rest = parts[1][next_sec.start():] if next_sec else ""
     patch_sec = re.sub(r'^\s*midir\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
+fi
+
+# rustls-platform-verifier on Android delegates to Kotlin `org.rustls.platformverifier.CertificateVerifier`.
+# In native Activity APKs, this Kotlin class is missing and JNI is uninitialized, breaking all TLS connections.
+# Vendor the builder's WebPKI-backed rustls-platform-verifier (Mozilla root certs directly in Rust) and patch it in.
+if [[ -d "$ROOT/vendor/rustls-platform-verifier" ]] && (grep -rqE '\brustls-platform-verifier\b' "$SRC/Cargo.lock" "$SRC"/Cargo.toml 2>/dev/null); then
+    echo "Vendoring an Android-compatible rustls-platform-verifier for $TITLE (WebPKI Mozilla root certs)..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/rustls-platform-verifier"
+    cp -a "$ROOT/vendor/rustls-platform-verifier" "$SRC/vendor/rustls-platform-verifier"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'rustls-platform-verifier = { path = "vendor/rustls-platform-verifier" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*rustls-platform-verifier\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
     s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
 else:
     s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"

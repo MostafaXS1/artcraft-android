@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_MAPCRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_MAPCRAFT_ANDROID_SHELL_V1";
@@ -246,6 +247,7 @@ struct MapCraftAndroidApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for MapCraftAndroidApp {
@@ -324,6 +326,11 @@ fn android_main(android_app: AndroidApp) {
         Box::new(move |cc| {
             let options = Options::default();
             let app = MapCraftApp::new(cc, options);
+            let _mcp = mcp_http::start_mcp_service(
+                "MapCraft".to_string(),
+                "0.5.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(MapCraftAndroidApp {
                 inner: app,
                 app: app_bridge.android_app().clone(),
@@ -331,6 +338,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

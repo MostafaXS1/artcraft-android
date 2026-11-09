@@ -28,6 +28,7 @@ use std::sync::{Arc, Mutex};
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mcp_http;
 
 /// Emitted at startup so a device log (and the packaged `.so` strings) can confirm this shell —
 /// including the Android modifier-key fix and immersive fullscreen — is the one that is running.
@@ -688,6 +689,7 @@ struct PhotoCraftAndroidApp {
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
     persist_last: Option<std::time::Instant>,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -1105,6 +1107,11 @@ fn android_main(android_app: AndroidApp) {
                     app.set_wgpu(rs);
                 }
             }
+            let _mcp = mcp_http::start_mcp_service(
+                "PhotoCraft".to_string(),
+                "0.21.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(PhotoCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
@@ -1118,6 +1125,7 @@ fn android_main(android_app: AndroidApp) {
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
                 persist_last: None,
+                _mcp,
             }))
         }),
     );

@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_CAPSULECRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_CAPSULECRAFT_ANDROID_SHELL_V1";
@@ -210,6 +211,7 @@ struct CapsuleCraftAndroidApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for CapsuleCraftAndroidApp {
@@ -328,6 +330,11 @@ fn android_main(android_app: AndroidApp) {
                 launch.vault = Some(vault_path);
             }
             let app = NativeApp::new(launch);
+            let _mcp = mcp_http::start_mcp_service(
+                "CapsuleCraft".to_string(),
+                "2.1.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(CapsuleCraftAndroidApp {
                 inner: app,
                 app: app_bridge.android_app().clone(),
@@ -335,6 +342,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

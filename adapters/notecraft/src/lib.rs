@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_NOTECRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_NOTECRAFT_ANDROID_SHELL_V1";
@@ -160,6 +161,7 @@ struct NoteCraftAndroidApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for NoteCraftAndroidApp {
@@ -298,6 +300,11 @@ fn android_main(android_app: AndroidApp) {
             let session = Session::new(&notebooks, notecraft_store::settings::Settings::default_location())
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to initialize NoteCraft session: {e}")))?;
             let inner = NoteCraftApp::new(session).with_clipboard(clipboard);
+            let _mcp = mcp_http::start_mcp_service(
+                "NoteCraft".to_string(),
+                "0.0.9".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(NoteCraftAndroidApp {
                 inner,
                 app: app_bridge.android_app().clone(),
@@ -305,6 +312,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

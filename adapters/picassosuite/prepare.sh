@@ -244,10 +244,28 @@ if m:
         p.write_text(s)
 PY
 
+# Disable desktop window controls on Android
+python3 - "$SRC_ABS/crates/picasso-ui/src/chrome.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+s = s.replace(
+    '#[cfg(not(target_arch = "wasm32"))]\n        self.window_buttons(ui, ctx, s);\n        #[cfg(target_arch = "wasm32")]\n        let _ = ctx;',
+    '#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]\n        self.window_buttons(ui, ctx, s);\n        #[cfg(any(target_arch = "wasm32", target_os = "android"))]\n        let _ = ctx;'
+)
+s = s.replace(
+    '#[cfg(not(target_arch = "wasm32"))]\n    fn window_buttons',
+    '#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]\n    fn window_buttons'
+)
+p.write_text(s)
+PY
+
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
+cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
 
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build
 mkdir -p "$SRC_ABS/.cargo"

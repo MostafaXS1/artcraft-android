@@ -31,6 +31,7 @@ use vectorcraft_ui_egui::{FilePick, Inbox, Services, VectorcraftApp};
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mcp_http;
 
 /// Emitted at startup so the builder can confirm the bridge is present in the packaged `.so`.
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_VECTORCRAFT_SAF_BRIDGE_V1";
@@ -745,6 +746,7 @@ struct VectorCraftAndroidApp {
     // when the one-time orphan sweep of the directory is due.
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -1093,6 +1095,11 @@ fn android_main(android_app: AndroidApp) {
                     persist_save(&mut app, dir);
                 }
             }
+            let _mcp = mcp_http::start_mcp_service(
+                "VectorCraft".to_string(),
+                "0.22.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(VectorCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
@@ -1107,6 +1114,7 @@ fn android_main(android_app: AndroidApp) {
                 intent_warmup: 2,
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+                _mcp,
             }))
         }),
     );

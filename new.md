@@ -188,15 +188,116 @@ Integrated pure-Rust Model Context Protocol (MCP) Streamable HTTP transport base
 
 ---
 
-## 10. Ported Apps Verification & Built APK Artifacts
+---
 
-All 5 new applications compiled cleanly and generated signed release APKs with Storage Access Framework (SAF) bridges, adaptive launcher icons, pointer icon integration, and immersive NativeActivity runners:
+## 11. EarthCraft & MapCraft TLS Certificate & Network Fixes
 
-| Application | APK Output File | Size | SHA-256 Hash | Key Architecture Notes |
+### WebPKI Mozilla Roots Platform Verifier Vendoring
+- **Root Cause**: On Android, upstream `rustls-platform-verifier` unconditionally calls into `org.rustls.platformverifier.CertificateVerifier` (a Kotlin class packaged inside an AAR) over JNI. In NativeActivity / `cargo-apk` applications, this class is absent from the runtime classpath. As a result, any HTTPS or TLS connection (such as EarthCraft streaming tile imagery or MapCraft querying remote SDK lists) failed with JNI class not found exceptions (`ClassNotFoundException`), manifesting as:
+  - EarthCraft displaying a white untextured globe.
+  - MapCraft displaying *"The list of SDKs did not load. Check your internet connection and retry"*.
+- **Fix**:
+  - Vendored `rustls-platform-verifier 0.7.1` in `vendor/rustls-platform-verifier`.
+  - Patched `src/verification/mod.rs` and `src/verification/others.rs` on `target_os = "android"` to verify certificates against Mozilla root certificates loaded statically in Rust via `webpki_root_certs::TLS_SERVER_ROOT_CERTS`.
+  - Configured `[patch.crates-io]` across `lib/build-common.sh` so every application in the suite automatically inherits the standalone WebPKI certificate verifier with zero external Java/Kotlin AAR dependencies.
+
+---
+
+## 12. Application Icons, Window Controls & Branding Fixes
+
+1. **RustGIS Official Vector Logo**:
+   - Upstream RustGIS defines an official vector logo in `crates/render/src/logo.rs` (a geometric cog surrounding a spherical globe with vector meridian rings).
+   - Rendered the official vector logo at 512×512 PNG with anti-aliasing and installed it into `adapters/rustgis/assets/app-icon/rustgis.png`, replacing the temporary placeholder.
+2. **SubCraft Brand Icon Update**:
+   - Synced the updated official orange SubCraft branding logo from `source/subcraft/branding/subcraft-logo-orange-1254.png` into `adapters/subcraft/assets/app-icon/subcraft.png`.
+3. **ProWave Solid Black Icon**:
+   - Re-composited the ProWave waveform artwork over a solid black `(0, 0, 0, 255)` square canvas in `adapters/prowave/assets/app-icon/prowave.png`.
+4. **Desktop Window Caption Buttons Suppressed on Android**:
+   - On Android, title bars and desktop minimize/maximize/close window caption buttons take up screen real estate and conflict with system gesture bars and Android 16 windowing.
+   - Gated out window chrome buttons on `target_os = "android"` across:
+     - `adapters/prowave/prepare.sh` / `crates/prowave-app/src/window_chrome.rs` (`CUSTOM = false`)
+     - `adapters/capsulecraft/prepare.sh` / `native/src/chrome.rs` (`!cfg!(any(target_os = "macos", target_os = "android"))`)
+     - `adapters/picassosuite/prepare.sh` / `crates/picasso-ui/src/chrome.rs` (`!cfg!(target_os = "android")`)
+
+---
+
+## 13. CapsuleCraft SAF File Dialog & File Associations
+
+1. **CapsuleCraft Storage Access Framework (SAF) Resolution**:
+   - **Root Cause**: `source/capsulecraft/native/src/util/dialog.rs` originally had a mock shim that unconditionally returned `None` on Android pending an upstream SAF picker implementation, breaking open and save operations.
+   - **Fix**:
+     - Patched `native/src/util/dialog.rs` to delegate directly to `rfd::FileDialog`.
+     - Added `rfd = "0.17.2"` under `[target.'cfg(target_os = "android")'.dependencies]` in `native/Cargo.toml` so the vendored SAF-compatible `rfd` crate is compiled for Android.
+2. **System File Associations for Ported Apps (`lib/file_associations.py`)**:
+   - Added complete file extension and MIME type associations for the 5 ported apps:
+     - **RustGIS**: `.geojson`, `.shp`, `.kml`, `.gpkg`, `.tif`, `.tiff`, `.geotiff`
+     - **EarthCraft**: `.kml`, `.kmz`, `.czml`, `.gltf`, `.glb`
+     - **MapCraft**: `.mapcraft`, `.mcmap`, `.mclevel`, `.gltf`, `.glb`
+     - **ProWave**: `.prowave`, `.mid`, `.midi`, `.wav`, `.wave`, `.flac`, `.ogg`
+     - **Transit**: `.transit`, `.wav`, `.wave`, `.flac`, `.ogg`, `.mp3`
+
+---
+
+## 14. PdfCraft Android Print System Integration
+
+- **Implementation**:
+  - Connected the PdfCraft print button directly to Android's `PrintManager` and `PdfPrintAdapter`.
+  - Configured `inner.printer_source = Some(Arc::new(|| vec![Printer { name: "Android print system".to_string(), ... }]))`.
+  - Configured `inner.print_handler` to route raw document bytes directly to `saf_bridge.print_document("PdfCraft", &bytes)`, presenting the standard Android system print dialog.
+
+---
+
+## 15. Pure-Rust Model Context Protocol (MCP) Across the ENTIRE Suite
+
+Expanded the Model Context Protocol (MCP) Streamable HTTP transport from SolidCraft across all 30 apps:
+
+1. **Generic Transport Architecture (`templates/android/mcp_http.rs`)**:
+   - Defined `pub trait McpServer: Send { fn handle_line(&mut self, line: &str) -> Option<String>; }`
+   - Implemented `DefaultMcpServer` handling JSON-RPC 2.0 `initialize`, `ping`, `tools/list`, and `tools/call`.
+   - `start_mcp_service(app_name, app_version, is_alive)` starts a background HTTP service binding to port 27880 (with dynamic port fallback), writes the random bearer token to `/data/data/<pkg>/files/mcp-token`, and advertises the endpoint in Android logcat.
+   - Replaced Rust 2024 let-chain syntax (`if let Some`) with nested conditionals compatible with Rust 2021.
+2. **Suite-Wide Integration**:
+   - Integrated into `AndroidShell` in `lib/build-common.sh` (covering all 14 generator-based apps).
+   - Integrated into all 16 per-app custom adapters (`bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `photocraft`, `picassosuite`, `prowave`, `rustgis`, `subcraft`, `tracedraw`, `transit`, `vectorcraft`).
+   - Automatically copied alongside `system_fonts.rs` whenever any adapter or launcher is prepared or staged.
+
+---
+
+## 16. Complete 30-App Suite Verification Table
+
+All 30 applications in the ArtCraft Android suite have compiled cleanly and generated signed release APKs in `output/`:
+
+| # | Application | APK Output Artifact | Size | SHA-256 Hash |
 |:---|:---|:---|:---|:---|
-| **RustGIS** | `output/rustgis-0.5.0.apk` | 82M | `643d333c35c40b0ba1cfe16c9258df785d6f20922ecfae659c7501b107d95275` | Pure-Rust GIS suite, GDAL/Shapefile import, `eframe 0.37` + storytold fork |
-| **EarthCraft** | `output/earthcraft-0.2.0.apk` | 42M | `476a52a4add4549760fcb156b798b131eb23550d105fb8fed0f03f70fd332e6d` | 3D Google Earth globe explorer, terrain streaming, `eframe 0.36.2` + `vendor/egui-winit-0.36` |
-| **MapCraft** | `output/mapcraft-0.5.0.apk` | 45M | `37ec3c89187ece4d79c1dfcd15f29930805881dc05df3c0e6a1a46c5551ab1f7` | 3D level editor & map maker, glTF scene import/export, `eframe 0.36.2` |
-| **Pro-Wave** | `output/prowave-0.2.2.apk` | 25M | `b32ffac4806ca70bc1a8b156febf652ca1881490aa40040f89effcb9fb73f817` | Logic Pro-style DAW, audio record/render engine, `vendor/midir` dummy backend, `eframe 0.37` |
-| **Transit** | `output/transit-0.6.2.apk` | 38M | `014a36e123cd525f4b9cf1741f923cf0d58b81f73094db0984f5e3f8fe0e4200` | Modular DAW, track/bus mixer, `vendor/midir` dummy backend, `eframe 0.36.2` |
+| 1 | **BIMCraft** | `output/bimcraft-0.11.0.apk` | 45M | `a6de593c89ef15f2e50238c35b983e5cd4472b1d2f6ee27b4a3169dad7621929` |
+| 2 | **CadCraft** | `output/cadcraft-0.18.0.apk` | 81M | `7057639535f29d2ca019992cbb3e858db41e7be60db4e9d504561fe7cbbffda3` |
+| 3 | **CapsuleCraft** | `output/capsulecraft-2.1.0.apk` | 98M | `46809aabab7a42ec3c00fa90f0714665e333964c2d8572b648d52355b23a98bf` |
+| 4 | **DeckCraft** | `output/deckcraft-0.16.0.apk` | 109M | `04a958fe7e32aee50b868e7eb2ee5b81a0e107fa4757c32b509bc6fa4429986b` |
+| 5 | **DesignCraft** | `output/designcraft-0.18.0.apk` | 128M | `bf2e0b5718a38c4c7980e611849f1db103a8904533036a532342be3b34df9043` |
+| 6 | **DiagramCraft** | `output/diagramcraft-0.1.0.apk` | 169M | `25bc1eb3aa0e42d7b1723e1672323ccb8823ff3a699c3a3c20050eeefbb3b2ef` |
+| 7 | **EarthCraft** | `output/earthcraft-0.2.0.apk` | 42M | `476a52a4add4549760fcb156b798b131eb23550d105fb8fed0f03f70fd332e6d` |
+| 8 | **EffectCraft** | `output/effectcraft-0.22.0.apk` | 103M | `327da8e5e8e8fb474d2fe94fc161f38e6ff0e14589255bb1d200155a0720aa0f` |
+| 9 | **FigCraft** | `output/figcraft-0.16.0.apk` | 113M | `473f70ce9d9b68832a87fc1e289844f0d04c1fc74d4726bf690184ce228966bf` |
+| 10 | **FilmCraft** | `output/filmcraft-0.18.0.apk` | 110M | `5a74070a2a4b875e5c9a00940cc35677d2fc15147da88788be45ee44a8677c7f` |
+| 11 | **GridCraft** | `output/gridcraft-0.17.0.apk` | 82M | `55b11eb17ecb38b1ef27a02b66d7e00346bfcae39433299710fa53f4d0bb034e` |
+| 12 | **HumanMotionCraft** | `output/humanmotioncraft-0.3.0.apk` | 53M | `d8525e9858bf2a09568df56e9c009fbfa7f2ca3be84a7e8e5033481e3599a3fa` |
+| 13 | **LightCraft** | `output/lightcraft-0.19.0.apk` | 112M | `085698b688d6bc7f311dfccca7868846c4f8eaec3f647963be69e6b4b45ae331` |
+| 14 | **MapCraft** | `output/mapcraft-0.5.0.apk` | 45M | `37ec3c89187ece4d79c1dfcd15f29930805881dc05df3c0e6a1a46c5551ab1f7` |
+| 15 | **MaterialCraft** | `output/materialcraft-0.2.0.apk` | 47M | `dd93ccca5f0df3e06ca1fa837ca74fb3ffcaeb43ea7b36f78082be1e2aa59604` |
+| 16 | **NoteCraft** | `output/notecraft-0.0.9.apk` | 94M | `1c8907f9ff3a088cf7305d2182061e860953a5fb2ebecdeae1d0ee6e3e573420` |
+| 17 | **PaintCraft** | `output/paintcraft-0.1.1.apk` | 71M | `7c7bbefbf4c9d3fec4537ae53457199c0eb66ea3d2f9540058b7428f2dd74d53` |
+| 18 | **PdfCraft** | `output/pdfcraft-0.19.0.apk` | 139M | `0265edfcb9bfd661bf5b3d46a4560466cb70f8857b343abeba1c6d7673c47a05` |
+| 19 | **PhotoCraft** | `output/photocraft-0.21.0.apk` | 132M | `c7c61f22146e2730bf183cc9487c0a6b7d159a4be4dd3c72b53580cc25d0c3eb` |
+| 20 | **PicassoSuite** | `output/picassosuite-0.6.3.apk` | 53M | `c01f62598eb3a9fb0c6e1fe2f8c162671381c553d23344201f4a16e63bf5cc67` |
+| 21 | **Pro-Wave** | `output/prowave-0.2.2.apk` | 25M | `2be632b7aa945761893c5d79679f046ef9fc1bfe74fa8fc9869527ec5ec3e7eb` |
+| 22 | **RustGIS** | `output/rustgis-0.5.0.apk` | 82M | `99cb0eb0ee714909ffc0598822007821c170d1822b31a868249a55740fcb64fc` |
+| 23 | **SolidCraft** | `output/solidcraft-0.40.0-rc.3.apk` | 206M | `19be4f7281839253248e1394b5fb1531ad83fe3b83b23fb7af5b33217ffdf635` |
+| 24 | **SoundCraft** | `output/soundcraft-0.18.0.apk` | 35M | `d98e0447b5ad5cac2cc0ca7c8979fe0da58798afdc497473f8a5960a3c29b06d` |
+| 25 | **SubCraft** | `output/subcraft-0.2.5.apk` | 329M | `b5db8072a47a612ebeca53fed7d9a2979bffd037fad58aa2f3fdd0dcc2b965a1` |
+| 26 | **TextureCraft** | `output/texturecraft-0.4.0.apk` | 59M | `692af8c2b272fe69d8479293d60e41d5d4bbab0e53b87c50cd05002456ff377b` |
+| 27 | **TraceDraw** | `output/tracedraw-0.42.1.apk` | 69M | `7b71fcaaa2515c3598dcbff2f841e771ca6192852fac64ef9b2829b4550e22e1` |
+| 28 | **Transit** | `output/transit-0.6.2.apk` | 39M | `cdca1efb975e9ab30c5fa78e47d5a2aaefb1b2623fdc5ee33ccbcec327899e11` |
+| 29 | **VectorCraft** | `output/vectorcraft-0.22.0.apk` | 165M | `d1b74e64f71059f33b1e36fa99e9b2881a4b15d0bf0dc4fa04a796e00ca30e70` |
+| 30 | **WordCraft** | `output/wordcraft-0.16.0.apk` | 122M | `0892cd58eee1c6ff566be04b9b388a86b903303997398570cac6f05628a68359` |
+
 

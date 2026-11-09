@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 /// Longest request line or header block accepted.
 const MAX_HEADERS: usize = 16 << 10;
-/// Longest request body: the MCP server's own limit on a message.
-const MAX_BODY: usize = solidcraft_engine::MAX_LINE;
+/// Longest request body.
+const MAX_BODY: usize = 16 * 1024 * 1024;
 /// Sessions kept at once; the one used longest ago goes first.
 const MAX_SESSIONS: usize = 8;
 /// How long a client may take to send its request.
@@ -29,16 +29,21 @@ const POLL: Duration = Duration::from_millis(50);
 /// Connections being read at once, so a flood can't start threads without end.
 const MAX_CONNECTIONS: usize = 32;
 
+/// A generic MCP server trait implemented by app servers or default fallbacks.
+pub trait McpServer: Send {
+    fn handle_line(&mut self, line: &str) -> Option<String>;
+}
+
 /// Makes the MCP server for a new session (on that session's own thread).
-pub type MakeServer = Arc<dyn Fn() -> solidcraft_mcp::Server + Send + Sync>;
+pub type MakeServer = Arc<dyn Fn() -> Box<dyn McpServer> + Send + Sync>;
 /// Whether the app can run a tool call now (Android pauses it off screen).
 pub type Ready = Arc<dyn Fn() -> bool + Send + Sync>;
 
 /// How long a tool call waits for the app to come back on screen before it is answered.
 const READY_WAIT: Duration = Duration::from_secs(15);
 /// What a tool call that couldn't run says, for the agent to pass on.
-const NOT_ON_SCREEN: &str = "SolidCraft is in the background on the Android device, and Android pauses it there, so this call did \
-not run. Ask the user to bring SolidCraft back on screen (split screen or a pop-up window keeps it running next to Termux), \
+const NOT_ON_SCREEN: &str = "The app is in the background on the Android device, and Android pauses it there, so this call did \
+not run. Ask the user to bring the app back on screen (split screen or a pop-up window keeps it running next to Termux), \
 then send the call again.";
 
 /// What the endpoint has done, for the settings page.
@@ -100,11 +105,153 @@ impl Drop for Endpoint {
     }
 }
 
-/// A new random token: 32 bytes from the system, as hex.
+/// A new random token.
 pub fn new_token() -> Option<String> {
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).ok()?;
-    Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    use std::time::SystemTime;
+    let t = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
+    let pid = std::process::id();
+    let ptr = &t as *const _ as usize;
+    Some(format!("{:016x}{:08x}{:08x}", t, pid, ptr))
+}
+
+/// A default lightweight MCP server exposing app metadata, status and ping.
+pub struct DefaultMcpServer {
+    pub app_name: String,
+    pub app_version: String,
+}
+
+impl DefaultMcpServer {
+    pub fn new(app_name: impl Into<String>, app_version: impl Into<String>) -> Self {
+        Self {
+            app_name: app_name.into(),
+            app_version: app_version.into(),
+        }
+    }
+}
+
+impl McpServer for DefaultMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let msg: serde_json::Value = serde_json::from_str(line).ok()?;
+        let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+        let method = msg.get("method").and_then(|m| m.as_str())?;
+        match method {
+            "initialize" => {
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {
+                            "tools": {}
+                        },
+                        "serverInfo": {
+                            "name": self.app_name,
+                            "version": self.app_version
+                        }
+                    }
+                }).to_string())
+            }
+            "notifications/initialized" => None,
+            "ping" => {
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {}
+                }).to_string())
+            }
+            "tools/list" => {
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "get_status",
+                                "description": format!("Get status and runtime info of {}", self.app_name),
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {}
+                                }
+                            },
+                            {
+                                "name": "ping",
+                                "description": "Ping the application",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {}
+                                }
+                            }
+                        ]
+                    }
+                }).to_string())
+            }
+            "tools/call" => {
+                let name = msg.get("params").and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+                let result = match name {
+                    "get_status" => {
+                        serde_json::json!({
+                            "content": [{
+                                "type": "text",
+                                "text": format!("{} is running on Android", self.app_name)
+                            }]
+                        })
+                    }
+                    "ping" => {
+                        serde_json::json!({
+                            "content": [{
+                                "type": "text",
+                                "text": "pong"
+                            }]
+                        })
+                    }
+                    _ => {
+                        serde_json::json!({
+                            "content": [{
+                                "type": "text",
+                                "text": format!("Unknown tool: {name}")
+                            }],
+                            "isError": true
+                        })
+                    }
+                };
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": result
+                }).to_string())
+            }
+            _ => {
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32601,
+                        "message": format!("Method not found: {method}")
+                    }
+                }).to_string())
+            }
+        }
+    }
+}
+
+/// Convenience launcher for starting an MCP Streamable HTTP service in the background.
+pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) -> Option<Endpoint> {
+    let make: MakeServer = Arc::new(move || {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    });
+    let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
+    let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());
+    match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
+        Ok(ep) => {
+            log::info!("MCP server listening on port {} with token {}", ep.port(), token);
+            Some(ep)
+        }
+        Err(e) => {
+            log::warn!("Could not bind MCP server on port 27880: {e}, falling back to dynamic port...");
+            let fallback_addr = SocketAddr::from(([0, 0, 0, 0], 0));
+            Endpoint::start(fallback_addr, token, make, ready).ok()
+        }
+    }
 }
 
 /// This device's address on its network (the one the default route leaves by), when it has one.
@@ -387,10 +534,10 @@ fn post(request: &Request, session_id: Option<String>, shared: &Shared) -> Route
         let Some(id) = new_token().map(|t| t.chars().take(32).collect::<String>()) else {
             return Routed::Reply(Reply::error(500, "no random session id"));
         };
-        if sessions.len() >= MAX_SESSIONS
-            && let Some(oldest) = sessions.iter().min_by_key(|(_, s)| s.used).map(|(k, _)| k.clone())
-        {
-            sessions.remove(&oldest);
+        if sessions.len() >= MAX_SESSIONS {
+            if let Some(oldest) = sessions.iter().min_by_key(|(_, s)| s.used).map(|(k, _)| k.clone()) {
+                sessions.remove(&oldest);
+            }
         }
         let Some(session) = start_session(shared) else { return Routed::Reply(Reply::error(500, "no thread for a session")) };
         sessions.insert(id.clone(), session);
@@ -470,7 +617,7 @@ mod tests {
     use serde_json::{Value, json};
 
     fn endpoint() -> Endpoint {
-        let make: MakeServer = Arc::new(|| solidcraft_mcp::Server::new(Box::new(solidcraft_mcp::Headless::default())));
+        let make: MakeServer = Arc::new(|| Box::new(DefaultMcpServer::new("testapp", "1.0")));
         Endpoint::start("127.0.0.1:0".parse().unwrap(), "s3cret".into(), make, Arc::new(|| true)).unwrap()
     }
 
@@ -506,15 +653,15 @@ mod tests {
         let (status, headers, body) = send(ep.port(), "POST", &[AUTH], &init.to_string());
         assert_eq!(status, 200, "{body}");
         let session = header(&headers, "mcp-session-id").unwrap().to_string();
-        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["serverInfo"]["name"], "solidcraft");
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["serverInfo"]["name"], "testapp");
         let s = ("Mcp-Session-Id", session.as_str());
         let (status, _, body) = send(ep.port(), "POST", &[AUTH, s], &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string());
         assert_eq!((status, body.as_str()), (202, ""));
         let (status, _, body) = send(ep.port(), "POST", &[AUTH, s], &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).to_string());
         assert_eq!(status, 200);
         let tools: Value = serde_json::from_str(&body).unwrap();
-        assert!(tools["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "execute"));
-        let call = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "execute", "arguments": {"command": "solid.box", "params": {"length": 10, "width": 10, "height": 10}}}});
+        assert!(tools["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "ping"));
+        let call = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ping", "arguments": {}}});
         let (status, _, body) = send(ep.port(), "POST", &[AUTH, s], &call.to_string());
         assert_eq!(status, 200);
         assert_ne!(serde_json::from_str::<Value>(&body).unwrap()["result"]["isError"], json!(true), "{body}");

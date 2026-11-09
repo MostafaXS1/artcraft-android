@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_PICASSO_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_PICASSO_ANDROID_SHELL_V1";
@@ -207,6 +208,7 @@ struct PicassoAndroidApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for PicassoAndroidApp {
@@ -316,6 +318,11 @@ fn android_main(android_app: AndroidApp) {
         native,
         Box::new(move |cc| {
             let app = StudioApp::new(&cc.egui_ctx);
+            let _mcp = mcp_http::start_mcp_service(
+                "Picasso Suite".to_string(),
+                "0.6.3".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(PicassoAndroidApp {
                 inner: app,
                 app: app_bridge.android_app().clone(),
@@ -323,6 +330,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

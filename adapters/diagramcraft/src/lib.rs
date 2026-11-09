@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_DIAGRAMCRAFT_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_DIAGRAMCRAFT_ANDROID_SHELL_V1";
@@ -123,10 +124,16 @@ struct DiagramCraftApp {
     modifiers: egui::Modifiers,
     intent_warmup: i64,
     dc_app: DcApp,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl DiagramCraftApp {
     fn new(app: AndroidApp, bridge: saf::Bridge, state: Arc<SafState>, dc_app: DcApp) -> Self {
+        let _mcp = mcp_http::start_mcp_service(
+            "DiagramCraft".to_string(),
+            "0.1.0".to_string(),
+            Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+        );
         Self {
             app,
             bridge,
@@ -134,6 +141,7 @@ impl DiagramCraftApp {
             modifiers: egui::Modifiers::default(),
             intent_warmup: 2,
             dc_app,
+            _mcp,
         }
     }
 

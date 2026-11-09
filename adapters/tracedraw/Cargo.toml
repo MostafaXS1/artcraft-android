@@ -20,6 +20,7 @@ android-activity = { version = "=0.6.1", features = ["native-activity"] }
 android_logger = "=0.15.1"
 jni = "=0.22.4"
 log = { workspace = true }
+serde_json = { workspace = true }
 
 [package.metadata.android]
 package = "dev.tracedraw.app"

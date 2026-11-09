@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod saf;
+mod mcp_http;
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_RUSTGIS_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_RUSTGIS_ANDROID_SHELL_V1";
@@ -245,6 +246,7 @@ struct RustGisAndroidApp {
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl Drop for RustGisAndroidApp {
@@ -328,6 +330,11 @@ fn android_main(android_app: AndroidApp) {
         Box::new(move |_cc| {
             let mut app = RustGisApp::with_sample();
             app.session.in_place_wait = false;
+            let _mcp = mcp_http::start_mcp_service(
+                "RustGIS".to_string(),
+                "0.5.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(RustGisAndroidApp {
                 inner: app,
                 app: app_bridge.android_app().clone(),
@@ -335,6 +342,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );
