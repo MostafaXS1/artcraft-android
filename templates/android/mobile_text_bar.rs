@@ -195,6 +195,14 @@ pub fn show_text_bar(ctx: &Context) {
         .and_then(|state| state.cursor.char_range())
         .map_or(false, |range| !range.is_empty());
 
+    // The context bar only appears when text is selected (Cut, Copy, Paste, Delete)
+    if !has_selection {
+        if let Ok(mut b) = BAR_BUTTONS.lock() {
+            b.clear();
+        }
+        return;
+    }
+
     // Determine field geometry (prefer IME output rect, fallback to response rect)
     let field_rect = ctx
         .output(|o| o.ime.as_ref().map(|i| i.rect))
@@ -207,16 +215,13 @@ pub fn show_text_bar(ctx: &Context) {
         return;
     };
 
-    // Build the list of actions: Cut, Copy, Delete appear ONLY when text is selected
-    let mut actions: Vec<(&'static str, Action)> = Vec::with_capacity(4);
-    if has_selection {
-        actions.push(("Cut", Action::Cut));
-        actions.push(("Copy", Action::Copy));
-    }
-    actions.push(("Paste", Action::Paste));
-    if has_selection {
-        actions.push(("Delete", Action::Delete));
-    }
+    // All 4 buttons appear on selected text
+    let actions = [
+        ("Cut", Action::Cut),
+        ("Copy", Action::Copy),
+        ("Paste", Action::Paste),
+        ("Delete", Action::Delete),
+    ];
 
     let btn_w = 70.0f32;
     let btn_h = 30.0f32;
