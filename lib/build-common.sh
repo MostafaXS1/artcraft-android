@@ -2314,6 +2314,76 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
 
+    if fix(
+        "crates/ui-egui/src/app/gpu.rs",
+        '            Ok(compositor) if !broken.load(std::sync::atomic::Ordering::Relaxed) => {\n'
+        '                let max_texture = rs.device.limits().max_texture_dimension_2d;\n'
+        '                self.gpu = Some(GpuState { render_state: rs, compositor, texture: None, last_key: None, size: (0, 0), last_ms: 0.0, broken, max_texture });\n'
+        '            }\n',
+        '            Ok(compositor) if !broken.load(std::sync::atomic::Ordering::Relaxed) => {\n'
+        '                let max_texture = rs.device.limits().max_texture_dimension_2d;\n'
+        '                log::info!("FilmCraft GPU compositor initialized successfully (max_texture={max_texture})");\n'
+        '                self.gpu = Some(GpuState { render_state: rs, compositor, texture: None, last_key: None, size: (0, 0), last_ms: 0.0, broken, max_texture });\n'
+        '            }\n',
+    ):
+        fixed.append("crates/ui-egui/src/app/gpu.rs (GPU compositor diagnostic log)")
+
+    if fix(
+        "crates/ui-egui/src/panels/effect_controls.rs",
+        '    let (down, press) = ctx.input(|i| (i.pointer.any_down(), i.pointer.press_start_time()));\n'
+        '    let key = egui::Id::unique("effect-controls-drag-step");\n'
+        '    let begun = ctx.data(|d| d.get_temp::<Option<f64>>(key)).flatten();\n'
+        '    let mut wrote = false;\n'
+        '    for (cmd, mut p) in actions {\n',
+        '    let (down, press) = ctx.input(|i| (i.pointer.any_down(), i.pointer.press_start_time()));\n'
+        '    let key = egui::Id::unique("effect-controls-drag-step");\n'
+        '    let begun = ctx.data(|d| d.get_temp::<Option<f64>>(key)).flatten();\n'
+        '    let mut wrote = false;\n'
+        '    let any_actions = !actions.is_empty();\n'
+        '    for (cmd, mut p) in actions {\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/effect_controls.rs (any_actions tracking)")
+
+    if fix(
+        "crates/ui-egui/src/panels/effect_controls.rs",
+        '    if down && (wrote || begun.is_some()) {\n'
+        '        ctx.data_mut(|d| d.insert_temp(key, press));\n'
+        '    } else if !down {\n'
+        '        ctx.data_mut(|d| d.remove::<Option<f64>>(key));\n'
+        '    }\n'
+        '}\n',
+        '    if down && (wrote || begun.is_some()) {\n'
+        '        ctx.data_mut(|d| d.insert_temp(key, press));\n'
+        '    } else if !down {\n'
+        '        ctx.data_mut(|d| d.remove::<Option<f64>>(key));\n'
+        '    }\n'
+        '    if wrote || any_actions {\n'
+        '        ctx.request_repaint();\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/effect_controls.rs (request repaint on effect edit)")
+
+    if fix(
+        "crates/ui-egui/src/panels/lumetri.rs",
+        '        p["clip"] = json!(clip.0);\n'
+        '        if let Err(err) = app.session.execute(cmd, p) {\n'
+        '            app.ui.status = err.to_string();\n'
+        '        }\n'
+        '    }\n'
+        '}\n',
+        '        p["clip"] = json!(clip.0);\n'
+        '        if let Err(err) = app.session.execute(cmd, p) {\n'
+        '            app.ui.status = err.to_string();\n'
+        '        }\n'
+        '    }\n'
+        '    if !sections.is_empty() || !lut_actions.is_empty() {\n'
+        '        ui.ctx().request_repaint();\n'
+        '    }\n'
+        '}\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/lumetri.rs (request repaint on section or LUT edit)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY
@@ -5633,6 +5703,10 @@ impl eframe::App for AndroidShell {{
                 let samples = if supported.contains(&4) { 4 } else if supported.contains(&2) { 2 } else { 1 };
                 shell.inner.set_wgpu_split(rs, 24, 8, samples);
                 solidcraft_ui_egui::gpu::install_picture_renderer(rs);
+            }
+""",
+        "filmcraft": """            if let Some(rs) = cc.wgpu_render_state.clone() {
+                shell.inner.set_wgpu(rs);
             }
 """,
     }.get(app, "")

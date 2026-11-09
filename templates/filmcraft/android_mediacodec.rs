@@ -1385,8 +1385,12 @@ impl VideoDecoder for MediaCodecDecoder {
             .queue_input_buffer(input_buf, 0, total_bytes, pts as u64, 0)
             .map_err(|e| CodecError::Decode(format!("queue_input_buffer failed: {e:?}")))?;
 
-        // 5. Drain any ready output frames non-blocking
+        // 5. Drain ready output frames
         self.drain_output(Duration::ZERO, &mut frames)?;
+        if frames.is_empty() && !self.is_direct_surface {
+            // Buffer mode (preview): allow hardware decoder a brief window to complete frame
+            self.drain_output(Duration::from_millis(10), &mut frames)?;
+        }
 
         Ok(frames)
     }
@@ -1400,38 +1404,49 @@ impl VideoDecoder for MediaCodecDecoder {
         // 1. Drain pending frames first without rendering to surface so SurfaceTexture is never clogged
         let _ = self.drain_output_inner(Duration::from_millis(20), &mut frames, false);
 
-        // 2. Queue EOS buffer (flags = 4)
-        let mut eos_queued = false;
-        for _ in 0..50 {
-            match self.codec.dequeue_input_buffer(Duration::from_millis(10)) {
-                Ok(DequeuedInputBufferResult::Buffer(b)) => {
-                    if self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok() {
-                        eos_queued = true;
-                        break;
+        if self.is_direct_surface {
+            // Direct surface mode (export): queue EOS buffer (flags = 4) to signal EOF to surface/encoder
+            let mut eos_queued = false;
+            for _ in 0..50 {
+                match self.codec.dequeue_input_buffer(Duration::from_millis(10)) {
+                    Ok(DequeuedInputBufferResult::Buffer(b)) => {
+                        if self.codec.queue_input_buffer(b, 0, 0, 0, 4).is_ok() {
+                            eos_queued = true;
+                            break;
+                        }
+                    }
+                    _ => {
+                        let _ = self.drain_output_inner(Duration::from_millis(10), &mut frames, false);
                     }
                 }
-                _ => {
-                    let _ = self.drain_output_inner(Duration::from_millis(10), &mut frames, false);
+            }
+
+            if !eos_queued {
+                log::warn!("Could not queue EOS to AMediaCodec decoder input buffer");
+            }
+
+            // Drain remaining buffers until EOS seen without rendering to surface
+            for _ in 0..50 {
+                if self.eos_seen {
+                    break;
+                }
+                if self.drain_output_inner(Duration::from_millis(20), &mut frames, false).is_err() {
+                    break;
                 }
             }
-        }
 
-        if !eos_queued {
-            log::warn!("Could not queue EOS to AMediaCodec decoder input buffer");
-        }
-
-        // 3. Drain remaining buffers until EOS seen without rendering to surface
-        for _ in 0..50 {
-            if self.eos_seen {
-                break;
-            }
-            if self.drain_output_inner(Duration::from_millis(20), &mut frames, false).is_err() {
-                break;
-            }
-        }
-
-        if self.is_direct_surface {
             drain_surface_scaler_texture();
+        } else {
+            // Buffer mode (preview): drain pending in-flight frames without queuing EOS
+            for _ in 0..10 {
+                let count_before = frames.len();
+                if self.drain_output_inner(Duration::from_millis(15), &mut frames, false).is_err() {
+                    break;
+                }
+                if frames.len() == count_before {
+                    break;
+                }
+            }
         }
 
         self.eos_seen = false;
