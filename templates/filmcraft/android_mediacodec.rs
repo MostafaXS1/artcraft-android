@@ -1149,7 +1149,11 @@ impl MediaCodecDecoder {
         );
     }
 
-    fn drain_output(&mut self, mut timeout: Duration, frames: &mut Vec<DecodedFrame>) -> filmcraft_codecs::Result<()> {
+    fn drain_output(&mut self, timeout: Duration, frames: &mut Vec<DecodedFrame>) -> filmcraft_codecs::Result<()> {
+        self.drain_output_inner(timeout, frames, true)
+    }
+
+    fn drain_output_inner(&mut self, mut timeout: Duration, frames: &mut Vec<DecodedFrame>, render_surface: bool) -> filmcraft_codecs::Result<()> {
         for _ in 0..100 {
             match self.codec.dequeue_output_buffer(timeout) {
                 Ok(DequeuedOutputBufferInfoResult::Buffer(output_buffer)) => {
@@ -1160,13 +1164,11 @@ impl MediaCodecDecoder {
                     if (flags & 2) == 0 {
                         if self.is_direct_surface {
                             // ZERO-COPY DIRECT SURFACE BRIDGE:
-                            // Commit the decoded frame directly to the encoder's input surface.
-                            if let Err(e) = self.codec.release_output_buffer(output_buffer, true) {
+                            // Commit the decoded frame directly to the encoder's input surface if render_surface is true.
+                            // If render_surface is false (e.g. during flush), discard without rendering to surface.
+                            if let Err(e) = self.codec.release_output_buffer(output_buffer, render_surface) {
                                 log::warn!("MediaCodecDecoder release_output_buffer failed: {e:?}");
                             }
-
-                            // Consume immediately into SurfaceTexture so BufferQueue never starves
-                            drain_surface_scaler_texture();
 
                             frames.push(DecodedFrame {
                                 pts,
@@ -1395,8 +1397,8 @@ impl VideoDecoder for MediaCodecDecoder {
         }
         let mut frames = Vec::new();
 
-        // 1. Drain pending frames first
-        let _ = self.drain_output(Duration::from_millis(20), &mut frames);
+        // 1. Drain pending frames first without rendering to surface so SurfaceTexture is never clogged
+        let _ = self.drain_output_inner(Duration::from_millis(20), &mut frames, false);
 
         // 2. Queue EOS buffer (flags = 4)
         let mut eos_queued = false;
@@ -1409,7 +1411,7 @@ impl VideoDecoder for MediaCodecDecoder {
                     }
                 }
                 _ => {
-                    let _ = self.drain_output(Duration::from_millis(10), &mut frames);
+                    let _ = self.drain_output_inner(Duration::from_millis(10), &mut frames, false);
                 }
             }
         }
@@ -1418,12 +1420,18 @@ impl VideoDecoder for MediaCodecDecoder {
             log::warn!("Could not queue EOS to AMediaCodec decoder input buffer");
         }
 
-        // 3. Drain until EOS seen or timeout
+        // 3. Drain remaining buffers until EOS seen without rendering to surface
         for _ in 0..50 {
             if self.eos_seen {
                 break;
             }
-            let _ = self.drain_output(Duration::from_millis(20), &mut frames);
+            if self.drain_output_inner(Duration::from_millis(20), &mut frames, false).is_err() {
+                break;
+            }
+        }
+
+        if self.is_direct_surface {
+            drain_surface_scaler_texture();
         }
 
         self.eos_seen = false;
@@ -1437,6 +1445,9 @@ impl VideoDecoder for MediaCodecDecoder {
         }
         if let Err(e) = self.codec.flush() {
             log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
+        }
+        if self.is_direct_surface {
+            drain_surface_scaler_texture();
         }
         self.eos_seen = false;
         self.need_param_sets = true;
@@ -1531,7 +1542,13 @@ pub fn drain_surface_scaler_texture() {
     if let Some(scaler) = guard.as_mut() {
         unsafe {
             if (scaler.fn_eglMakeCurrent)(scaler.display, scaler.surface, scaler.surface, scaler.context) != 0 {
-                let _ = (scaler.fn_ASurfaceTexture_updateTexImage)(scaler.asurface_texture);
+                for _ in 0..16 {
+                    let res = (scaler.fn_ASurfaceTexture_updateTexImage)(scaler.asurface_texture);
+                    if res != 0 {
+                        break;
+                    }
+                }
+                (scaler.fn_eglMakeCurrent)(scaler.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             }
         }
     }
@@ -1990,6 +2007,22 @@ impl HardwareSurfaceScaler {
                 }
             };
 
+            let fn_ANativeWindow_setDequeueTimeout: Option<unsafe extern "C" fn(*mut std::ffi::c_void, i64) -> i32> = {
+                let p = dlsym(android_lib, b"ANativeWindow_setDequeueTimeout\0".as_ptr() as *const _);
+                if !p.is_null() {
+                    Some(std::mem::transmute(p))
+                } else {
+                    None
+                }
+            };
+            if let Some(set_timeout) = fn_ANativeWindow_setDequeueTimeout {
+                let res = set_timeout(decoder_window, 100_000_000);
+                log::info!("HardwareSurfaceScaler: ANativeWindow_setDequeueTimeout(100ms) = {res}");
+            }
+
+            // Always unbind context after initialization so other threads can access it
+            fn_eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
             log::info!("HardwareSurfaceScaler successfully configured: {src_w}x{src_h} -> {dst_w}x{dst_h}");
 
             Some(Self {
@@ -2086,6 +2119,10 @@ impl HardwareSurfaceScaler {
             (self.fn_glDrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
 
             let swap_res = (self.fn_eglSwapBuffers)(self.display, self.surface);
+
+            // Always unbind context after blit so decoder/scaler thread can access it
+            (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
             swap_res != 0
         }
     }

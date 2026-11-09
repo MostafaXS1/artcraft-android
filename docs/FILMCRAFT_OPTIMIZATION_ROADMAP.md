@@ -427,3 +427,31 @@ Phase B3 implements a two-tier hardware scaling architecture:
 3. **Instant Cancellation & Clean Finish**:
    - With the export thread never blocking in driver calls, cancellation latency is $< 20\text{ ms}$.
    - At 99%, the encoder cleanly flushes EOS, faststart writes the MP4 atoms, and the export finishes 100%.
+
+---
+
+## Stage 4.2: EGL Thread Isolation, Non-Blocking Dequeue, & Surface Discard at EOF
+
+### 1. Root Cause Analysis from Logcat Diagnostics
+- **`EGL_BAD_ACCESS` (error 3002) in `drain_surface_scaler_texture`**:
+  - `HardwareSurfaceScaler::new` and `blit()` called `eglMakeCurrent(display, surface, surface, context)` on the export/UI thread and never unbound it.
+  - When the background media source worker thread called `drain_surface_scaler_texture()`, EGL rejected the context switch with `EGL_BAD_ACCESS` because the context was still current on the export thread.
+  - Because `eglMakeCurrent` failed, `ASurfaceTexture_updateTexImage` was skipped on every attempt.
+- **Surface Clogging During EOF Seek / Flush**:
+  - At the end of the video track, decoder `flush()` drained pending and tail frames while trying to queue EOS.
+  - `drain_output` rendered these discardable tail frames into `SurfaceTexture` with `render: true`. Because the export loop had finished all frames and was no longer calling `blit()`, those frames filled the `SurfaceTexture` `BufferQueue`.
+  - Qualcomm's OMX driver worker thread blocked indefinitely in `BufferQueueProducer: waitForFreeSlotThenRelock timeout -1`.
+  - When `AMediaCodec_stop()` was called in `MediaCodecDecoder::drop()`, it hung waiting on the blocked worker thread, freezing the UI and export threads at 99%.
+
+### 2. Comprehensive Solutions Implemented
+1. **Strict EGL Context Unbinding**:
+   - In `HardwareSurfaceScaler::new`: unbinds EGL context (`EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT`) immediately after shader compilation and texture initialization.
+   - In `HardwareSurfaceScaler::blit`: unbinds EGL context immediately after `eglSwapBuffers`.
+   - In `drain_surface_scaler_texture()`: binds context, drains all queued buffers in a loop (`for _ in 0..16`), and immediately unbinds.
+2. **Discard Direct Surface Output During Decoder `flush()` (`render: false`)**:
+   - In `MediaCodecDecoder::flush()`, drained frames are released with `render: false` (discarded internally) rather than rendered to the surface, preventing any tail frames from entering `SurfaceTexture`.
+3. **Non-Blocking Native Window Dequeue (`ANativeWindow_setDequeueTimeout`)**:
+   - Configured `ANativeWindow_setDequeueTimeout(decoder_window, 100_000_000)` (100ms) dynamically via NDK.
+   - Prevents `BufferQueueProducer` from ever executing an infinite wait (`timeout -1`).
+4. **Ordered Teardown Sequence**:
+   - In `crates/export/src/job.rs`, decoders are stopped first via `filmcraft_codecs::release_idle()` before `clear_direct_surface()` destroys the `SurfaceTexture`.
