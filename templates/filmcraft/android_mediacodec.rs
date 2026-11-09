@@ -53,14 +53,25 @@ pub fn annex_b_nals(data: &[u8]) -> Vec<&[u8]> {
     }
     let mut out = Vec::with_capacity(starts.len());
     for (k, &s) in starts.iter().enumerate() {
-        let mut e = match starts.get(k + 1) {
-            Some(&next_s) => next_s.saturating_sub(3),
-            None => data.len(),
+        let e = match starts.get(k + 1) {
+            Some(&next_s) => {
+                // If the next start code was 00 00 00 01 (4 bytes), exactly one zero byte precedes [0, 0, 1]
+                let start_of_sc = next_s.saturating_sub(3);
+                if start_of_sc > s && data.get(start_of_sc - 1) == Some(&0) {
+                    start_of_sc - 1
+                } else {
+                    start_of_sc
+                }
+            }
+            None => {
+                // Trailing zero padding at the very end of the buffer
+                let mut end = data.len();
+                while end > s && data.get(end - 1) == Some(&0) {
+                    end -= 1;
+                }
+                end
+            }
         };
-        // Trailing zero bytes belong to the next start code (4-byte form 00 00 00 01) or are trailing padding
-        while e > s && data.get(e.saturating_sub(1)) == Some(&0) {
-            e -= 1;
-        }
         if let Some(n) = data.get(s..e).filter(|n| !n.is_empty()) {
             out.push(n);
         }
@@ -290,22 +301,30 @@ impl MediaCodecEncoder {
         let auto_bitrate_kbps = {
             let pixels = (w as u64) * (h as u64);
             let target_fps = fps.max(1.0);
-            // ~0.15 bits/pixel/frame gives pristine visual quality with H.264 High Profile
+            // Pristine mobile encoding target (30-40 Mbps for 4K, 14-20 Mbps for 1080p)
             let calculated = (pixels as f64 * target_fps * 0.15 / 1000.0) as u32;
             if pixels >= 3840 * 2160 {
-                calculated.clamp(35_000, 60_000)
+                calculated.clamp(30_000, 42_000)
             } else if pixels >= 1920 * 1080 {
-                calculated.clamp(16_000, 30_000)
+                calculated.clamp(14_000, 20_000)
             } else if pixels >= 1280 * 720 {
-                calculated.clamp(8_000, 16_000)
+                calculated.clamp(6_000, 12_000)
             } else {
-                calculated.clamp(4_000, 8_000)
+                calculated.clamp(3_000, 6_000)
             }
         };
-        let kbps = if s.bitrate_kbps >= 1000 {
-            s.bitrate_kbps
+        // Clamp mobile export bitrate to prevent hardware decoder buffer overflow and multi-gigabyte files
+        let max_mobile_kbps = if (w as u64) * (h as u64) >= 3840 * 2160 {
+            42_000
+        } else if (w as u64) * (h as u64) >= 1920 * 1080 {
+            20_000
         } else {
-            auto_bitrate_kbps
+            10_000
+        };
+        let kbps = if s.bitrate_kbps >= 1000 {
+            s.bitrate_kbps.min(max_mobile_kbps)
+        } else {
+            auto_bitrate_kbps.min(max_mobile_kbps)
         };
         let key_interval_sec = s.keyframe_distance
             .filter(|k| *k > 0)
@@ -322,6 +341,7 @@ impl MediaCodecEncoder {
             let color_fmt = if surface_mode { 0x7F000789 } else { 21 };
             format.set_i32("color-format", color_fmt);
             format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
+            format.set_i32("max-bitrate", (kbps.saturating_mul(1200)) as i32);
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
@@ -380,31 +400,33 @@ impl MediaCodecEncoder {
         };
 
         let high_level = if (w as u64) * (h as u64) >= 3840 * 2160 {
-            0x8000 // AVCLevel51
+            if fps > 30.0 { 0x10000 } else { 0x8000 } // Level 5.2 for 4K 60fps, Level 5.1 for <=30fps
         } else {
             0x2000 // AVCLevel42
         };
 
-        // Try surface mode first with AVCProfileHigh (8), falling back through profiles and to buffer mode
-        let (codec, surface) = try_init(true, true, Some((8, high_level)))
+        // Try surface mode first letting MediaCodec select optimal hardware profile/level,
+        // then try High Profile (with Level 5.2 for 4K 60fps), then Main Profile, then unconstrained surface,
+        // followed by buffer mode fallbacks.
+        let (codec, surface) = try_init(true, true, None)
             .or_else(|e| {
-                log::warn!("Surface mode High Profile Level 5.1/4.2 failed ({e}), trying Level 4.1");
-                try_init(true, true, Some((8, 0x1000)))
+                log::warn!("Surface mode auto profile failed ({e}), trying High Profile");
+                try_init(true, true, Some((8, high_level)))
             })
             .or_else(|e| {
                 log::warn!("Surface mode High Profile failed ({e}), trying Main Profile");
                 try_init(true, true, Some((2, 0x1000)))
             })
             .or_else(|e| {
-                log::warn!("Surface mode Main Profile failed ({e}), trying unconstrained surface format");
+                log::warn!("Surface mode Main Profile failed ({e}), trying basic surface format");
                 try_init(true, false, None)
             })
             .or_else(|e| {
-                log::warn!("Surface mode completely failed ({e}), falling back to buffer mode High Profile");
-                try_init(false, true, Some((8, high_level)))
+                log::warn!("Surface mode completely failed ({e}), falling back to buffer mode");
+                try_init(false, true, None)
             })
             .or_else(|e| {
-                log::warn!("Buffer mode High Profile failed ({e}), trying basic buffer mode");
+                log::warn!("Buffer mode auto profile failed ({e}), trying basic buffer mode");
                 try_init(false, false, None)
             })
             .map_err(|e| format!("Failed to initialize MediaCodec encoder: {e}"))?;
@@ -489,10 +511,15 @@ impl MediaCodecEncoder {
                 .map_err(|e| format!("start failed: {e:?}"))?;
             Ok(codec)
         };
-        let high_level = if (w as u64) * (h as u64) >= 3840 * 2160 { 0x8000 } else { 0x2000 };
-        let new_codec = match try_buffer(true, Some((8, high_level)))
-            .or_else(|_| try_buffer(false, Some((8, high_level))))
-            .or_else(|_| try_buffer(false, None)) {
+        let high_level = if (w as u64) * (h as u64) >= 3840 * 2160 {
+            if fps > 30.0 { 0x10000 } else { 0x8000 }
+        } else {
+            0x2000
+        };
+        let new_codec = match try_buffer(true, None)
+            .or_else(|_| try_buffer(false, None))
+            .or_else(|_| try_buffer(true, Some((8, high_level))))
+            .or_else(|_| try_buffer(false, Some((8, high_level)))) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("MediaCodec failed to reinit in buffer mode: {e}");
@@ -643,7 +670,13 @@ impl VideoEncoder for MediaCodecEncoder {
                 vec![Self::fallback_pps()]
             }
         };
-        SampleEntry::avc(AvcConfig::new(sps_list, pps_list, 4), w, h)
+        let mut avc_config = AvcConfig::new(sps_list, pps_list, 4);
+        if matches!(avc_config.profile, 100 | 110 | 122 | 144) && avc_config.ext.is_empty() {
+            // ISO/IEC 14496-15 §5.3.3.1.2: High profile requires chroma_format (4:2:0 -> 1),
+            // bit_depth_luma_minus8 (0), bit_depth_chroma_minus8 (0), numOfSequenceParameterSetExt (0).
+            avc_config.ext = vec![0xFD, 0xF8, 0xF8, 0x00];
+        }
+        SampleEntry::avc(avc_config, w, h)
     }
 
     fn timescale(&self) -> u32 {
@@ -670,7 +703,7 @@ impl VideoEncoder for MediaCodecEncoder {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
-            self.drain_output(Duration::from_millis(10), &mut packets)?;
+            self.drain_output(Duration::ZERO, &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..40 {
