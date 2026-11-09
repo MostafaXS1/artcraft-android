@@ -14,6 +14,8 @@ fi
 
 # Expose upstream android module and entrypoint
 sed -i 's/^mod android;/pub mod android;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
+sed -i 's/^mod app;/pub mod app;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
+sed -i 's/^mod mcp;/pub mod mcp;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
 python3 - "$SRC_ABS/apps/tracedraw/src/android.rs" <<'PY'
 import sys
 from pathlib import Path

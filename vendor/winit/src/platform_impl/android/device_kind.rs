@@ -90,9 +90,8 @@ pub(crate) fn primary_button_on_down(primary_down: &mut bool, button_state: u32)
     }
 }
 
-pub(crate) fn primary_button_on_up(primary_down: &mut bool, button_state: u32) -> bool {
-    let primary_still_held = (button_state & BUTTON_PRIMARY) != 0;
-    if *primary_down && !primary_still_held {
+pub(crate) fn primary_button_on_up(primary_down: &mut bool, _button_state: u32) -> bool {
+    if *primary_down {
         *primary_down = false;
         true
     } else {

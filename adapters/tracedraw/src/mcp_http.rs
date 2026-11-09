@@ -235,13 +235,13 @@ impl McpServer for DefaultMcpServer {
 }
 
 pub struct TraceDrawMcpServer {
-    app: tracedraw::App,
+    app: tracedraw::app::App,
 }
 
 impl TraceDrawMcpServer {
     pub fn new() -> Self {
         Self {
-            app: tracedraw::App::default(),
+            app: tracedraw::app::App::headless(),
         }
     }
 }

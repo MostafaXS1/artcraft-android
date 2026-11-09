@@ -1496,7 +1496,12 @@ fn android_main(android_app: android_activity::AndroidApp) {
     // A panic's backtrace, to see where the Vulkan surface is created.
     #[allow(unused_unsafe)]
     unsafe {
-        {std::env::set_var("RUST_BACKTRACE", "1");}
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }
     }
     // Route Rust `log` records to logcat; without this a failed picker/save was invisible.
     android_logger::init_once(

@@ -18,7 +18,10 @@ if [[ -n "${ANDROID_NDK_HOME:-}" && -d "$ANDROID_NDK_HOME" ]]; then
 elif [[ -n "${NDK_HOME:-}" && -d "$NDK_HOME" ]]; then
     NDK_PATH="$NDK_HOME"
 elif [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk" ]]; then
-    NDK_PATH=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+    NDK_PATH=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -name "27.*" -type d 2>/dev/null | sort -V | tail -n 1)
+    if [[ -z "$NDK_PATH" ]]; then
+        NDK_PATH=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | grep -v "/30\." | sort -V | tail -n 1)
+    fi
 elif [[ -d "$ROOT/android-sdk/ndk/27.2.12479018" ]]; then
     NDK_PATH="$ROOT/android-sdk/ndk/27.2.12479018"
 elif [[ -d "$ROOT/android-sdk/ndk" ]]; then
@@ -30,6 +33,7 @@ fi
 TOOLCHAIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64"
 TARGET_ARCH="aarch64-linux-android"
 API_LEVEL="28"
+export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android${API_LEVEL} ${BINDGEN_EXTRA_CLANG_ARGS:-}"
 CC="$TOOLCHAIN/bin/${TARGET_ARCH}${API_LEVEL}-clang"
 CXX="$TOOLCHAIN/bin/${TARGET_ARCH}${API_LEVEL}-clang++"
 AR="$TOOLCHAIN/bin/llvm-ar"

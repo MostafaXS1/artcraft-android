@@ -37,6 +37,25 @@
 - [33. Operational Notes and Failure Modes](#33-operational-notes-and-failure-modes)
 - [34. Key Files Reference](#34-key-files-reference)
 - [35. Agent Guidelines](#35-agent-guidelines)
+- [36. Build Environment & Toolchain Deep Dive](#36-build-environment--toolchain-deep-dive)
+- [37. Cargo Workspace Patching Details](#37-cargo-workspace-patching-details)
+- [38. Android Manifest & Metadata Generation](#38-android-manifest--metadata-generation)
+- [39. SAF Bridge Implementation Details](#39-saf-bridge-implementation-details)
+- [40. IME Bridge & Soft Keyboard](#40-ime-bridge--soft-keyboard)
+- [41. System Fonts Integration](#41-system-fonts-integration)
+- [42. Persistence & Data Storage](#42-persistence--data-storage)
+- [43. Input Handling](#43-input-handling)
+- [44. Fullscreen, Edge-to-Edge, Theming](#44-fullscreen-edge-to-edge-theming)
+- [45. Update Checker](#45-update-checker)
+- [46. Icon Generation Details](#46-icon-generation-details)
+- [47. Printing Support](#47-printing-support)
+- [48. Debugging & Troubleshooting](#48-debugging--troubleshooting)
+- [49. Performance Considerations](#49-performance-considerations)
+- [50. Security & Permissions](#50-security--permissions)
+- [51. Version History & Changelog Notes](#51-version-history--changelog-notes)
+- [52. Contributing Guidelines](#52-contributing-guidelines)
+- [53. Appendix](#53-appendix)
+- [54. Model Context Protocol (MCP) Suite Architecture](#54-model-context-protocol-mcp-suite-architecture)
 
 ## 1. Project Overview
 
@@ -56,8 +75,11 @@ From `lib/build-common.sh` and `README.md`:
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
+anicraft bimcraft capsulecraft diagramcraft earthcraft
+humanmotioncraft mapcraft notecraft paintcraft picassosuite
+prowave rustgis tracedraw transit
 ```
-Total: 17 apps. CI matrix builds all of them.
+Total: 28 apps. CI matrix builds all of them.
 
 ## 3. Repository Structure
 
@@ -899,6 +921,7 @@ Location: `files/media/`
 - Hover, buttons, wheel, trackpad
 - Mouse wheel turns in notches (no coasting)
 - Secondary click for context menus
+- **Release Event Fix (`primary_button_on_up`)**: In stock winit Android implementations, `primary_button_on_up` checked `if *primary_down && !(button_state & BUTTON_PRIMARY != 0)`. On many Android mice/touchpads, `MotionEvent.getButtonState()` during `ACTION_UP` still contains `BUTTON_PRIMARY` (identifying the button that triggered the action), causing `primary_still_held` to evaluate as `true`. This suppressed the `Released` event, permanently leaving `*primary_down = true`, which dropped all subsequent clicks across the entire application. The vendored winit in `vendor/winit/src/platform_impl/android/device_kind.rs` clears `*primary_down = false` and emits `Released` whenever an `ACTION_UP` occurs, guaranteeing reliable click delivery.
 
 ### 24.2 Trackpad
 - Smooth scrolling with coasting
@@ -1078,16 +1101,20 @@ Located in `vendor/` with Android-specific patches:
 
 ### 31.2 Configuration
 - **Concurrency:** Cancels in-progress runs for same ref
-- **Matrix:** Builds all 14 apps in parallel
+- **Matrix:** Builds all 28 apps in parallel
 - **Runner:** Ubuntu (GitHub Actions)
-- **Timeout:** Reasonable per-job limits
+- **Timeout:** 35 minutes per-job limit
 
-### 31.3 Toolchain
+### 31.3 Toolchain & Robustness Constraints
 - Python 3.12
 - Java 21 (linked to /opt/jdk/temurin-21)
 - Rust stable with `aarch64-linux-android` target
 - cargo-ndk from prebuilt binary
 - sccache for Rust compilation caching
+- **NDK 27 Preference**: Runners with pre-installed NDK 30 preview break bindgen during clang header parsing (`Unversioned target triples are not supported!`). CI explicitly prefers stable NDK 27 (`27.*`) and exports `BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28"`.
+- **Git LFS Smudge Avoidance**: `GIT_LFS_SKIP_SMUDGE=1` is exported globally to prevent clone failures when upstream repos have broken LFS pointers (e.g. NoteCraft's 404 on `Large Desktop.one`).
+- **Toolchain Hijack Prevention**: Upstream `rust-toolchain` and `rust-toolchain.toml` files are stripped immediately after checkout so `rustup` does not switch toolchains to versions lacking the Android target.
+- **Source Branch Strategy**: Repositories with irregular non-version tags (such as `earthcraft` matching ancient `versions`) or whose Android support is actively authored against upstream `main` (`earthcraft`, `prowave`, `transit`, `rustgis`, `mapcraft`, `anicraft`) automatically build against `main` when `BUILD_SOURCE=stable`.
 
 ### 31.4 Caching
 - sccache (GHA backend)
@@ -1596,6 +1623,23 @@ See `adapters/photocraft/src/lib.rs` for full implementation:
 - Zero-copy NIO staging
 - Crash recovery on startup
 
+### 42.4 Scratch Storage and Sandbox TMPDIR Setup
+On Android, the Rust standard library `std::env::temp_dir()` defaults to `/data/local/tmp` if the `TMPDIR` environment variable is unset. Non-rooted Android applications running in their sandbox lack read/write permissions to `/data/local/tmp`, triggering `Permission denied (os error 13)` whenever an engine allocates temporary files or spills memory to disk (e.g. PhotoCraft raster tile spilling: `"could not create a scratch file in /data/local/tmp: Permission denied (os error 13); spilling is paused"`).
+
+**System-Wide Solution**:
+All 18 custom adapters and the generated launcher templates in `lib/build-common.sh` set `TMPDIR` at the very start of `android_main` before initializing any engine services or preferences:
+```rust
+#[allow(unused_unsafe)]
+unsafe {
+    if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+        let tmp = path.join("tmp");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::env::set_var("TMPDIR", &tmp);
+    }
+}
+```
+This guarantees that `std::env::temp_dir()`, `tempfile::tempfile()`, and PhotoCraft's `(system temp)` scratch disk resolution always point to the application's private, writable sandbox storage.
+
 ## 43. Input Handling
 
 ### 43.1 Modifier Key Fix
@@ -1916,4 +1960,38 @@ adb uninstall com.artcraft.<app>
 - [Releases](https://github.com/MostafaXS1/artcraft-android/releases)
 - [ArtCraft Website](https://getartcraft.com/)
 - [Storytold GitHub](https://github.com/storytold)
+
+## 54. Model Context Protocol (MCP) Suite Architecture
+
+ArtCraft Android applications expose an embedded, zero-configuration Model Context Protocol (MCP) server over HTTP and Server-Sent Events (SSE) bound to loopback (`127.0.0.1`) and LAN interfaces. This allows local or remote AI agents to automate document creation, layer manipulation, parametric CAD modeling, BIM scene construction, audio editing, and video generation directly on device.
+
+### 54.1 Dual Operating Modes
+
+The suite employs two distinct MCP operational architectures depending on whether an application is an interactive visual canvas or a batch automation engine:
+
+1. **Live UI Control Architecture (Interactive Apps)**:
+   - **Apps**: PhotoCraft, CADCraft, BIMCraft, SoundCraft, SolidCraft, DiagramCraft, PaintCraft, NoteCraft, VectorCraft, PicassoSuite, AniCraft, EarthCraft, MapCraft, ProWave, RustGIS, TraceDraw, Transit.
+   - **Mechanism**: Tool execution cannot run on a detached headless engine session because the user expects to see layers, paths, walls, windows, and waveforms updated on the active screen.
+   - **Dispatch Pipeline**:
+     - The MCP HTTP server receives JSON-RPC 2.0 `tools/call`.
+     - In PhotoCraft: Requests route over a local TCP loopback bridge to the app's internal command listener, which applies commands to the active document and requests an egui repaint.
+     - In CADCraft, BIMCraft, SoundCraft, etc.: The MCP server packages the request into a `ControlRequest` and enqueues it into `CONTROL_TX` or `CONTROL_QUEUE`.
+     - On each frame of the `egui` render loop: `with_control` drains pending requests, executes the tool closure against `&mut self.inner`, and sends the JSON result across a oneshot channel back to the MCP HTTP thread.
+     - `ctx.request_repaint()` is triggered immediately, refreshing the GPU canvas.
+
+2. **Headless Engine Mode (Batch / Render Engines)**:
+   - **Apps**: FilmCraft, MaterialCraft, TextureCraft, PDFCraft.
+   - **Mechanism**: Uses the official `rmcp` SDK or engine automation handlers with an isolated headless session (`Headless::default_session()`, `Filesystem::TrustedLocal`, `FilmcraftMcp::headless()`).
+   - Requests execute asynchronously without requiring an active window or eframe rendering context.
+
+### 54.2 Protocol & HTTP SSE Endpoint Specification
+- **Endpoints**:
+  - `POST /`: JSON-RPC 2.0 tool execution (`tools/list`, `tools/call`, `resources/list`, `initialize`).
+  - `GET /sse`: Server-Sent Events stream for asynchronous progress and notifications.
+  - `POST /message`: Message transport companion for SSE sessions.
+  - `GET /status`: Diagnostic endpoint reporting server state, package name, version, and tool count.
+- **Service Advertising**:
+  On startup, the app logs:
+  `MCP HTTP service started on http://127.0.0.1:<PORT>/ (LAN: http://<IP>:<PORT>/)`
+  allowing discovery via logcat or adb port forwarding.
 

@@ -535,6 +535,21 @@ export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-2}"
 export CARGO_PROFILE_RELEASE_STRIP="${CARGO_PROFILE_RELEASE_STRIP:-true}"
 export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-false}"
 
+# Avoid downloading large LFS assets that may be missing upstream (e.g. NoteCraft's 404 Large Desktop.one).
+export GIT_LFS_SKIP_SMUDGE=1
+# Ensure bindgen and clang use versioned target triples on NDK 27+ / 30+.
+export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+
+# Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
+# or whose Android integrations require upstream main:
+case "$APP" in
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft)
+        if [[ "$BUILD_SOURCE" == "stable" ]]; then
+            BUILD_SOURCE="main"
+        fi
+        ;;
+esac
+
 say 3 "Fetching official source for $TITLE..."
 
 # A checkout is only usable when every tracked file of the workspace is actually on disk.
@@ -663,6 +678,9 @@ else
     fi
     mv "$SRC_TMP" "$SRC"
 fi
+
+# Remove pinned upstream toolchains that might lack Android targets in CI runners
+rm -f "$SRC/rust-toolchain" "$SRC/rust-toolchain.toml"
 
 # Upstream `main` is normally green, but a regression can sit there for a while (the upstream
 # preset-loader fix landed broken on 2026-10-17 and took its CI red). Each fix-up below is
@@ -2372,6 +2390,44 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
+elif app == "pdfcraft":
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        "            printer_source: None,\n",
+        "            printer_source: None,\n            print_handler: None,\n",
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (print_handler)")
+    if fix(
+        "crates/ui-egui/src/lib.rs",
+        "    pub printer_source: Option<PrinterSource>,\n",
+        "    pub printer_source: Option<PrinterSource>,\n    pub print_handler: Option<std::sync::Arc<dyn Fn(&str, &[u8]) -> Result<String, String> + Send + Sync>>,\n",
+    ):
+        fixed.append("crates/ui-egui/src/lib.rs (print_handler)")
+    if fix(
+        "crates/ui-egui/src/workflows/print_ui.rs",
+        "        let ctx = self.ctx.clone();\n        std::thread::spawn(move || {\n",
+        "        let ctx = self.ctx.clone();\n        let handler = self.print_handler.clone();\n        std::thread::spawn(move || {\n",
+    ):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (handler closure)")
+    old_print = """            // The receiver may be gone (the app quit): nothing to report to then.
+            let result = spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                let _ = tx.send(JobNews::Sent(sent, sheets));
+                repaint();
+            });
+            let _ = tx.send(JobNews::Done(result.map_err(|e| e.to_string())));"""
+    new_print = """            let result = if let Some(handler) = handler {
+                let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title };
+                handler(&name, &bytes)
+            } else {
+                // The receiver may be gone (the app quit): nothing to report to then.
+                spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                    let _ = tx.send(JobNews::Sent(sent, sheets));
+                    repaint();
+                }).map_err(|e| e.to_string())
+            };
+            let _ = tx.send(JobNews::Done(result));"""
+    if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print, new_print):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer)")
 
 
 if fixed:
@@ -4593,6 +4649,12 @@ PERSIST_ON_EXIT = '''
     }
 '''
 
+PERSIST_ON_EXIT_GLOW = '''
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.persist_now();
+    }
+'''
+
 # Prune the staged working copies under `media/` (see SafActivity.newStageFile) once the app no
 # longer refers to them. The copy is a cache of a document whose original lives at its SAF
 # location, so deleting it loses nothing while keeping `Android/data/<pkg>/files` small — which is
@@ -4726,7 +4788,17 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
             load_wordcraft_user_fonts(&self.app);
         }
 """
-    persist_on_exit = PERSIST_ON_EXIT
+    lock_path = Path("Cargo.lock")
+    eframe_has_glow = False
+    if lock_path.is_file():
+        lock_text = lock_path.read_text(errors="replace")
+        m = re.search(r'\[\[package\]\]\s+name = "eframe".*?dependencies = \[(.*?)\]', lock_text, re.DOTALL)
+        if m and '"glow"' in m.group(1):
+            eframe_has_glow = True
+    if app == "pdfcraft":
+        eframe_has_glow = True
+
+    persist_on_exit = PERSIST_ON_EXIT_GLOW if eframe_has_glow else PERSIST_ON_EXIT
     persist_env_call = "    install_persist_env(&android_app);\n"
 else:
     persist_support = ""
@@ -5916,7 +5988,12 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // A panic's backtrace, to see where the Vulkan surface is created.
     #[allow(unused_unsafe)]
     unsafe {{
-        {{std::env::set_var("RUST_BACKTRACE", "1");}}
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {{
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }}
     }}
     // Route Rust `log` records to logcat; without this a failed picker/save was invisible.
     android_logger::init_once(
@@ -6008,7 +6085,12 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // A panic's backtrace, to see where the Vulkan surface is created.
     #[allow(unused_unsafe)]
     unsafe {{
-        {{std::env::set_var("RUST_BACKTRACE", "1");}}
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {{
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }}
     }}
     // Route Rust `log` records to logcat; without this a failed picker/save was invisible.
     android_logger::init_once(
@@ -6493,7 +6575,7 @@ impl SuiteMcpServer {
         let (client_in, server_in) = tokio::io::duplex(65536);
         let (server_out, client_out) = tokio::io::duplex(65536);
         let lines = TokioBufReader::new(client_out).lines();
-        let session = filmcraft_engine::Session::new();
+        let session = filmcraft_engine::Session::default();
         let mcp = FilmcraftMcp::headless(session);
         rt.spawn(async move {
             let _ = mcp.serve_io(server_in, server_out).await;
@@ -6536,8 +6618,8 @@ impl SuiteMcpServer {
         let (client_in, server_in) = tokio::io::duplex(65536);
         let (server_out, client_out) = tokio::io::duplex(65536);
         let lines = TokioBufReader::new(client_out).lines();
-        let session = materialcraft_engine::Session::new();
-        let headless = materialcraft_automation::Headless::new(session, materialcraft_automation::Filesystem::Unrestricted);
+        let session = materialcraft_automation::Headless::default_session();
+        let headless = materialcraft_automation::Headless::new(session, materialcraft_automation::Filesystem::TrustedLocal);
         let mcp = MaterialCraftMcp::headless(headless);
         rt.spawn(async move {
             let _ = mcp.serve((server_in, server_out)).await;
@@ -6580,8 +6662,8 @@ impl SuiteMcpServer {
         let (client_in, server_in) = tokio::io::duplex(65536);
         let (server_out, client_out) = tokio::io::duplex(65536);
         let lines = TokioBufReader::new(client_out).lines();
-        let session = texturecraft_engine::Session::new();
-        let headless = texturecraft_automation::Headless::new(session, texturecraft_automation::Filesystem::Unrestricted);
+        let session = texturecraft_automation::Headless::default_session().ok()?;
+        let headless = texturecraft_automation::Headless::new(session, texturecraft_automation::Filesystem::TrustedLocal);
         let mcp = TexturecraftMcp::headless(headless);
         rt.spawn(async move {
             let _ = mcp.serve((server_in, server_out)).await;

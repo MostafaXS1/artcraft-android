@@ -243,7 +243,7 @@ impl RustGisMcpServer {
     pub fn new() -> Self {
         Self {
             server: rustgis_assistant::mcp::Server::new(true),
-            session: rustgis_engine::Session::default(),
+            session: rustgis_engine::Session::new(rustgis_engine::Project::default()),
         }
     }
 }
