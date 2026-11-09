@@ -133,7 +133,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                 pressed: false,
                 modifiers: Modifiers::NONE,
             });
-            raw.events.push(Event::PointerGone);
         }
     }
 
@@ -143,7 +142,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
             2 => {
                 // 2-finger tap: Undo (Ctrl + Z)
                 let mods = Modifiers::COMMAND;
-                raw.events.push(Event::ModifiersChanged(mods));
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,
                     physical_key: Some(Key::ControlLeft),
@@ -172,7 +170,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: Modifiers::NONE,
                 });
-                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             3 => {
@@ -184,7 +181,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
-                raw.events.push(Event::ModifiersChanged(mods));
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,
                     physical_key: Some(Key::ControlLeft),
@@ -227,7 +223,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: Modifiers::NONE,
                 });
-                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             _ => {}

@@ -524,6 +524,73 @@ if app == "wordcraft":
     ):
         fixed.append("apps/wordcraft-web/index.html (touch-action: none)")
 
+elif app == "gridcraft":
+    # Selection box handle touch expand and hold-to-right-click support:
+    # 1. Expand the handle hit-test from 9x9 to 37x37 so a fingertip can grab it easily.
+    handle_old = (
+        "    fn on_handle(&self, p: Pos2) -> bool {\n"
+        "        self.handle.contains(p) && self.handle_panes.iter().any(|r| r.contains(p))\n"
+        "    }\n"
+    )
+    handle_new = (
+        "    fn on_handle(&self, p: Pos2) -> bool {\n"
+        "        self.handle.expand(14.0).contains(p) && self.handle_panes.iter().any(|r| r.expand(14.0).contains(p))\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/interact.rs", handle_old, handle_new):
+        fixed.append("crates/ui-egui/src/grid/interact.rs (expand touch hit-test for selection handle)")
+
+    # 2. Do not start touch_pan when touching the selection handle so the user can drag it to expand.
+    pan_old = (
+        "    // A one-finger touch drag pans the sheet, the content following the finger; it doesn't select.\n"
+        "    // (Two fingers pinch-zoom through `zoom_delta` above.)\n"
+        "    if resp.drag_started() && ui.input(|i| i.any_touches()) {\n"
+        "        app.grid.touch_pan = true;\n"
+        "    }\n"
+    )
+    pan_new = (
+        "    // A one-finger touch drag pans the sheet, the content following the finger; it doesn't select.\n"
+        "    // (Two fingers pinch-zoom through `zoom_delta` above.)\n"
+        "    let on_handle_touch = resp.interact_pointer_pos().map_or(false, |p| {\n"
+        "        let cur = geo.range_rect(sh, sel.current());\n"
+        "        Rect::from_center_size(cur.right_bottom(), vec2(36.0, 36.0)).contains(geo.mirror_pos(p))\n"
+        "    });\n"
+        "    if resp.drag_started() && ui.input(|i| i.any_touches()) && !on_handle_touch {\n"
+        "        app.grid.touch_pan = true;\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/show.rs", pan_old, pan_new):
+        fixed.append("crates/ui-egui/src/grid/show.rs (touching selection handle allows drag instead of panning)")
+
+    # 3. Allow right-clicks (secondary click) to pass through to interact() even if touch_pan was active.
+    pan_bypass_old = (
+        "    if app.grid.touch_pan {\n"
+        "        // Skip the frames of a touch pan, its release included.\n"
+        "        if !resp.dragged() {\n"
+        "            app.grid.touch_pan = false;\n"
+        "        }\n"
+        "    } else {\n"
+        "        crate::paper_view::interact(app, ui, resp, geo, sh, wb);\n"
+        "        interact(app, ui, resp, geo, sh, wb);\n"
+        "    }\n"
+    )
+    pan_bypass_new = (
+        "    if resp.secondary_clicked() {\n"
+        "        app.grid.touch_pan = false;\n"
+        "    }\n"
+        "    if app.grid.touch_pan {\n"
+        "        // Skip the frames of a touch pan, its release included.\n"
+        "        if !resp.dragged() {\n"
+        "            app.grid.touch_pan = false;\n"
+        "        }\n"
+        "    } else {\n"
+        "        crate::paper_view::interact(app, ui, resp, geo, sh, wb);\n"
+        "        interact(app, ui, resp, geo, sh, wb);\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/show.rs", pan_bypass_old, pan_bypass_new):
+        fixed.append("crates/ui-egui/src/grid/show.rs (secondary click cancels touch pan)")
+
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")
 PY

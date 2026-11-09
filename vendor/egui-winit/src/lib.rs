@@ -88,7 +88,7 @@ struct HoldToRightClick {
 
 impl HoldToRightClick {
     const HOLD_DURATION_MS: u64 = 500;
-    const SLOP_PX: f64 = 16.0; // allowable movement in physical pixels
+    const SLOP_PX: f64 = 40.0; // allowable movement in physical pixels
 
     fn new(touch_id: u64, start_pos: winit::dpi::PhysicalPosition<f64>) -> Self {
         Self {
@@ -1117,9 +1117,8 @@ impl State {
         match touch.phase {
             winit::event::TouchPhase::Started => {
                 if !self.gesture_touch_ids.contains(&touch.id) {
-                    self.gesture_touch_ids.clear();
+                    self.gesture_touch_ids.push(touch.id);
                 }
-                self.gesture_touch_ids.push(touch.id);
             }
             winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
                 self.gesture_touch_ids.retain(|id| *id != touch.id);

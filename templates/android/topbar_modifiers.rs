@@ -52,7 +52,11 @@ pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
             egui::Event::PointerButton { modifiers, .. }
             | egui::Event::MouseWheel { modifiers, .. }
             | egui::Event::Key { modifiers, .. } => {
-                *modifiers = combined;
+                modifiers.alt |= combined.alt;
+                modifiers.ctrl |= combined.ctrl;
+                modifiers.shift |= combined.shift;
+                modifiers.mac_cmd |= combined.mac_cmd;
+                modifiers.command |= combined.command;
             }
             _ => {}
         }
@@ -104,10 +108,15 @@ pub fn render_topbar_modifiers_right(ui: &mut Ui) {
 
 /// Renders the toggleable modifier buttons at a specific coordinate inside a parent container.
 pub fn render_topbar_modifiers_at(ui: &mut Ui, pos: Pos2) {
-    let rect = Rect::from_min_size(pos, vec2(220.0, 26.0));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        render_topbar_modifiers(ui);
-    });
+    let rect = Rect::from_min_size(pos, vec2(230.0, 26.0));
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        |ui| {
+            render_topbar_modifiers(ui);
+        },
+    );
 }
 
 fn render_toggle_button(ui: &mut Ui, label: &str, state: &AtomicBool) -> Response {
