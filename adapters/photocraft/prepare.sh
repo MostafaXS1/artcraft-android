@@ -23,6 +23,7 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 # `mod system_fonts;` (see templates/android/system_fonts.rs, shared with the generated launchers).
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
+cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
 # The soft keyboard uses android-activity's native IME (the launcher polls `text_input_state`);
 # there is no ime_bridge module to copy.
 # Launcher icons: density mipmaps plus the API 26+ adaptive layers, from the same shared module

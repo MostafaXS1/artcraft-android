@@ -30,6 +30,7 @@ use std::sync::{Arc, Mutex};
 mod system_fonts;
 mod mcp_http;
 mod mobile_text_bar;
+mod touch_gestures;
 mod control_server;
 
 pub static CONTROL_INFO: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
@@ -640,6 +641,130 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
     }
 }
 
+/// Read the Android system clipboard's text (empty when there is none).
+fn android_clipboard_get(app: &AndroidApp) -> String {
+    let app = app.clone();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<String> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(String::new());
+        }
+        let clip = env
+            .call_method(
+                &manager,
+                jni_str!("getPrimaryClip"),
+                jni_sig!("()Landroid/content/ClipData;"),
+                &[],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(String::new());
+        }
+        let count = env
+            .call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?
+            .i()?;
+        if count <= 0 {
+            return Ok(String::new());
+        }
+        let item = env
+            .call_method(
+                &clip,
+                jni_str!("getItemAt"),
+                jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                &[JValue::Int(0)],
+            )?
+            .l()?;
+        if item.is_null() {
+            return Ok(String::new());
+        }
+        let text = env
+            .call_method(
+                &item,
+                jni_str!("getText"),
+                jni_sig!("()Ljava/lang/CharSequence;"),
+                &[],
+            )?
+            .l()?;
+        if text.is_null() {
+            return Ok(String::new());
+        }
+        let text = env
+            .call_method(
+                &text,
+                jni_str!("toString"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+        if text.is_null() {
+            return Ok(String::new());
+        }
+        let text = JString::cast_local(env, text)?;
+        Ok(text.try_to_string(env)?)
+    });
+    result.unwrap_or_else(|error| {
+        log::error!("Could not read the Android clipboard: {error}");
+        String::new()
+    })
+}
+
+/// Write text to the Android system clipboard (`ClipboardManager`).
+fn android_clipboard_set(app: &AndroidApp, text: &str) {
+    let app = app.clone();
+    let text = text.to_owned();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(());
+        }
+        let text_obj = JObject::from(env.new_string(&text)?);
+        let label = JObject::from(env.new_string("egui")?);
+        let clip = env
+            .call_static_method(
+                jni_str!("android/content/ClipData"),
+                jni_str!("newPlainText"),
+                jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"),
+                &[JValue::Object(&label), JValue::Object(&text_obj)],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(());
+        }
+        env.call_method(
+            &manager,
+            jni_str!("setPrimaryClip"),
+            jni_sig!("(Landroid/content/ClipData;)V"),
+            &[JValue::Object(&clip)],
+        )?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::error!("Could not write the Android clipboard: {error}");
+    }
+}
+
 
 #[allow(dead_code)]
 /// Diff keyboard text into the edit egui understands.
@@ -961,8 +1086,10 @@ impl eframe::App for PhotoCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
-        photocraft_ui_egui::topbar_modifiers::apply_to_raw_input(&mut self.modifiers, raw);
+        photocraft_ui_egui::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }
@@ -1077,6 +1204,7 @@ fn android_main(android_app: AndroidApp) {
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends =
             eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_for_services();
@@ -1143,6 +1271,10 @@ fn android_main(android_app: AndroidApp) {
                 "0.21.0".to_string(),
                 Arc::new(|| ALIVE.load(Ordering::Relaxed)),
             );
+            let app_clip = app_bridge.app.clone();
+            mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
+            let app_clip_set = app_bridge.app.clone();
+            mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
             Ok(Box::new(PhotoCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),

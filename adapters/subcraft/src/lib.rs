@@ -28,6 +28,7 @@ use std::sync::Arc;
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
 mod mobile_text_bar;
+mod touch_gestures;
 mod mcp_http;
 
 // The SAF bridge, inlined so the adapter is self-contained (a custom adapter is copied verbatim and
@@ -384,6 +385,8 @@ impl eframe::App for SubCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         ensure_screen_rect(&self.app, ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
@@ -534,6 +537,7 @@ fn android_main(android_app: AndroidApp) {
     native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_ref();

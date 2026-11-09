@@ -4,6 +4,7 @@
 
 mod system_fonts;
 mod mobile_text_bar;
+mod touch_gestures;
 mod mcp_http;
 use solidcraft_engine::Session;
 use solidcraft_ui_egui::{SolveApp, Services};
@@ -1475,6 +1476,8 @@ impl eframe::App for AndroidShell {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         self.probe.observe(raw);
         self.refresh_fullscreen(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
@@ -1559,6 +1562,7 @@ fn android_main(android_app: android_activity::AndroidApp) {
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
             let supported = adapter.limits();
             let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {

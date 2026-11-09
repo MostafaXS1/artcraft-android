@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod system_fonts;
 mod mobile_text_bar;
+mod touch_gestures;
 mod saf;
 mod mcp_http;
 
@@ -229,6 +230,8 @@ impl eframe::App for BIMCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw_input);
+        touch_gestures::process_raw_input(ctx, raw_input);
         ensure_screen_rect(&self.app, ctx, raw_input);
         apply_android_modifiers(&mut self.modifiers, raw_input);
         self.inner.raw_input_hook(ctx, raw_input);
@@ -334,6 +337,7 @@ fn android_main(android_app: AndroidApp) {
     native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
 

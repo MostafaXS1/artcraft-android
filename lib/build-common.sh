@@ -2453,8 +2453,9 @@ say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
-    if [[ -f "$ROOT/templates/android/mobile_text_bar.rs" && -d "$SRC/apps/$APP-android/src" ]]; then
-        cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+    if [[ -d "$SRC/apps/$APP-android/src" ]]; then
+        [[ -f "$ROOT/templates/android/mobile_text_bar.rs" ]] && cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+        [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
     fi
 else
     python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" <<'PY'
@@ -2526,7 +2527,7 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs", "mobile_text_bar.rs"):
+            for shared in ("system_fonts.rs", "mobile_text_bar.rs", "touch_gestures.rs"):
                 src_shared = root / "templates" / "android" / shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
@@ -5154,6 +5155,7 @@ icon = "@mipmap/ic_launcher"
     imports.append("mod system_fonts;")
     imports.append("mod mcp_http;")
     imports.append("mod mobile_text_bar;")
+    imports.append("mod touch_gestures;")
     # The custom IME bridge is removed: reference Android apps use egui's native IME via
     # android-activity + eframe, without an EditText bridge. The custom bridge conflicts with
     # egui's IMEOutput handling and breaks input.
@@ -5719,7 +5721,7 @@ fn install_cadcraft_io() {
 
     topbar_modifier_hook = ""
     if app in ("designcraft", "wordcraft", "gridcraft", "deckcraft"):
-        topbar_modifier_hook = f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&mut self.modifiers, raw);\n"
+        topbar_modifier_hook = f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);\n"
 
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
@@ -5800,6 +5802,10 @@ impl AndroidShell {{
             "{app_version}".to_string(),
             std::sync::Arc::new(|| ALIVE.load(std::sync::atomic::Ordering::Relaxed)),
         );
+        let app_clip = app.clone();
+        mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
+        let app_clip_set = app.clone();
+        mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
         {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
@@ -5933,6 +5939,8 @@ impl eframe::App for AndroidShell {{
     }}
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {{
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         self.probe.observe(raw);
         self.refresh_fullscreen(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
@@ -6057,6 +6065,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
             let supported = adapter.limits();
@@ -6150,6 +6159,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
             let supported = adapter.limits();
@@ -6188,6 +6198,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / "mobile_text_bar.rs", staging_dir / "src" / "mobile_text_bar.rs")
+    shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {
         "solidcraft": """

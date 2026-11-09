@@ -6,10 +6,13 @@
 
 use egui::{vec2, Color32, CornerRadius, Modifiers, Pos2, Rect, Response, Stroke, Ui, WidgetText};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 pub static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static CTRL_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static ALT_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+static LAST_COMBINED: Mutex<Option<Modifiers>> = Mutex::new(None);
 
 /// Returns whether any topbar modifier is currently toggled on.
 pub fn is_any_active() -> bool {
@@ -32,44 +35,70 @@ pub fn active_modifiers() -> Modifiers {
     }
 }
 
-/// Merges active topbar modifier toggles into an egui `RawInput` and modifier state.
-pub fn apply_to_raw_input(state: &mut Modifiers, raw: &mut egui::RawInput) {
+/// Merges active topbar modifier toggles into egui `RawInput` events.
+/// Does NOT mutate `physical`, so toggling off a modifier immediately clears it.
+pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
     let top = active_modifiers();
-    let before = *state;
-
-    state.shift |= top.shift;
-    state.ctrl |= top.ctrl;
-    state.command |= top.ctrl;
-    state.alt |= top.alt;
+    let combined = Modifiers {
+        alt: physical.alt || top.alt,
+        ctrl: physical.ctrl || top.ctrl,
+        shift: physical.shift || top.shift,
+        mac_cmd: false,
+        command: physical.command || top.ctrl,
+    };
 
     for event in &mut raw.events {
         match event {
             egui::Event::PointerButton { modifiers, .. }
             | egui::Event::MouseWheel { modifiers, .. }
             | egui::Event::Key { modifiers, .. } => {
-                modifiers.shift |= top.shift;
-                modifiers.ctrl |= top.ctrl;
-                modifiers.command |= top.ctrl;
-                modifiers.alt |= top.alt;
+                *modifiers = combined;
             }
             _ => {}
         }
     }
 
-    if *state != before {
-        raw.events.push(egui::Event::ModifiersChanged(*state));
+    let mut changed = false;
+    if let Ok(mut last) = LAST_COMBINED.lock() {
+        if *last != Some(combined) {
+            *last = Some(combined);
+            changed = true;
+        }
+    }
+
+    if changed {
+        raw.events.push(egui::Event::ModifiersChanged(combined));
     }
 }
 
-/// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline in a UI row.
+/// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline into the current UI row.
 pub fn render_topbar_modifiers(ui: &mut Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.spacing_mut().button_padding = vec2(6.0, 3.0);
+    ui.spacing_mut().item_spacing.x = 6.0;
+    ui.spacing_mut().button_padding = vec2(6.0, 3.0);
 
-        render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
-        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
+    if ui.layout().prefer_right_to_left() {
+        ui.add_space(4.0);
         render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
+        ui.add_space(4.0);
+        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
+        ui.add_space(4.0);
+        render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
+        ui.add_space(4.0);
+    } else {
+        ui.add_space(4.0);
+        render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
+        ui.add_space(4.0);
+        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
+        ui.add_space(4.0);
+        render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
+        ui.add_space(4.0);
+    }
+}
+
+/// Renders the toggleable modifier buttons docked on the right side of a UI row.
+pub fn render_topbar_modifiers_right(ui: &mut Ui) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        render_topbar_modifiers(ui);
     });
 }
 
@@ -85,25 +114,24 @@ fn render_toggle_button(ui: &mut Ui, label: &str, state: &AtomicBool) -> Respons
     let active = state.load(Ordering::Relaxed);
     let visuals = ui.visuals().clone();
 
-    let (bg_fill, fg_color, stroke) = if active {
+    let (bg_fill, fg_color) = if active {
         (
             visuals.selection.bg_fill,
             Color32::WHITE,
-            Stroke::new(1.0, visuals.selection.stroke.color),
         )
     } else {
         (
-            visuals.widgets.inactive.weak_bg_fill,
+            Color32::TRANSPARENT,
             visuals.widgets.inactive.fg_stroke.color,
-            Stroke::NONE,
         )
     };
 
     let text = WidgetText::from(label).color(fg_color);
     let btn = egui::Button::new(text)
         .fill(bg_fill)
-        .stroke(stroke)
-        .corner_radius(CornerRadius::same(4));
+        .stroke(Stroke::NONE)
+        .corner_radius(CornerRadius::same(4))
+        .frame(active);
 
     let resp = ui.add(btn);
     if resp.clicked() {

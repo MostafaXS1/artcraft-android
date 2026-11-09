@@ -47,32 +47,83 @@ if lib_rs.is_file():
         print(f"  Registered topbar_modifiers module in {app} ui-egui lib.rs")
 
 # 3. Patch the UI bar / ribbon in the app
-if app in ("photocraft", "vectorcraft", "designcraft"):
+if app == "photocraft":
+    # Clean up any legacy injection in menus/bar.rs
     bar_rs = ui_egui_src / "menus" / "bar.rs"
     if bar_rs.is_file():
         text = bar_rs.read_text(encoding="utf-8")
-        if "topbar_modifiers::render_topbar_modifiers" not in text:
-            if app == "photocraft":
-                target = "buttons.push(title);\n            }"
-                replacement = "buttons.push(title);\n            }\n            crate::topbar_modifiers::render_topbar_modifiers(ui);"
-                if target in text:
-                    text = text.replace(target, replacement, 1)
-                    bar_rs.write_text(text, encoding="utf-8")
-                    print(f"  Integrated topbar modifiers into {title} menu bar")
-            elif app == "vectorcraft":
-                target = "titles.push(resp);\n            }"
-                replacement = "titles.push(resp);\n            }\n            crate::topbar_modifiers::render_topbar_modifiers(ui);"
-                if target in text:
-                    text = text.replace(target, replacement, 1)
-                    bar_rs.write_text(text, encoding="utf-8")
-                    print(f"  Integrated topbar modifiers into {title} menu bar")
-            elif app == "designcraft":
-                target = "menu_button(ui, crate::rtl::widget(ui, crate::i18n::tr(&lang, menu)), |ui| menu_column(app, ui, &[(menu, entries)]));\n    }"
-                replacement = "menu_button(ui, crate::rtl::widget(ui, crate::i18n::tr(&lang, menu)), |ui| menu_column(app, ui, &[(menu, entries)]));\n    }\n    crate::topbar_modifiers::render_topbar_modifiers(ui);"
-                if target in text:
-                    text = text.replace(target, replacement, 1)
-                    bar_rs.write_text(text, encoding="utf-8")
-                    print(f"  Integrated topbar modifiers into {title} menu bar")
+        for bad in (
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);",
+        ):
+            if bad in text:
+                text = text.replace(bad, "")
+                bar_rs.write_text(text, encoding="utf-8")
+    # Dock to the right side inside group_ui in panels/title_bar.rs
+    title_bar_rs = ui_egui_src / "panels" / "title_bar.rs"
+    if title_bar_rs.is_file():
+        text = title_bar_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers" not in text:
+            target = "let mut group_ui = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(crate::direction::trailing()));\n                let controls_end = {\n                    let ui = &mut group_ui;"
+            replacement = "let mut group_ui = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(crate::direction::trailing()));\n                let controls_end = {\n                    let ui = &mut group_ui;\n                    crate::topbar_modifiers::render_topbar_modifiers(ui);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                title_bar_rs.write_text(text, encoding="utf-8")
+                print(f"  Integrated topbar modifiers into {title} right-side title bar")
+
+elif app == "vectorcraft":
+    # Clean up any legacy injection in menus/bar.rs
+    bar_rs = ui_egui_src / "menus" / "bar.rs"
+    if bar_rs.is_file():
+        text = bar_rs.read_text(encoding="utf-8")
+        for bad in (
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);",
+        ):
+            if bad in text:
+                text = text.replace(bad, "")
+                bar_rs.write_text(text, encoding="utf-8")
+    # Dock to the right side inside rui in chrome.rs
+    chrome_rs = ui_egui_src / "chrome.rs"
+    if chrome_rs.is_file():
+        text = chrome_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers" not in text:
+            target = "let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));\n            let ui = &mut rui;"
+            replacement = "let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));\n            let ui = &mut rui;\n            crate::topbar_modifiers::render_topbar_modifiers(ui);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                chrome_rs.write_text(text, encoding="utf-8")
+                print(f"  Integrated topbar modifiers into {title} right-side chrome")
+
+elif app == "designcraft":
+    # Clean up any legacy injection in menus/bar.rs
+    bar_rs = ui_egui_src / "menus" / "bar.rs"
+    if bar_rs.is_file():
+        text = bar_rs.read_text(encoding="utf-8")
+        for bad in (
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);\n",
+            "crate::topbar_modifiers::render_topbar_modifiers(ui);",
+            "crate::topbar_modifiers::render_topbar_modifiers_right(ui);",
+        ):
+            if bad in text:
+                text = text.replace(bad, "")
+                bar_rs.write_text(text, encoding="utf-8")
+    # Dock to right side inside tools in chrome/app_bar.rs
+    app_bar_rs = ui_egui_src / "chrome" / "app_bar.rs"
+    if app_bar_rs.is_file():
+        text = app_bar_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers" not in text:
+            target = "let tools = ui.allocate_ui_with_layout(size, egui::Layout::right_to_left(egui::Align::Center), |ui| {\n                            ui.add_space(4.0);"
+            replacement = "let tools = ui.allocate_ui_with_layout(size, egui::Layout::right_to_left(egui::Align::Center), |ui| {\n                            ui.add_space(4.0);\n                            crate::topbar_modifiers::render_topbar_modifiers(ui);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                app_bar_rs.write_text(text, encoding="utf-8")
+                print(f"  Integrated topbar modifiers into {title} right-side app bar")
 
 elif app in ("wordcraft", "gridcraft", "deckcraft"):
     ribbon_rs = ui_egui_src / "ribbon.rs"
@@ -88,14 +139,14 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
                     print(f"  Integrated topbar modifiers into {title} ribbon")
             elif app == "gridcraft":
                 target = "keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));\n                        }\n                    }"
-                replacement = "keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));\n                        }\n                    }\n                    ui.add_space(8.0);\n                    crate::topbar_modifiers::render_topbar_modifiers(ui);"
+                replacement = "keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));\n                        }\n                    }\n                    crate::topbar_modifiers::render_topbar_modifiers_right(ui);"
                 if target in text:
                     text = text.replace(target, replacement, 1)
                     ribbon_rs.write_text(text, encoding="utf-8")
                     print(f"  Integrated topbar modifiers into {title} ribbon")
             elif app == "deckcraft":
                 target = "x += w + 2.0;\n        }\n        if app.ui.ribbon_collapsed {"
-                replacement = "x += w + 2.0;\n        }\n        crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(x + 8.0, y - 1.0));\n        if app.ui.ribbon_collapsed {"
+                replacement = "x += w + 2.0;\n        }\n        crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 220.0, y - 1.0));\n        if app.ui.ribbon_collapsed {"
                 if target in text:
                     text = text.replace(target, replacement, 1)
                     ribbon_rs.write_text(text, encoding="utf-8")
