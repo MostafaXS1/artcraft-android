@@ -1165,6 +1165,9 @@ impl MediaCodecDecoder {
                                 log::warn!("MediaCodecDecoder release_output_buffer failed: {e:?}");
                             }
 
+                            // Consume immediately into SurfaceTexture so BufferQueue never starves
+                            drain_surface_scaler_texture();
+
                             frames.push(DecodedFrame {
                                 pts,
                                 frame: filmcraft_frame::VideoFrame {
@@ -1387,6 +1390,9 @@ impl VideoDecoder for MediaCodecDecoder {
     }
 
     fn flush(&mut self) -> Vec<DecodedFrame> {
+        if self.is_direct_surface {
+            drain_surface_scaler_texture();
+        }
         let mut frames = Vec::new();
 
         // 1. Drain pending frames first
@@ -1426,6 +1432,9 @@ impl VideoDecoder for MediaCodecDecoder {
     }
 
     fn reset(&mut self) {
+        if self.is_direct_surface {
+            drain_surface_scaler_texture();
+        }
         if let Err(e) = self.codec.flush() {
             log::warn!("MediaCodecDecoder reset flush failed: {e:?}");
         }
@@ -1444,6 +1453,16 @@ impl VideoDecoder for MediaCodecDecoder {
 
     fn is_disposable(&self, sample: &[u8]) -> bool {
         self.info.is_disposable(sample)
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for MediaCodecDecoder {
+    fn drop(&mut self) {
+        if self.is_direct_surface {
+            drain_surface_scaler_texture();
+        }
+        let _ = self.codec.stop();
     }
 }
 
@@ -1497,14 +1516,29 @@ fn scaler_init(
 }
 
 #[cfg(target_os = "android")]
-fn scaler_blit() -> bool {
+fn scaler_blit(pts_ns: i64) -> bool {
     let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(scaler) = guard.as_mut() {
-        scaler.blit()
+        scaler.blit(pts_ns)
     } else {
         false
     }
 }
+
+#[cfg(target_os = "android")]
+pub fn drain_surface_scaler_texture() {
+    let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(scaler) = guard.as_mut() {
+        unsafe {
+            if (scaler.fn_eglMakeCurrent)(scaler.display, scaler.surface, scaler.surface, scaler.context) != 0 {
+                let _ = (scaler.fn_ASurfaceTexture_updateTexImage)(scaler.asurface_texture);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn drain_surface_scaler_texture() {}
 
 #[cfg(target_os = "android")]
 fn scaler_check() -> bool {
@@ -2001,25 +2035,20 @@ impl HardwareSurfaceScaler {
         }
     }
 
-    pub fn blit(&mut self) -> bool {
+    pub fn blit(&mut self, pts_ns: i64) -> bool {
         unsafe {
             if (self.fn_eglMakeCurrent)(self.display, self.surface, self.surface, self.context) == 0 {
                 log::warn!("HardwareSurfaceScaler: eglMakeCurrent failed");
                 return false;
             }
 
-            let update_res = (self.fn_ASurfaceTexture_updateTexImage)(self.asurface_texture);
-            if update_res != 0 {
-                log::warn!("HardwareSurfaceScaler: ASurfaceTexture_updateTexImage failed: {update_res}");
-                return false;
-            }
+            let _ = (self.fn_ASurfaceTexture_updateTexImage)(self.asurface_texture);
 
             let mut mtx = [0.0f32; 16];
             (self.fn_ASurfaceTexture_getTransformMatrix)(self.asurface_texture, mtx.as_mut_ptr());
 
             if let Some(set_time) = self.fn_eglPresentationTimeANDROID {
-                let pts_ns = (self.fn_ASurfaceTexture_getTimestamp)(self.asurface_texture);
-                if pts_ns > 0 {
+                if pts_ns >= 0 {
                     set_time(self.display, self.surface, pts_ns);
                 }
             }
