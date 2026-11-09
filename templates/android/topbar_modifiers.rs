@@ -108,7 +108,7 @@ pub fn render_topbar_modifiers_right(ui: &mut Ui) {
 
 /// Renders the toggleable modifier buttons at a specific coordinate inside a parent container.
 pub fn render_topbar_modifiers_at(ui: &mut Ui, pos: Pos2) {
-    let rect = Rect::from_min_size(pos, vec2(230.0, 26.0));
+    let rect = Rect::from_min_size(pos, vec2(205.0, 26.0));
     ui.scope_builder(
         egui::UiBuilder::new()
             .max_rect(rect)
