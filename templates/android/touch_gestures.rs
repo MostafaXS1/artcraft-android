@@ -141,7 +141,13 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
         match fingers {
             2 => {
                 // 2-finger tap: Undo (Ctrl + Z)
-                let mods = Modifiers::COMMAND;
+                let mods = Modifiers {
+                    alt: false,
+                    ctrl: true,
+                    shift: false,
+                    mac_cmd: false,
+                    command: true,
+                };
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,
                     physical_key: Some(Key::ControlLeft),
@@ -214,7 +220,13 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     physical_key: Some(Key::ShiftLeft),
                     pressed: false,
                     repeat: false,
-                    modifiers: Modifiers::COMMAND,
+                    modifiers: Modifiers {
+                        alt: false,
+                        ctrl: true,
+                        shift: false,
+                        mac_cmd: false,
+                        command: true,
+                    },
                 });
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,

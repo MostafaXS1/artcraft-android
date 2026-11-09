@@ -551,9 +551,11 @@ elif app == "gridcraft":
     pan_new = (
         "    // A one-finger touch drag pans the sheet, the content following the finger; it doesn't select.\n"
         "    // (Two fingers pinch-zoom through `zoom_delta` above.)\n"
-        "    let on_handle_touch = resp.interact_pointer_pos().map_or(false, |p| {\n"
+        "    let touch_start_pos = ui.input(|i| i.pointer.press_origin().or(i.pointer.interact_pos()));\n"
+        "    let on_handle_touch = touch_start_pos.map_or(false, |p| {\n"
+        "        let geo = make_geo(app, view.scroll);\n"
         "        let cur = geo.range_rect(sh, sel.current());\n"
-        "        Rect::from_center_size(cur.right_bottom(), vec2(36.0, 36.0)).contains(geo.mirror_pos(p))\n"
+        "        Rect::from_center_size(cur.right_bottom(), vec2(40.0, 40.0)).contains(geo.mirror_pos(p))\n"
         "    });\n"
         "    if resp.drag_started() && ui.input(|i| i.any_touches()) && !on_handle_touch {\n"
         "        app.grid.touch_pan = true;\n"
