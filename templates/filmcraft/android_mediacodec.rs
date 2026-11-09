@@ -287,14 +287,33 @@ impl MediaCodecEncoder {
         let timescale = u32::try_from(rate.num).ok().filter(|n| *n > 0).ok_or("invalid frame rate numerator")?;
         let duration = u32::try_from(rate.den).ok().filter(|d| *d > 0).ok_or("invalid frame rate denominator")?;
         let fps = f64::from(timescale) / f64::from(duration);
-        let kbps = s.bitrate_kbps.max(100);
+        let auto_bitrate_kbps = {
+            let pixels = (w as u64) * (h as u64);
+            let target_fps = fps.max(1.0);
+            // ~0.15 bits/pixel/frame gives pristine visual quality with H.264 High Profile
+            let calculated = (pixels as f64 * target_fps * 0.15 / 1000.0) as u32;
+            if pixels >= 3840 * 2160 {
+                calculated.clamp(35_000, 60_000)
+            } else if pixels >= 1920 * 1080 {
+                calculated.clamp(16_000, 30_000)
+            } else if pixels >= 1280 * 720 {
+                calculated.clamp(8_000, 16_000)
+            } else {
+                calculated.clamp(4_000, 8_000)
+            }
+        };
+        let kbps = if s.bitrate_kbps >= 1000 {
+            s.bitrate_kbps
+        } else {
+            auto_bitrate_kbps
+        };
         let key_interval_sec = s.keyframe_distance
             .filter(|k| *k > 0)
             .map(|k| (f64::from(k) / fps).round().max(1.0) as i32)
             .unwrap_or(2);
         let cbr = s.bitrate_mode == BitrateMode::Cbr;
 
-        let make_format = |surface_mode: bool, with_operating_rate: bool| {
+        let make_format = |surface_mode: bool, with_operating_rate: bool, profile_opt: Option<(i32, i32)>| {
             let mut format = MediaFormat::new();
             format.set_str("mime", "video/avc");
             format.set_i32("width", w as i32);
@@ -306,6 +325,15 @@ impl MediaCodecEncoder {
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
+            if let Some((profile, level)) = profile_opt {
+                format.set_i32("profile", profile);
+                format.set_i32("level", level);
+            }
+            // Standard VUI color description for SDR video (BT.709, Limited Range 16-235, SDR Transfer)
+            // Ensures external video players and galleries match the preview color space exactly.
+            format.set_i32("color-standard", 1); // COLOR_STANDARD_BT709
+            format.set_i32("color-range", 2);    // COLOR_RANGE_LIMITED
+            format.set_i32("color-transfer", 3); // COLOR_TRANSFER_SDR_VIDEO
             if with_operating_rate {
                 format.set_i32("priority", 0);
                 format.set_f32("operating-rate", 1000.0);
@@ -313,19 +341,19 @@ impl MediaCodecEncoder {
             format
         };
 
-        let try_init = |surface_mode: bool, with_operating_rate: bool| -> std::result::Result<(MediaCodec, Option<NativeWindow>), String> {
+        let try_init = |surface_mode: bool, with_operating_rate: bool, profile_opt: Option<(i32, i32)>| -> std::result::Result<(MediaCodec, Option<NativeWindow>), String> {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec encoder: {name} (surface_mode={surface_mode})");
+                log::info!("MediaCodec encoder: {name} (surface_mode={surface_mode}, profile={profile_opt:?})");
                 let lower = name.to_ascii_lowercase();
                 if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
                     return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU encoder)"));
                 }
             }
 
-            let format = make_format(surface_mode, with_operating_rate);
+            let format = make_format(surface_mode, with_operating_rate, profile_opt);
             codec.configure(&format, None, MediaCodecDirection::Encoder)
                 .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
 
@@ -351,32 +379,35 @@ impl MediaCodecEncoder {
             Ok((codec, native_win))
         };
 
-        // Try surface mode first for zero-copy GPU encoding, falling back to buffer mode if needed
-        let (codec, surface) = match try_init(true, true) {
-            Ok(res) => {
-                log::info!("MediaCodec initialized in zero-copy surface mode with operating rate");
-                res
-            }
-            Err(e1) => {
-                log::warn!("MediaCodec surface mode fast init failed ({e1}), retrying with minimal format");
-                match try_init(true, false) {
-                    Ok(res) => {
-                        log::info!("MediaCodec initialized in zero-copy surface mode (minimal format)");
-                        res
-                    }
-                    Err(e2) => {
-                        log::warn!("MediaCodec surface mode failed ({e2}), falling back to buffer mode");
-                        match try_init(false, true) {
-                            Ok(res) => res,
-                            Err(e3) => {
-                                log::warn!("MediaCodec buffer fast init failed ({e3}), retrying minimal format");
-                                try_init(false, false).map_err(|e4| format!("Failed to initialize MediaCodec: {e4}"))?
-                            }
-                        }
-                    }
-                }
-            }
+        let high_level = if (w as u64) * (h as u64) >= 3840 * 2160 {
+            0x8000 // AVCLevel51
+        } else {
+            0x2000 // AVCLevel42
         };
+
+        // Try surface mode first with AVCProfileHigh (8), falling back through profiles and to buffer mode
+        let (codec, surface) = try_init(true, true, Some((8, high_level)))
+            .or_else(|e| {
+                log::warn!("Surface mode High Profile Level 5.1/4.2 failed ({e}), trying Level 4.1");
+                try_init(true, true, Some((8, 0x1000)))
+            })
+            .or_else(|e| {
+                log::warn!("Surface mode High Profile failed ({e}), trying Main Profile");
+                try_init(true, true, Some((2, 0x1000)))
+            })
+            .or_else(|e| {
+                log::warn!("Surface mode Main Profile failed ({e}), trying unconstrained surface format");
+                try_init(true, false, None)
+            })
+            .or_else(|e| {
+                log::warn!("Surface mode completely failed ({e}), falling back to buffer mode High Profile");
+                try_init(false, true, Some((8, high_level)))
+            })
+            .or_else(|e| {
+                log::warn!("Buffer mode High Profile failed ({e}), trying basic buffer mode");
+                try_init(false, false, None)
+            })
+            .map_err(|e| format!("Failed to initialize MediaCodec encoder: {e}"))?;
 
         let (stride, slice_height) = {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| codec.input_format())) {
@@ -425,7 +456,7 @@ impl MediaCodecEncoder {
         let cbr = self.cbr;
         let key_interval_sec = self.key_interval_sec;
         let (w, h) = (self.w, self.h);
-        let make_format = |with_operating_rate: bool| {
+        let make_format = |with_operating_rate: bool, profile_opt: Option<(i32, i32)>| {
             let mut format = MediaFormat::new();
             format.set_str("mime", "video/avc");
             format.set_i32("width", w as i32);
@@ -435,23 +466,33 @@ impl MediaCodecEncoder {
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
+            if let Some((profile, level)) = profile_opt {
+                format.set_i32("profile", profile);
+                format.set_i32("level", level);
+            }
+            format.set_i32("color-standard", 1); // COLOR_STANDARD_BT709
+            format.set_i32("color-range", 2);    // COLOR_RANGE_LIMITED
+            format.set_i32("color-transfer", 3); // COLOR_TRANSFER_SDR_VIDEO
             if with_operating_rate {
                 format.set_i32("priority", 0);
                 format.set_f32("operating-rate", 1000.0);
             }
             format
         };
-        let try_buffer = |with_op: bool| -> std::result::Result<MediaCodec, String> {
+        let try_buffer = |with_op: bool, profile_opt: Option<(i32, i32)>| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type failed".to_string())?;
-            let fmt = make_format(with_op);
+            let fmt = make_format(with_op, profile_opt);
             codec.configure(&fmt, None, MediaCodecDirection::Encoder)
                 .map_err(|e| format!("configure failed: {e:?}"))?;
             codec.start()
                 .map_err(|e| format!("start failed: {e:?}"))?;
             Ok(codec)
         };
-        let new_codec = match try_buffer(true).or_else(|_| try_buffer(false)) {
+        let high_level = if (w as u64) * (h as u64) >= 3840 * 2160 { 0x8000 } else { 0x2000 };
+        let new_codec = match try_buffer(true, Some((8, high_level)))
+            .or_else(|_| try_buffer(false, Some((8, high_level))))
+            .or_else(|_| try_buffer(false, None)) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("MediaCodec failed to reinit in buffer mode: {e}");
