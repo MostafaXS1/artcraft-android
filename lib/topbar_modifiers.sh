@@ -146,7 +146,7 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
                     print(f"  Integrated topbar modifiers into {title} ribbon")
             elif app == "deckcraft":
                 target = "x += w + 2.0;\n        }\n        if app.ui.ribbon_collapsed {"
-                replacement = "x += w + 2.0;\n        }\n        crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 235.0, y - 1.0));\n        if app.ui.ribbon_collapsed {"
+                replacement = "x += w + 2.0;\n        }\n        crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 220.0, y - 1.0));\n        if app.ui.ribbon_collapsed {"
                 if target in text:
                     text = text.replace(target, replacement, 1)
                     ribbon_rs.write_text(text, encoding="utf-8")
@@ -154,7 +154,7 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
         elif app == "deckcraft" and "crate::topbar_modifiers::render_topbar_modifiers_at" in text:
             text = re.sub(
                 r"crate::topbar_modifiers::render_topbar_modifiers_at\(ui, egui::pos2\(ui\.max_rect\(\)\.max\.x - \d+\.0, y - 1\.0\)\);",
-                "crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 235.0, y - 1.0));",
+                "crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 220.0, y - 1.0));",
                 text,
             )
             ribbon_rs.write_text(text, encoding="utf-8")
