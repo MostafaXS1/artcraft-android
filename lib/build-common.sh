@@ -2461,7 +2461,7 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
     if [[ -d "$SRC/apps/$APP-android/src" ]]; then
-        local text_bar_src="$ROOT/templates/android/mobile_text_bar.rs"
+        text_bar_src="$ROOT/templates/android/mobile_text_bar.rs"
         if [[ "$NO_BUTTONS" == "true" ]]; then
             text_bar_src="$ROOT/templates/android/mobile_text_bar_disabled.rs"
         fi
