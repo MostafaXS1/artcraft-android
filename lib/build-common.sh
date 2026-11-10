@@ -545,6 +545,7 @@ export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-false}"
 
 # Avoid downloading large LFS assets that may be missing upstream (e.g. NoteCraft's 404 Large Desktop.one).
 export GIT_LFS_SKIP_SMUDGE=1
+git config --global core.quotePath false 2>/dev/null || true
 # Ensure bindgen and clang use versioned target triples on NDK 27+ / 30+.
 export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTRA_CLANG_ARGS:-}"
 
@@ -574,7 +575,7 @@ source_tree_is_complete() {
     local dir="$1" missing
     [[ -d "$dir/.git" ]] || return 1
     git -C "$dir" rev-parse --verify HEAD >/dev/null 2>&1 || return 1
-    missing="$(git -C "$dir" ls-tree -r --name-only HEAD -- crates apps 2>/dev/null | while IFS= read -r f; do
+    missing="$(git -c core.quotePath=false -C "$dir" ls-tree -r --name-only HEAD -- crates apps 2>/dev/null | while IFS= read -r f; do
         [[ -e "$dir/$f" ]] || printf '%s\n' "$f"
     done | head -5)"
     [[ -z "$missing" ]]
@@ -626,7 +627,7 @@ if [[ -e "$SRC" ]]; then
 
         if [[ "$IS_OUTDATED" == "true" ]]; then
             echo "Current source (${CURRENT_TAG:-${CURRENT_COMMIT:0:7}}) is outdated compared to upstream ($LATEST_REF). Updating..."
-            git -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -C "$SRC" fetch origin >/dev/null 2>&1
+            git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch origin >/dev/null 2>&1
             if git -C "$SRC" checkout -f "$LATEST_REF" >/dev/null 2>&1; then
                 rm -rf "$SRC/apps/$APP-android"
                 echo "Successfully updated $TITLE source to $LATEST_REF ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true))."
@@ -676,7 +677,7 @@ else
         CLONE_ARGS+=(--branch "$TARGET_REF")
     fi
 
-    if ! git clone "${CLONE_ARGS[@]}" "$REPO" "$SRC_TMP"; then
+    if ! git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= clone "${CLONE_ARGS[@]}" "$REPO" "$SRC_TMP"; then
         rm -rf "$SRC_TMP"
         fail "Cloning $REPO (ref: ${TARGET_REF:-default}) failed. Check the network connection and the free disk space, then run the build again."
     fi
@@ -7295,16 +7296,10 @@ fi
 # (2) `show_soft_input`/`hide_soft_input` use NativeActivity's native IME calls: egui's TextEdit
 # widgets request the soft keyboard automatically through the standard input method framework.
 # (3) `set_nonblocking_callbacks` is exported for native-activity too (the SAF bridge calls it).
-if [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft uses storytold egui fork with game-activity feature
-    # prepare.sh vendors android-activity with game-activity feature; builder's android-activity
-    # defaults to native-activity and has compile_error! if both features enabled
-    echo "Skipping builder android-activity copy for $APP (uses storytold fork with game-activity)"
-else
-    echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
-    rm -rf "$SRC/vendor/android-activity"
-    cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
-    python3 - "$SRC/Cargo.toml" <<'PY'
+echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
+rm -rf "$SRC/vendor/android-activity"
+cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
+python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
 p = Path(sys.argv[1])
@@ -7319,7 +7314,6 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
-fi
 
 # sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
 # Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).

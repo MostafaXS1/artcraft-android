@@ -51,6 +51,22 @@ if m:
         p.write_text(s)
 PY
 
+# Ensure paintcraft-cli has a [lib] entry so paintcraft-android can use MCP
+if [[ -f "$SRC_ABS/apps/paintcraft-cli/Cargo.toml" ]] && ! grep -q '^\[lib\]' "$SRC_ABS/apps/paintcraft-cli/Cargo.toml"; then
+    cat >> "$SRC_ABS/apps/paintcraft-cli/Cargo.toml" <<'EOF'
+
+[lib]
+name = "paintcraft_cli"
+path = "src/lib.rs"
+EOF
+fi
+if [[ -d "$SRC_ABS/apps/paintcraft-cli/src" && ! -f "$SRC_ABS/apps/paintcraft-cli/src/lib.rs" ]]; then
+    cat > "$SRC_ABS/apps/paintcraft-cli/src/lib.rs" <<'EOF'
+pub mod commands;
+pub mod report;
+EOF
+fi
+
 # Guard against egui DeleteSurroundingBytes match exhaustion
 python3 - "$SRC_ABS/crates/presentation/paintcraft-ui/src/composition/reduce.rs" <<'PY'
 import sys

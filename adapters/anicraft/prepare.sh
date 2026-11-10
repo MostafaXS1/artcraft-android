@@ -40,45 +40,51 @@ crate-type = ["rlib"]
 EOF
 fi
 
-# Create source/anicraft/src/lib.rs
-cat > "$SRC_ABS/src/lib.rs" <<'EOF'
-#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+# Create source/anicraft/src/lib.rs dynamically based on modules in src/main.rs
+python3 - "$SRC_ABS/src/main.rs" "$SRC_ABS/src/lib.rs" <<'PY'
+import re, sys
+from pathlib import Path
 
-pub mod app;
-pub mod dialogs;
-pub mod icons;
-pub mod keymap;
-pub mod menus;
-pub mod panels;
-pub mod pathtools;
-pub mod platform;
-pub mod prefs;
-pub mod stage;
-pub mod theme;
-pub mod timeline;
+main_p = Path(sys.argv[1])
+lib_p = Path(sys.argv[2])
 
-pub use app::App;
-pub use anicraft_engine::Session;
+main_text = main_p.read_text()
+mods = [m for m in re.findall(r'^(?:pub\s+)?mod\s+([a-zA-Z0-9_]+);', main_text, re.M) if not m.endswith('_tests')]
 
-use std::path::Path;
+lines = [
+    "#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]",
+    "",
+]
+for m in mods:
+    lines.append(f"pub mod {m};")
 
-pub fn open_session(file: Option<&Path>) -> Session {
-    let Some(p) = file else { return Session::new(anicraft_engine::doc::sample::demo()) };
-    let mut s = Session::default();
-    match s.execute("file.open", &serde_json::json!({"path": p.display().to_string()})) {
-        Ok(v) => {
-            if let Some(r) = v.get("report").and_then(|r| r.as_str()) {
-                println!("{r}");
-            }
-            s
-        }
-        Err(e) => {
-            eprintln!("could not open {}: {e}; starting with the sample", p.display());
-            Session::new(anicraft_engine::doc::sample::demo())
-        }
-    }
-}
-EOF
+lines.extend([
+    "",
+    "pub use app::App;",
+    "pub use anicraft_engine::Session;",
+    "",
+    "use std::path::Path;",
+    "",
+    "pub fn open_session(file: Option<&Path>) -> Session {",
+    "    let Some(p) = file else { return Session::new(anicraft_engine::doc::sample::demo()) };",
+    "    let mut s = Session::default();",
+    '    match s.execute("file.open", &serde_json::json!({"path": p.display().to_string()})) {',
+    "        Ok(v) => {",
+    '            if let Some(r) = v.get("report").and_then(|r| r.as_str()) {',
+    '                println!("{r}");',
+    "            }",
+    "            s",
+    "        }",
+    "        Err(e) => {",
+    '            eprintln!("could not open {}: {e}; starting with the sample", p.display());',
+    "            Session::new(anicraft_engine::doc::sample::demo())",
+    "        }",
+    "    }",
+    "}",
+])
+
+lib_p.write_text("\n".join(lines) + "\n")
+PY
 
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
