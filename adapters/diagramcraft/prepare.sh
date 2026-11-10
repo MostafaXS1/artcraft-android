@@ -112,15 +112,9 @@ PY
 # user's settings, recents and loaded stencils.
 python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 p = Path(sys.argv[1])
 s = p.read_text()
-
-anchor = '''    /// Open a document at `path` (headless tests, `dc-ui <file>`).
-    pub fn with_doc(path: &std::path::Path) -> App {
-        App::with_doc_opt(Some(path.to_path_buf()))
-    }
-'''
 
 addition = '''
     /// Open `path` into this running app (the Android shell's incoming VIEW/SEND intents).
@@ -132,12 +126,15 @@ addition = '''
 
 if "pub fn open_document" in s:
     print("dc-ui app.rs already exposes open_document")
-elif anchor in s:
-    s = s.replace(anchor, anchor + addition)
-    p.write_text(s)
-    print("Patched dc-ui app.rs with open_document")
 else:
-    raise SystemExit("Could not find dc-ui with_doc anchor for the open_document patch")
+    m = re.search(r'(pub fn with_doc\(path: &std::path::Path\) -> App \{.*?\n    \})', s, re.DOTALL)
+    if m:
+        target = m.group(1)
+        s = s.replace(target, target + "\n" + addition, 1)
+        p.write_text(s)
+        print("Patched dc-ui app.rs with open_document")
+    else:
+        raise SystemExit("Could not find dc-ui with_doc anchor for the open_document patch")
 PY
 
 mkdir -p "$DEST"
