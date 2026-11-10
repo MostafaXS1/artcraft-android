@@ -66,6 +66,16 @@ pub mod commands;
 pub mod report;
 EOF
 fi
+python3 - "$SRC_ABS/apps/paintcraft-cli/src/commands/mcp/mod.rs" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+if p.exists():
+    s = p.read_text()
+    if "pub fn new() -> Self {" not in s:
+        s = s.replace("    fn new() -> Self {", "    pub fn new() -> Self {")
+        p.write_text(s)
+PY
 
 # Guard against egui DeleteSurroundingBytes match exhaustion
 python3 - "$SRC_ABS/crates/presentation/paintcraft-ui/src/composition/reduce.rs" <<'PY'

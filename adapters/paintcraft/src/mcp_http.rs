@@ -253,7 +253,7 @@ impl PaintCraftMcpServer {
         let (client_in, server_in) = tokio::io::duplex(65536);
         let (server_out, client_out) = tokio::io::duplex(65536);
         let lines = TokioBufReader::new(client_out).lines();
-        let server = PaintingServer::default();
+        let server = PaintingServer::new();
         rt.spawn(async move {
             let _ = server.serve((server_in, server_out)).await;
         });
