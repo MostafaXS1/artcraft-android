@@ -13,7 +13,7 @@ use android_activity::input::{
 use android_activity::{
     AndroidApp, AndroidAppWaker, ConfigurationRef, InputStatus, MainEvent, Rect,
 };
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::cursor::Cursor;
 use crate::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
@@ -58,11 +58,11 @@ const POINTS_PER_AXIS: f64 = 40.0;
 
 /// How far the two fingers' midpoint must move (physical pixels) before a two-finger gesture
 /// counts as a pan (a scroll) rather than staying undecided.
-const PAN_DEADZONE_PX: f64 = 12.0;
+const PAN_DEADZONE_PX: f64 = 36.0;
 
 /// How far the two fingers' spread must change (physical pixels) before a two-finger gesture can
 /// be a pinch (a zoom) rather than a pan.
-const PINCH_DEADZONE_PX: f64 = 36.0;
+const PINCH_DEADZONE_PX: f64 = 40.0;
 
 /// How much more the two fingers' spread must change than their midpoint moves for a pinch to win
 /// the gesture. A pan holds the fingers a fixed distance apart while the pair slides; a pinch
@@ -275,8 +275,8 @@ struct TouchSequence {
     start_positions: Vec<(i32, PhysicalPosition<f64>)>,
 }
 
-const TAP_SLOP_PX: f64 = 28.0;
-const TAP_MAX_DURATION: std::time::Duration = std::time::Duration::from_millis(300);
+const TAP_SLOP_PX: f64 = 40.0;
+const TAP_MAX_DURATION: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// What a multi-finger gesture has been recognised as.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -641,13 +641,16 @@ impl<T: 'static> EventLoop<T> {
                 let remaining = remaining_touch_points(motion_event);
                 let tap_step = if remaining.is_empty() {
                     if let Some(seq) = self.touch_seq.take() {
-                        if !seq.moved && !seq.gestured && seq.start_time.elapsed() <= TAP_MAX_DURATION {
+                        let elapsed = seq.start_time.elapsed();
+                        if !seq.moved && !seq.gestured && elapsed <= TAP_MAX_DURATION {
                             if seq.max_pointers == 2 || seq.max_pointers == 3 {
+                                info!("Tap gesture detected: {} fingers (elapsed {:?})", seq.max_pointers, elapsed);
                                 Some(GestureStep::Tap(seq.max_pointers))
                             } else {
                                 None
                             }
                         } else {
+                            debug!("Tap discarded: moved={}, gestured={}, elapsed={:?}, pointers={}", seq.moved, seq.gestured, elapsed, seq.max_pointers);
                             None
                         }
                     } else {
@@ -1435,14 +1438,14 @@ impl<T: 'static> EventLoop<T> {
                                     return input_status;
                                 }
                                 GestureStep::Tap(count) => {
-                                    trace!("Multi-finger tap gesture: {count} fingers");
+                                    info!("Multi-finger tap gesture: {count} fingers (emitting {})", if count == 2 { "Undo (Ctrl+Z)" } else { "Redo (Ctrl+Shift+Z)" });
                                     let (ctrl, shift) = match count {
                                         2 => (true, false), // 2 fingers = Undo (Ctrl+Z)
                                         3 => (true, true),  // 3 fingers = Redo (Ctrl+Shift+Z)
                                         _ => (false, false),
                                     };
                                     if ctrl {
-                                        let emit_key = |cb: &mut F, st: event::ElementState| {
+                                        let emit_key = |cb: &mut F, code: keyboard::KeyCode, key: keyboard::Key, st: event::ElementState| {
                                             cb(
                                                 event::Event::WindowEvent {
                                                     window_id,
@@ -1450,14 +1453,14 @@ impl<T: 'static> EventLoop<T> {
                                                         device_id,
                                                         event: event::KeyEvent {
                                                             state: st,
-                                                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyZ),
-                                                            logical_key: keyboard::Key::Character(smol_str::SmolStr::new(if shift { "Z" } else { "z" })),
+                                                            physical_key: keyboard::PhysicalKey::Code(code),
+                                                            logical_key: key,
                                                             location: keyboard::KeyLocation::Standard,
                                                             repeat: false,
                                                             text: None,
                                                             platform_specific: KeyEventExtra {},
                                                         },
-                                                        is_synthetic: true,
+                                                        is_synthetic: false,
                                                     },
                                                 },
                                                 self.window_target(),
@@ -1476,8 +1479,24 @@ impl<T: 'static> EventLoop<T> {
                                             self.window_target(),
                                         );
 
-                                        emit_key(callback, event::ElementState::Pressed);
-                                        emit_key(callback, event::ElementState::Released);
+                                        // 1. ControlLeft down
+                                        emit_key(callback, keyboard::KeyCode::ControlLeft, keyboard::Key::Named(keyboard::NamedKey::Control), event::ElementState::Pressed);
+                                        if shift {
+                                            // 2. ShiftLeft down
+                                            emit_key(callback, keyboard::KeyCode::ShiftLeft, keyboard::Key::Named(keyboard::NamedKey::Shift), event::ElementState::Pressed);
+                                        }
+
+                                        // 3. KeyZ down and up
+                                        let z_key = keyboard::Key::Character(smol_str::SmolStr::new(if shift { "Z" } else { "z" }));
+                                        emit_key(callback, keyboard::KeyCode::KeyZ, z_key.clone(), event::ElementState::Pressed);
+                                        emit_key(callback, keyboard::KeyCode::KeyZ, z_key, event::ElementState::Released);
+
+                                        if shift {
+                                            // 4. ShiftLeft up
+                                            emit_key(callback, keyboard::KeyCode::ShiftLeft, keyboard::Key::Named(keyboard::NamedKey::Shift), event::ElementState::Released);
+                                        }
+                                        // 5. ControlLeft up
+                                        emit_key(callback, keyboard::KeyCode::ControlLeft, keyboard::Key::Named(keyboard::NamedKey::Control), event::ElementState::Released);
 
                                         callback(
                                             event::Event::WindowEvent {

@@ -113,27 +113,11 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
 
     // Pinch-to-zoom protection:
     // While 2 or more fingers are down (or during a multi-finger tap gesture),
-    // suppress pointer button presses so painting/drawing tools do not emit stray marks.
+    // suppress ALL pointer button events so painting/drawing tools and UI buttons
+    // do not emit stray marks or accidental clicks.
     let is_multi_touch = state.fingers.len() >= 2 || state.was_multi;
     if is_multi_touch {
-        raw.events.retain(|event| {
-            !matches!(
-                event,
-                Event::PointerButton { pressed: true, .. }
-            )
-        });
-    }
-
-    if cancel_stroke {
-        if let Some(pos) = cancel_pos {
-            // Abort any active pointer press that started before the second finger landed
-            raw.events.push(Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: Modifiers::NONE,
-            });
-        }
+        raw.events.retain(|event| !matches!(event, Event::PointerButton { .. }));
     }
 
     // Trigger Undo or Redo shortcuts
@@ -148,6 +132,7 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
+                raw.events.push(Event::ModifiersChanged(mods));
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,
                     physical_key: Some(Key::ControlLeft),
@@ -176,6 +161,7 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: Modifiers::NONE,
                 });
+                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             3 => {
@@ -187,6 +173,7 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
+                raw.events.push(Event::ModifiersChanged(mods));
                 raw.events.push(Event::Key {
                     key: Key::ControlLeft,
                     physical_key: Some(Key::ControlLeft),
@@ -235,6 +222,7 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: Modifiers::NONE,
                 });
+                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             _ => {}

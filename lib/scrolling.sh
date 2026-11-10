@@ -593,6 +593,30 @@ elif app == "gridcraft":
     if fix("crates/ui-egui/src/grid/show.rs", pan_bypass_old, pan_bypass_new):
         fixed.append("crates/ui-egui/src/grid/show.rs (secondary click cancels touch pan)")
 
+elif app == "deckcraft":
+    # Enable Cmd+Shift+Z (Ctrl+Shift+Z) to trigger edit.redo in DeckCraft
+    deck_keys_old = (
+        "                    let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };\n"
+        "                    if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {\n"
+        "                        continue;\n"
+        "                    }\n"
+    )
+    deck_keys_new = (
+        "                    let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };\n"
+        "                    if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {\n"
+        "                        continue;\n"
+        "                    }\n"
+        "                    if mods.cmd && mods.shift && !mods.alt && key == egui::Key::Z {\n"
+        '                        if let Err(e) = self.session.execute("edit.redo", &json!({})) {\n'
+        "                            self.set_status(e.to_string());\n"
+        "                        }\n"
+        "                        self.note_application_edit(ctx);\n"
+        "                        continue;\n"
+        "                    }\n"
+    )
+    if fix("crates/ui-egui/src/app/keys.rs", deck_keys_old, deck_keys_new):
+        fixed.append("crates/ui-egui/src/app/keys.rs (enable Cmd+Shift+Z for redo)")
+
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")
 PY

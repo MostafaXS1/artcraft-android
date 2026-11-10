@@ -5410,6 +5410,14 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
     let mut kept: Vec<egui::Event> = Vec::with_capacity(raw.events.len());
     for mut event in raw.events.drain(..) {
         match &mut event {
+            egui::Event::ModifiersChanged(m) => {
+                state.shift = m.shift;
+                state.ctrl = m.ctrl;
+                state.alt = m.alt;
+                state.mac_cmd = m.mac_cmd;
+                state.command = m.command || m.ctrl;
+                kept.push(event);
+            }
             egui::Event::Key { key, physical_key, pressed, modifiers, .. } => {
                 let tracked = physical_key.unwrap_or(*key);
                 match tracked {
@@ -5420,15 +5428,28 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    modifiers.shift |= state.shift;
+                    modifiers.ctrl |= state.ctrl;
+                    modifiers.alt |= state.alt;
+                    modifiers.command |= state.command;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::MouseWheel { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::Text(_) if state.ctrl || state.command || state.mac_cmd => {}
