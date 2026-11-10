@@ -56,6 +56,9 @@ fn get_clipboard_text() -> Option<String> {
 /// Consumes interactions with the bar so egui does NOT surrender focus on the active TextEdit,
 /// and synthesizes the corresponding editing events directly into `raw.events`.
 pub fn process_raw_input(ctx: &Context, raw: &mut egui::RawInput) {
+    if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
     let buttons = {
         if let Ok(g) = BAR_BUTTONS.lock() {
             g.clone()
@@ -175,6 +178,9 @@ pub fn process_raw_input(ctx: &Context, raw: &mut egui::RawInput) {
 /// Renders the mobile text context bar if a text field is currently focused.
 /// Safe to call every frame inside the UI pass.
 pub fn show_text_bar(ctx: &Context) {
+    if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
     let Some(field_id) = ctx.memory(|m| m.focused()) else {
         if let Ok(mut b) = BAR_BUTTONS.lock() {
             b.clear();

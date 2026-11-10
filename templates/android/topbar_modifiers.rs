@@ -77,6 +77,9 @@ pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
 
 /// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline into the current UI row.
 pub fn render_topbar_modifiers(ui: &mut Ui) {
+    if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
     ui.spacing_mut().item_spacing.x = 6.0;
     ui.spacing_mut().button_padding = vec2(6.0, 3.0);
 

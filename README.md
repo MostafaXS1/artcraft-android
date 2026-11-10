@@ -63,6 +63,15 @@ The objective is to preserve the functionality of the PC applications while maki
 
 The Android build process uses templates, adapters, vendored changes, and compatibility patches as needed. This keeps the Android integration organized and makes it easier to maintain across the app suite.
 
+## Model Context Protocol (MCP) Integration
+
+ArtCraft Android integrates Model Context Protocol (MCP) server support across the suite via an HTTP loopback transport (`templates/android/mcp_http.rs`).
+
+- **AI Agent Automation**: AI coding assistants (such as Claude Code running in Termux locally on Android or connected from another computer across the same local Wi-Fi network) can inspect and drive the applications programmatically using standard MCP tool calls.
+- **Streamable HTTP Transport**: Implements standard Streamable HTTP transport, answering POST requests with JSON-RPC without requiring persistent bidirectional event streams.
+- **Bearer Token Security**: Each launch generates a secure random bearer token displayed in the app settings, requiring `Authorization: Bearer <token>` on all incoming requests.
+- **Upstream Parity**: For applications with native MCP suites (such as SolidCraft), tool calls and RPC handlers map directly onto desktop capabilities.
+
 ## Links
 
 - **Downloads:** [GitHub Releases](https://github.com/MostafaXS1/artcraft-android/releases/)
@@ -105,13 +114,26 @@ Replace `-pdfcraft` with any supported application name.
 
 ### Supported Build Targets
 
-| App | Repo |
-| --- | --- |
-| photocraft, vectorcraft, filmcraft, lightcraft, pdfcraft, effectcraft, designcraft, figcraft, wordcraft, soundcraft, deckcraft, cadcraft, gridcraft, materialcraft, texturecraft | Storytold (official) |
-| subcraft | [Aalzard/subcraft](https://github.com/Aalzard/subcraft) *(Unofficial)* |
-| solidcraft | [tangency-labs/solidcraft](https://github.com/tangency-labs/solidcraft) *(Community)* |
+| App | Status | Repo |
+| --- | --- | --- |
+| `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`, `materialcraft`, `texturecraft`, `anicraft` | Official | Storytold |
+| `subcraft` | Unofficial | [Aalzard/subcraft](https://github.com/Aalzard/subcraft) |
+| `solidcraft` | Unofficial | [tangency-labs/solidcraft](https://github.com/tangency-labs/solidcraft) |
+| `bimcraft` | Unofficial | [IPedrax/BIMCraft](https://github.com/IPedrax/BIMCraft) |
+| `capsulecraft` | Unofficial | [kostyk348/CapsuleCraft](https://github.com/kostyk348/CapsuleCraft) |
+| `diagramcraft` | Unofficial | [baradhili/DiagramCraft](https://github.com/baradhili/DiagramCraft) |
+| `earthcraft` | Unofficial | [therichronicles/EarthCraft](https://github.com/therichronicles/EarthCraft) |
+| `humanmotioncraft` | Unofficial | [YalKouassi/HumanMotionCraft](https://github.com/YalKouassi/HumanMotionCraft) |
+| `mapcraft` | Unofficial | [bearlikelion/MapCraft](https://github.com/bearlikelion/MapCraft) |
+| `notecraft` | Unofficial | [AlienTechSoftware/notecraft](https://github.com/AlienTechSoftware/notecraft) |
+| `paintcraft` | Unofficial | [replicraft/PaintCraft](https://github.com/replicraft/PaintCraft) |
+| `picassosuite` | Unofficial | [fabox-os/Picasso-Suite](https://github.com/fabox-os/Picasso-Suite) |
+| `prowave` | Unofficial | [fabox-os/Pro-Wave](https://github.com/fabox-os/Pro-Wave) |
+| `rustgis` | Unofficial | [opengeos/RustGIS](https://github.com/opengeos/RustGIS) |
+| `tracedraw` | Unofficial | [tracedraw/tracedraw](https://github.com/tracedraw/tracedraw) |
+| `transit` | Unofficial | [transit-audio/transit](https://github.com/transit-audio/transit) |
 
-App names are passed as command-line flags, such as `-photocraft` or `-vectorcraft`.
+App names are passed as command-line flags, such as `-photocraft` or `-anicraft`.
 
 ### Build Options
 
@@ -124,6 +146,8 @@ App names are passed as command-line flags, such as `-photocraft` or `-vectorcra
 | `-appname=<name>` | Override the Android display name. |
 | `-packagename=<pkg>` | Override the Android package name. The default is `com.artcraft.<app>`. |
 | `-appicon=<path>` | Use a custom launcher icon PNG. |
+| `--no-buttons` | Build without virtual on-screen Shift/Alt/Ctrl modifier buttons and Cut/Copy/Paste/Delete text buttons. |
+| `--noupdate` | Skip checking for and downloading newer source checkouts. |
 | `-h` or `--help` | Show command help. |
 
 ### Build Examples

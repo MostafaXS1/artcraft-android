@@ -24,6 +24,7 @@ Options:
   -appname=<name>     Override the display name (default: app's built-in title)
   -packagename=<pkg>  Override the Android package (default: com.artcraft.<app>)
   -appicon=<path>     Use a custom launcher icon PNG (default: app's own icon)
+  --no-buttons        Build without virtual Shift/Ctrl/Alt and Cut/Copy/Paste/Delete buttons
   --noupdate          Skip checking for and downloading newer source
   -h, --help          Show this help
 
@@ -60,11 +61,17 @@ fi
 APPNAME=""
 PACKAGENAME=""
 APPICON=""
+NO_BUTTONS="${NO_BUTTONS:-false}"
 BUILD_SOURCE="${BUILD_SOURCE:-stable}"
 UPDATE_SOURCE="${UPDATE_SOURCE:-true}"
 RAW_APP=""
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
+        --no-buttons|-no-buttons)
+            NO_BUTTONS="true"
+            export ARTCRAFT_NO_BUTTONS="1"
+            shift
+            ;;
         --noupdate|-noupdate)
             UPDATE_SOURCE="false"
             shift
@@ -2447,23 +2454,29 @@ bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 
 # Topbar modifiers (Shift, Ctrl, Alt toggle buttons integrated into topbar/ribbon for 6 apps).
-bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
 
 say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
     if [[ -d "$SRC/apps/$APP-android/src" ]]; then
-        [[ -f "$ROOT/templates/android/mobile_text_bar.rs" ]] && cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+        local text_bar_src="$ROOT/templates/android/mobile_text_bar.rs"
+        if [[ "$NO_BUTTONS" == "true" ]]; then
+            text_bar_src="$ROOT/templates/android/mobile_text_bar_disabled.rs"
+        fi
+        [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
     fi
 else
-    python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" <<'PY'
+    python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" "$NO_BUTTONS" <<'PY'
 from pathlib import Path
 import re, shutil, sys, tomllib
 
-root, src_s, app, title, target_sdk, appname, packagename, appicon = sys.argv[1:]
+root, src_s, app, title, target_sdk, appname, packagename, appicon, no_buttons_str = sys.argv[1:10]
 root, src = Path(root), Path(src_s)
+no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
+text_bar_file = "mobile_text_bar_disabled.rs" if no_buttons else "mobile_text_bar.rs"
 # Shared file-association table (Android open/share intent filters), also used by the adapter
 # prepare scripts so every launcher advertises the same associations.
 sys.path.insert(0, str(root / "lib"))
@@ -2491,7 +2504,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", android_dir / "src" / "system_fonts.rs")
     if not (custom / "src" / "mcp_http.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
-    shutil.copy2(root / "templates" / "android" / "mobile_text_bar.rs", android_dir / "src" / "mobile_text_bar.rs")
+    shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
@@ -2529,7 +2542,8 @@ if android_dir.exists():
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
             for shared in ("system_fonts.rs", "mobile_text_bar.rs", "touch_gestures.rs"):
-                src_shared = root / "templates" / "android" / shared
+                real_shared = text_bar_file if shared == "mobile_text_bar.rs" else shared
+                src_shared = root / "templates" / "android" / real_shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
@@ -6219,7 +6233,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
-    shutil.copy2(root / "templates" / "android" / "mobile_text_bar.rs", staging_dir / "src" / "mobile_text_bar.rs")
+    shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {

@@ -22,20 +22,25 @@ case "$APP" in
         ;;
 esac
 
-python3 - "$ROOT" "$SRC" "$APP" "$TITLE" <<'PY'
+NO_BUTTONS="${4:-${ARTCRAFT_NO_BUTTONS:-false}}"
+
+python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS" <<'PY'
 from pathlib import Path
+import os
 import re
 import shutil
 import sys
 
-root, src, app, title = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+root, src, app, title, no_buttons_str = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
 
 ui_egui_src = src / "crates" / "ui-egui" / "src"
 if not ui_egui_src.is_dir():
     sys.exit(0)
 
 # 1. Copy topbar_modifiers.rs into crates/ui-egui/src/topbar_modifiers.rs
-shutil.copy2(root / "templates" / "android" / "topbar_modifiers.rs", ui_egui_src / "topbar_modifiers.rs")
+template_file = "topbar_modifiers_disabled.rs" if no_buttons else "topbar_modifiers.rs"
+shutil.copy2(root / "templates" / "android" / template_file, ui_egui_src / "topbar_modifiers.rs")
 
 # 2. Register pub mod topbar_modifiers; in crates/ui-egui/src/lib.rs
 lib_rs = ui_egui_src / "lib.rs"
