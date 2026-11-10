@@ -56,6 +56,8 @@ lines = [
     "",
 ]
 for m in mods:
+    if m == "web":
+        lines.append('#[cfg(target_arch = "wasm32")]')
     lines.append(f"pub mod {m};")
 
 lines.extend([
