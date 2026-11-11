@@ -72,14 +72,17 @@ pub fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
 
 /// Deferred single-finger pointer press state to prevent accidental element touches / clicks
 /// during multi-finger gestures (undo/redo taps, two-finger pan, pinch-zoom).
+///
+/// The press is sent once the gesture is known to be a drag (the finger moved past the slop)
+/// or a tap (the finger lifts). A finger that stays still becomes a hold-to-right-click
+/// instead, and never presses anything underneath it.
 #[derive(Clone, Copy, Debug)]
 struct PendingPointerDown {
     touch_id: u64,
     location: winit::dpi::PhysicalPosition<f64>,
-    start_time: web_time::Instant,
 }
 
-const POINTER_DOWN_DELAY_MS: u64 = 100;
+/// Movement (in physical pixels) that turns a finger that stayed still into a drag.
 const POINTER_DOWN_SLOP_PX: f64 = 20.0;
 
 /// Hold-to-right-click configuration and state.
@@ -96,18 +99,30 @@ struct HoldToRightClick {
     start_time: web_time::Instant,
     /// Whether the right-click has been emitted.
     fired: bool,
+    /// Whether a primary (left) press was already sent for this touch.
+    ///
+    /// A finger does not press the pointer until it moves (see `pending_pointer_down`), so a
+    /// hold never has a primary press to cancel. A stylus does press right away, and then the
+    /// hold may only fire once that press is too old for egui to turn the release into a
+    /// click — otherwise the hold would activate the widget underneath it as well.
+    press_sent: bool,
 }
 
 impl HoldToRightClick {
     const HOLD_DURATION_MS: u64 = 500;
     const SLOP_PX: f64 = 40.0; // allowable movement in physical pixels
 
-    fn new(touch_id: u64, start_pos: winit::dpi::PhysicalPosition<f64>) -> Self {
+    fn new(
+        touch_id: u64,
+        start_pos: winit::dpi::PhysicalPosition<f64>,
+        press_sent: bool,
+    ) -> Self {
         Self {
             touch_id,
             start_pos,
             start_time: web_time::Instant::now(),
             fired: false,
+            press_sent,
         }
     }
 
@@ -1066,8 +1081,17 @@ impl State {
         if let Some(ref mut hold) = self.hold_to_right_click {
             if !hold.fired {
                 hold.fired = true;
-                // If Left button was pressed as pointer, release it so any drag/click is cancelled cleanly
+                // A hold is a right-click and never a left-click.
+                //
+                // A finger's primary press is only sent once the finger moves (see
+                // `pending_pointer_down`), so a finger that stays still has no press to
+                // cancel: drop the pending press and send no primary release at all. Nothing
+                // under the finger is activated — not the widget, not a drag, not a stroke.
+                self.pending_pointer_down = None;
                 if self.pointer_touch_id.is_some() {
+                    // A stylus, whose press is sent right away: release it so the press does
+                    // not stay down. The hold only fires once that press is too old to become
+                    // a click, so this release cannot activate anything either.
                     self.on_mouse_button_input(
                         winit::event::ElementState::Released,
                         winit::event::MouseButton::Left,
@@ -1087,10 +1111,31 @@ impl State {
         }
     }
 
+    /// Whether the tracked hold may fire now.
+    ///
+    /// It has to have been held long enough, and — when a primary press was already sent for
+    /// this touch (a stylus) — that press has to be too old for egui to turn its release into
+    /// a click. egui only reports a click while the press is younger than
+    /// `InputOptions::max_click_duration` (0.8 s by default), so a hold that fires inside
+    /// that window would activate the widget underneath the finger as well.
+    fn hold_may_fire(&self, hold: &HoldToRightClick) -> bool {
+        let elapsed = hold.start_time.elapsed().as_secs_f64();
+        if elapsed < HoldToRightClick::HOLD_DURATION_MS as f64 / 1000.0 {
+            return false;
+        }
+        if hold.press_sent {
+            let click_window = self.egui_ctx.options(|o| o.input_options.max_click_duration);
+            if elapsed < click_window {
+                return false;
+            }
+        }
+        true
+    }
+
     fn check_hold_to_right_click_timer(&mut self) {
         if let Some(hold) = self.hold_to_right_click {
             if !hold.fired {
-                if hold.start_time.elapsed().as_millis() >= HoldToRightClick::HOLD_DURATION_MS as u128 {
+                if self.hold_may_fire(&hold) {
                     self.fire_hold_to_right_click();
                 } else {
                     self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -1108,25 +1153,22 @@ impl State {
                     winit::event::ElementState::Pressed,
                     winit::event::MouseButton::Left,
                 );
-                self.hold_to_right_click = Some(HoldToRightClick::new(
-                    pending.touch_id,
-                    pending.location,
-                ));
-                self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
+                // The finger moved: this is a drag, not a hold-to-right-click. Drop the hold
+                // so it cannot fire later and cancel the drag with a right-click.
+                self.hold_to_right_click = None;
             }
         }
     }
 
-    fn check_pending_pointer_down(&mut self, window: &Window) {
-        if let Some(pending) = self.pending_pointer_down {
-            if self.gesture_was_multi_finger || self.gesture_touch_ids.len() > 1 {
-                self.pending_pointer_down = None;
-            } else if pending.start_time.elapsed().as_millis() >= POINTER_DOWN_DELAY_MS as u128 {
-                self.commit_pending_pointer_down(window);
-            } else {
-                let remaining = POINTER_DOWN_DELAY_MS.saturating_sub(pending.start_time.elapsed().as_millis() as u64);
-                self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(remaining.max(1)));
-            }
+    fn check_pending_pointer_down(&mut self, _window: &Window) {
+        // A multi-finger gesture must not press anything underneath it: drop the pending
+        // press as soon as a second finger joins. (The press is only sent once the finger
+        // moves, so there is nothing to release.)
+        if self.pending_pointer_down.is_some()
+            && (self.gesture_was_multi_finger || self.gesture_touch_ids.len() > 1)
+        {
+            self.pending_pointer_down = None;
+            self.hold_to_right_click = None;
         }
     }
 
@@ -1240,34 +1282,47 @@ impl State {
                         self.hold_to_right_click = Some(HoldToRightClick::new(
                             touch.id,
                             touch.location,
+                            true,
                         ));
                         self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
                     } else {
-                        // Single finger touch: defer pointer press by POINTER_DOWN_DELAY_MS so a second finger
-                        // landing with it (multi-finger tap or pinch/pan) cancels it before it touches
-                        // or clicks anything underneath!
+                        // A single finger does not press the pointer straight away. The press
+                        // waits until the gesture is known to be a drag (the finger moved) or a
+                        // tap (the finger lifts): a finger that stays still becomes a
+                        // hold-to-right-click, and a hold must not also activate the widget
+                        // underneath it, so it never sends a primary press at all.
+                        //
+                        // Deferring the press also keeps a second finger (multi-finger tap,
+                        // pinch/pan) from touching anything underneath it.
                         self.pending_pointer_down = Some(PendingPointerDown {
                             touch_id: touch.id,
                             location: touch.location,
-                            start_time: web_time::Instant::now(),
                         });
+                        // The hold is timed from the touch-down, so a long press is
+                        // HOLD_DURATION_MS of holding.
+                        self.hold_to_right_click = Some(HoldToRightClick::new(
+                            touch.id,
+                            touch.location,
+                            false,
+                        ));
                         self.on_cursor_moved(window, touch.location);
-                        self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(POINTER_DOWN_DELAY_MS));
+                        self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
                     }
                 }
                 winit::event::TouchPhase::Moved => {
-                    self.on_cursor_moved(window, touch.location);
+                    // A finger that moves is a drag, not a hold. Commit the press first
+                    // (anchored at the touch-down point) so the drag starts in this very
+                    // frame, then move the pointer to where the finger is now.
                     if let Some(pending) = self.pending_pointer_down {
                         let dx = touch.location.x - pending.location.x;
                         let dy = touch.location.y - pending.location.y;
-                        if (dx * dx + dy * dy) > POINTER_DOWN_SLOP_PX * POINTER_DOWN_SLOP_PX
-                            || pending.start_time.elapsed().as_millis() >= POINTER_DOWN_DELAY_MS as u128
-                        {
+                        if (dx * dx + dy * dy) > POINTER_DOWN_SLOP_PX * POINTER_DOWN_SLOP_PX {
                             self.commit_pending_pointer_down(window);
                         }
                     }
+                    self.on_cursor_moved(window, touch.location);
                     if let Some(hold) = self.hold_to_right_click {
-                        if hold.should_fire(touch.location) {
+                        if hold.should_fire(touch.location) && self.hold_may_fire(&hold) {
                             self.fire_hold_to_right_click();
                         } else if hold.is_cancelled(touch.location) {
                             self.hold_to_right_click = None;
@@ -1276,8 +1331,11 @@ impl State {
                 }
                 winit::event::TouchPhase::Ended => {
                     if let Some(pending) = self.pending_pointer_down.take() {
-                        // Quick single-finger tap!
-                        if !self.gesture_was_multi_finger {
+                        // The finger never moved and no hold fired: a tap. Press and release
+                        // right away so it behaves like an ordinary click.
+                        let hold_fired = self.hold_to_right_click.as_ref().is_some_and(|h| h.fired);
+                        self.hold_to_right_click = None;
+                        if !self.gesture_was_multi_finger && !hold_fired {
                             self.pointer_touch_id = Some(pending.touch_id);
                             self.on_cursor_moved(window, pending.location);
                             self.on_mouse_button_input(

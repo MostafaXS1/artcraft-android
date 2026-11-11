@@ -1647,6 +1647,20 @@ public final class __CLASS__ extends NativeActivity {
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
         if (lower.endsWith(".epub")) return "application/epub+zip";
         if (lower.endsWith(".zip")) return "application/zip";
+        // Documents and spreadsheets: the save dialog has to create the document with the type
+        // the app will write, or other apps (and the file manager's own icon) do not recognise it.
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".xlsm")) return "application/vnd.ms-excel.sheet.macroEnabled.12";
+        if (lower.endsWith(".xltx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.template";
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".ods")) return "application/vnd.oasis.opendocument.spreadsheet";
+        if (lower.endsWith(".csv")) return "text/csv";
+        if (lower.endsWith(".tsv")) return "text/tab-separated-values";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".doc")) return "application/msword";
+        if (lower.endsWith(".odt")) return "application/vnd.oasis.opendocument.text";
+        if (lower.endsWith(".rtf")) return "application/rtf";
+        if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
         return "application/octet-stream";
     }
 }

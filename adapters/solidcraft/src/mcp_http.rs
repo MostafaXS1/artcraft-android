@@ -241,7 +241,7 @@ impl solidcraft_mcp::Backend for UiControlBackend {
         let Some(tx) = crate::CONTROL_TX.get() else {
             return Err("SolveApp UI not initialized".to_string());
         };
-        let (req, rx) = solidcraft_ui_egui::ControlRequest::new(method, params);
+        let (req, rx) = solidcraft_control::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
         if let Ok(g) = crate::EGUI_CTX.lock() {
             if let Some(ctx) = g.as_ref() {

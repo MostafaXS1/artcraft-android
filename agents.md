@@ -563,7 +563,7 @@ pub enum PickAnswer {
 ```
 
 **SaveMirror:**
-Tracks staged save paths by ID, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (~200ms) to detect writes.
+Tracks staged save paths by ID, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (~200ms) to detect writes. A file that appears *beside* the staged path after the pick (the app adds or replaces the extension then: GridCraft's "Book" becomes "Book.xlsx") is the app's write and is committed as well — it is adopted with an "unseen" baseline, so it is committed even when the app had already finished writing it (otherwise the document the user chose stays 0 B). A sibling that already existed when the pick happened keeps its own stamp and is never pushed into the new document.
 
 **JSON Protocol:** Results passed as JSON strings over JNI queue.
 
@@ -2062,20 +2062,27 @@ To match modern touch-first digital art workflows, ArtCraft apps support multi-f
 
 ### 56.2 Pinch-to-Zoom Brush Dab Rejection
 - **The Problem**: In desktop egui apps running on touchscreen Android devices, a multi-touch pinch-to-zoom gesture typically begins with one finger touching the screen slightly before the second finger (e.g. 10–30ms difference). Standard event dispatchers immediately fire a `PointerButton::Primary` down event for the first touch, causing painting and drawing apps (PhotoCraft, VectorCraft, DesignCraft, PaintCraft, etc.) to paint unwanted dots, dabs, or brush strokes right where the user began zooming.
-- **The Solution (`PendingFingerDown`)**:
+- **The Solution (`PendingPointerDown`)**:
   - Implemented in `vendor/egui-winit/src/lib.rs` and `vendor/egui-winit-0.36/src/lib.rs`.
   - Precision stylus input (`TOOL_TYPE_STYLUS` / bit 32 set) dispatches immediately with zero delay.
   - Capacitive finger touches (`TOOL_TYPE_FINGER`) enter a pending state:
     ```rust
-    struct PendingFingerDown {
-        pos: egui::Pos2,
-        time: std::time::Instant,
+    struct PendingPointerDown {
         touch_id: u64,
+        location: winit::dpi::PhysicalPosition<f64>,
     }
     ```
-  - **Grace Window & Movement Threshold**: The pointer down event is held for 60ms or until the finger moves beyond 10.0 logical pixels.
-  - **Cancellation on Multi-Touch**: If a second finger touches the screen, or if a pinch/zoom gesture is detected within the grace window, the pending pointer down event is aborted cleanly. The canvas never receives a button-down event, preventing accidental brush strokes during zoom and pan operations.
-  - **Atomic UI Click Synthesis**: If the finger is lifted within the threshold (a regular single-finger tap on a UI button, checkbox, or text field), both pointer-down and pointer-up events are emitted atomically on release, ensuring crisp, responsive UI interaction.
+  - **Movement Threshold**: The pointer down event is held until the finger moves beyond `POINTER_DOWN_SLOP_PX` (20 physical pixels). The press is then anchored at the touch-down point, so a drag still starts on the widget the finger went down on.
+  - **Cancellation on Multi-Touch**: If a second finger touches the screen, or if a pinch/zoom gesture is detected, the pending pointer down event is aborted cleanly. The canvas never receives a button-down event, preventing accidental brush strokes during zoom and pan operations.
+  - **Atomic UI Click Synthesis**: If the finger is lifted without having moved (a regular single-finger tap on a UI button, checkbox, or text field), both pointer-down and pointer-up events are emitted atomically on release, ensuring crisp, responsive UI interaction.
+
+### 56.3 Hold-to-Right-Click vs. Left-Click
+- **The Problem**: egui turns a pointer press plus its release into a *click* whenever the press is younger than `InputOptions::max_click_duration` (0.8 s by default). The hold-to-right-click fired after 500 ms, so its left-button release was still inside that window: the long press activated the widget underneath the finger **and** opened the context menu. A long press could therefore paint a dot, press a ribbon button, or start a drag as well.
+- **The Solution**: a finger's primary press is **deferred** until the gesture is known to be something else, so a hold never has a left press to cancel:
+  - The finger **moves** past the slop → a drag: the press is sent, anchored at the touch-down point, and the hold is dropped.
+  - The finger **lifts** → a tap: press and release are emitted atomically (see 56.2).
+  - The finger **stays still** for `HoldToRightClick::HOLD_DURATION_MS` (500 ms) → a right-click: the pending press is dropped and only the secondary press/release is sent, so nothing under the finger is activated.
+- A stylus still presses right away, so its hold only fires once that press is older than egui's click window (`hold_may_fire`), keeping the release from registering as a click there too.
 
 ---
 

@@ -548,6 +548,7 @@ fn android_main(android_app: AndroidApp) {
     let mut native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("SubCraft")
+            .with_decorations(false)
             .with_drag_and_drop(true),
         renderer: eframe::Renderer::Wgpu,
         android_app: Some(android_app.clone()),

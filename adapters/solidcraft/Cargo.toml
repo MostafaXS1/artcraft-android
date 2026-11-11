@@ -11,6 +11,10 @@ crate-type = ["cdylib"]
 solidcraft-engine = { path = "../../crates/engine" }
 solidcraft-mcp = { path = "../../crates/mcp" }
 solidcraft-ui-egui = { path = "../../crates/ui-egui" }
+# The control request type is the one `solidcraft-ui-egui` itself uses. It stopped
+# re-exporting it (`pub(crate) use control::ControlRequest`), so the launcher takes it
+# from the crate that defines it.
+solidcraft-control = { path = "../../crates/control" }
 eframe = { workspace = true, default-features = false, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }

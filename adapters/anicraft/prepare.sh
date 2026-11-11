@@ -49,16 +49,42 @@ main_p = Path(sys.argv[1])
 lib_p = Path(sys.argv[2])
 
 main_text = main_p.read_text()
-mods = [m for m in re.findall(r'^(?:pub\s+)?mod\s+([a-zA-Z0-9_]+);', main_text, re.M) if not m.endswith('_tests')]
+
+# Walk the file line by line and keep the attributes that sit on a module declaration.
+# `#[macro_use]` on `mod i18n;` is what puts the `tr!`/`trn!`/`trc!` macros in scope for
+# every module declared after it; dropping it (as a plain "mod name" scan would) leaves
+# the whole crate without `tr!` and it fails to compile with "cannot find macro `tr`".
+# `#[cfg(...)]` gates have to survive as well, or a platform-only module (the wasm-only
+# `web`) would be compiled for Android.
+mod_re = re.compile(r'^(?:pub\s+)?mod\s+([a-zA-Z0-9_]+)\s*;$')
+# Attributes worth keeping: `#[macro_use]` and any `#[cfg(...)]` gate.
+attr_re = re.compile(r'^#\[(?:macro_use|cfg\([^\n]*\))\]$')
 
 lines = [
     "#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]",
     "",
 ]
-for m in mods:
-    if m == "web":
-        lines.append('#[cfg(target_arch = "wasm32")]')
-    lines.append(f"pub mod {m};")
+pending_attrs = []
+for raw in main_text.splitlines():
+    line = raw.strip()
+    if attr_re.match(line):
+        pending_attrs.append(line)
+        continue
+    match = mod_re.match(line)
+    if not match:
+        # Any other item ends the attribute run (an attribute belongs to what follows it).
+        pending_attrs = []
+        continue
+    name = match.group(1)
+    attrs = pending_attrs
+    pending_attrs = []
+    if name.endswith("_tests"):
+        # `#[cfg(test)]` modules: they belong to the desktop test runs, not to the
+        # shipped library.
+        continue
+    for attr in attrs:
+        lines.append(attr)
+    lines.append(f"pub mod {name};")
 
 lines.extend([
     "",

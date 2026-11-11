@@ -2488,7 +2488,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "78"
+GENERATOR_VERSION = "81"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -3269,9 +3269,21 @@ fn saf_pick_open(bridge: &saf::Bridge, state: &SafState) -> Option<String> {
 /// Save dialog: the staged app-private destination, watched so the app's own write is mirrored to
 /// the chosen SAF document on the next frames (GridCraft's file API is path-based). `None` on
 /// cancel.
+///
+/// GridCraft's Save As hands over the bare title of a new workbook ("Book1") and adds the
+/// ".xlsx" itself, but only after the picker has returned. Android would then create the
+/// document without an extension, and the app would write "Book1.xlsx" beside the staged
+/// copy: the document the user chose kept its bare name and stayed empty, because the write
+/// went to a different file. Give the picker the name the app is going to write, so the
+/// staged path is the path the app writes.
 fn saf_pick_save(bridge: &saf::Bridge, state: &SafState, name: &str) -> Option<String> {
     let id = saf_next_id(state);
-    match bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT) {
+    let name = if !name.is_empty() && std::path::Path::new(name).extension().is_none() {
+        format!("{name}.xlsx")
+    } else {
+        name.to_owned()
+    };
+    match bridge.pick_blocking(id, Some(&name), saf::PICK_TIMEOUT) {
         Ok(saf::PickAnswer::Paths(paths)) => {
             let path = paths.into_iter().next();
             if let Some(path) = &path {
