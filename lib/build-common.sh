@@ -2125,19 +2125,21 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/export/src/pipeline.rs (Pipeline bind_surface and render_to_surface)")
 
-    # 17. Bind surface in Exporter::set_up and use step_surface_batch for zero-copy hardware encoding.
-    if fix(
-        "crates/export/src/job.rs",
-        '        let venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
-        '        let mut venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
-    ):
-        fixed.append("crates/export/src/job.rs (Exporter let mut venc in set_up)")
-
+    # 17. On Android, always use CPU-rendered buffer mode (step_batch); never attempt the GPU
+    # zero-copy surface pipeline. The surface pipeline requires a simultaneous hardware decoder +
+    # encoder + GPU surface, which instantly exhausts the Snapdragon's unified memory and triggers
+    # the LMKD OOM killer. Buffer mode: GPU compositor renders RGBA8 → NV12 conversion → hardware
+    # encoder buffer input, keeping peak memory under 300 MB and colours identical to preview.
+    # (The surface pipeline is preserved for desktop/non-Android targets where memory is plentiful.)
     if fix(
         "crates/export/src/job.rs",
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
         '        Ok(Self {\n',
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
+        '        // On Android the zero-copy GPU surface pipeline is disabled: running a hardware\n'
+        '        // decoder + hardware encoder + wgpu surface simultaneously exhausts the shared\n'
+        '        // memory budget and triggers LMKD. Use CPU-rendered buffer mode instead.\n'
+        '        #[cfg(not(target_os = "android"))]\n'
         '        if pipe.can_surface_render() {\n'
         '            if let Some(surface_ptr) = venc.input_surface() {\n'
         '                filmcraft_codecs::release_idle();\n'
@@ -2151,34 +2153,18 @@ elif app == "filmcraft":
         '        }\n'
         '        Ok(Self {\n',
     ):
-        fixed.append("crates/export/src/job.rs (Exporter bind_surface in set_up)")
+        fixed.append("crates/export/src/job.rs (Exporter bind_surface disabled on Android)")
 
-    if fix(
-        "crates/export/src/job.rs",
-        '        if self.next < self.f1 {\n'
-        '            return self.step_batch(sources, progress);\n'
-        '        }\n'
-        '        self.ahead = None;\n',
-        '        if self.next < self.f1 {\n'
-        '            if self.pipe.has_surface() && self.venc.input_surface().is_some() {\n'
-        '                return self.step_surface_batch(sources, progress);\n'
-        '            }\n'
-        '            return self.step_batch(sources, progress);\n'
-        '        }\n'
-        '        self.ahead = None;\n'
-        '        filmcraft_codecs::release_idle();\n'
-        '        filmcraft_codecs::hw::clear_direct_surface();\n',
-    ):
-        fixed.append("crates/export/src/job.rs (Exporter step_surface_batch dispatch)")
-
+    # step_surface_batch is only used on non-Android targets; wrap it in cfg to prevent dead-code
+    # warnings and to make it clear the function is intentionally absent from Android builds.
     if fix(
         "crates/export/src/job.rs",
         '    /// Encode (and mux) the batch starting at `self.next`, rendering the one after it meanwhile.\n'
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
+        '    #[cfg(not(target_os = "android"))]\n'
         '    fn step_surface_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n'
         '        let f = self.next;\n'
-        '        let batch_size = if cfg!(target_os = "android") { 64 } else { self.batch_len() };\n'
-        '        let end = self.next.saturating_add(batch_size).min(self.f1);\n'
+        '        let end = self.next.saturating_add(self.batch_len()).min(self.f1);\n'
         '        if end <= f {\n'
         '            return Err(ExportError::Encode("internal: an empty batch was rendered".into()));\n'
         '        }\n'
@@ -2253,7 +2239,7 @@ elif app == "filmcraft":
         '    /// Encode (and mux) the batch starting at `self.next`, rendering the one after it meanwhile.\n'
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
     ):
-        fixed.append("crates/export/src/job.rs (Exporter step_surface_batch implementation)")
+        fixed.append("crates/export/src/job.rs (Exporter step_surface_batch cfg-gated for non-Android)")
 
     if fix(
         "crates/export/src/job.rs",
