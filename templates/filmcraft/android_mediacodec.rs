@@ -1597,18 +1597,38 @@ unsafe impl Send for MediaCodecDecoder {}
 static ACTIVE_SCALER: Mutex<Option<HardwareSurfaceScaler>> = Mutex::new(None);
 
 #[cfg(target_os = "android")]
+const DEFAULT_LUMETRI: [f32; 26] = [
+    1.0, 1.0, 1.0, 0.0, // u_p0: ge.r, ge.g, ge.b, b0
+    1.0, 0.0, 0.0, 0.0, // u_p1: w0, sh_k, hl_k, contrast
+    0.0, 1.0, 0.0, 0.0, // u_p2: faded, sat, vib, va
+    0.0, 0.0, 1.0, 0.0, // u_p3: vmid, vfeather, vround_aspect, 0.0
+    0.0, 0.0, 0.0, 0.0, // u_p4: st_k.r, st_k.g, st_k.b, 0.0
+    0.0, 0.0, 0.0, 0.0, // u_p5: ht_k.r, ht_k.g, ht_k.b, 0.0
+    0.0, 0.0,           // u_i1: creative_on, vignette_on
+];
+
+#[cfg(target_os = "android")]
 pub fn register_scaler() {
     filmcraft_codecs::hw::register_surface_scaler(
         scaler_init,
         scaler_blit,
         scaler_check,
         scaler_clear,
+        scaler_set_lumetri,
     );
     log::info!("Phase B3: HardwareSurfaceScaler registered with filmcraft_codecs");
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn register_scaler() {}
+
+#[cfg(target_os = "android")]
+fn scaler_set_lumetri(p: &[f32; 26]) {
+    let mut guard = ACTIVE_SCALER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(scaler) = guard.as_mut() {
+        scaler.set_lumetri(p);
+    }
+}
 
 #[cfg(target_os = "android")]
 fn scaler_init(
@@ -1749,11 +1769,114 @@ void main() {\n\
 
 #[cfg(target_os = "android")]
 const FS_SRC: &[u8] = b"#extension GL_OES_EGL_image_external : require\n\
-precision mediump float;\n\
+precision highp float;\n\
 uniform samplerExternalOES sTexture;\n\
 varying vec2 vTexCoord;\n\
+uniform vec4 u_p0;\n\
+uniform vec4 u_p1;\n\
+uniform vec4 u_p2;\n\
+uniform vec4 u_p3;\n\
+uniform vec4 u_p4;\n\
+uniform vec4 u_p5;\n\
+uniform vec2 u_i1;\n\
+uniform vec2 u_resolution;\n\
+\n\
+float linear_to_srgb1(float v) {\n\
+    if (v <= 0.0031308) {\n\
+        return 12.92 * v;\n\
+    }\n\
+    return 1.055 * pow(max(v, 0.0), 0.41666667) - 0.055;\n\
+}\n\
+\n\
+float srgb_to_linear1(float v) {\n\
+    if (v <= 0.04045) {\n\
+        return v / 12.92;\n\
+    }\n\
+    return pow(max((v + 0.055) / 1.055, 0.0), 2.4);\n\
+}\n\
+\n\
+vec3 enc(vec3 c) {\n\
+    return vec3(linear_to_srgb1(c.r), linear_to_srgb1(c.g), linear_to_srgb1(c.b));\n\
+}\n\
+\n\
+vec3 dec(vec3 c) {\n\
+    return vec3(srgb_to_linear1(c.r), srgb_to_linear1(c.g), srgb_to_linear1(c.b));\n\
+}\n\
+\n\
+float luma709(vec3 c) {\n\
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));\n\
+}\n\
+\n\
 void main() {\n\
-    gl_FragColor = texture2D(sTexture, vTexCoord);\n\
+    vec4 src_sample = texture2D(sTexture, vTexCoord);\n\
+    vec3 c = dec(src_sample.rgb);\n\
+    vec3 ge = u_p0.rgb;\n\
+    vec3 lin = c * ge;\n\
+    vec3 v = enc(lin);\n\
+    float b0 = u_p0.a;\n\
+    float w0 = u_p1.r;\n\
+    float denom = max(w0 - b0, 0.001);\n\
+    v = (v - vec3(b0)) / denom;\n\
+    float sh_k = u_p1.g;\n\
+    float hl_k = u_p1.b;\n\
+    float l = luma709(v);\n\
+    float ws_val = clamp(1.0 - l, 0.0, 1.0);\n\
+    float ws = ws_val * ws_val * ws_val;\n\
+    float whl_val = clamp(l, 0.0, 1.0);\n\
+    float whl = whl_val * whl_val * whl_val;\n\
+    float nl = max(l + sh_k * ws + hl_k * whl, 0.0);\n\
+    float k = 1.0;\n\
+    if (l > 0.00001) {\n\
+        k = min(nl / l, 1.0 + max(nl - l, 0.0) / 0.02);\n\
+    }\n\
+    float add = nl - max(l, 0.0) * k;\n\
+    v = v * k + vec3(add);\n\
+    float contrast = u_p1.a;\n\
+    if (abs(contrast) > 0.0001) {\n\
+        float kc = 1.0 + contrast;\n\
+        vec3 q = clamp(v, 0.0, 1.0);\n\
+        vec3 sc = q * q * (vec3(3.0) - 2.0 * q);\n\
+        if (kc >= 1.0) {\n\
+            v = q + (sc - q) * (kc - 1.0);\n\
+        } else {\n\
+            v = vec3(0.5) + (q - vec3(0.5)) * kc;\n\
+        }\n\
+    }\n\
+    float faded = u_p2.r;\n\
+    if (faded > 0.0) {\n\
+        v = v * (1.0 - 0.25 * faded) + vec3(0.12 * faded);\n\
+    }\n\
+    if (u_i1.x > 0.5) {\n\
+        vec3 st_k = u_p4.rgb;\n\
+        vec3 ht_k = u_p5.rgb;\n\
+        float l2 = clamp(luma709(v), 0.0, 1.0);\n\
+        v = v + st_k * (1.0 - l2) + ht_k * l2;\n\
+    }\n\
+    float sat = u_p2.g;\n\
+    float vib = u_p2.b;\n\
+    float l3 = luma709(v);\n\
+    float cur_sat = max(max(v.r, v.g), v.b) - min(min(v.r, v.g), v.b);\n\
+    float sat_mult = sat * (1.0 + vib * (1.0 - clamp(cur_sat, 0.0, 1.0)));\n\
+    v = vec3(l3) + (v - vec3(l3)) * sat_mult;\n\
+    float va = u_p2.a;\n\
+    if (u_i1.y > 0.5 && abs(va) > 0.0001) {\n\
+        float vmid = u_p3.r;\n\
+        float vfeather = u_p3.g;\n\
+        float vround_aspect = u_p3.b;\n\
+        vec2 p = vTexCoord * u_resolution;\n\
+        float nx = (p.x / u_resolution.x - 0.5) * 2.0 * vround_aspect;\n\
+        float ny = (p.y / u_resolution.y - 0.5) * 2.0;\n\
+        float d = sqrt(nx * nx + ny * ny) / 1.41421356;\n\
+        float edge = clamp((d - vmid * 0.9) / (max(vfeather, 0.01) * 0.9), 0.0, 1.0);\n\
+        float e2 = edge * edge * (3.0 - 2.0 * edge);\n\
+        float kv = 1.0 + va * 0.2 * e2;\n\
+        if (va < 0.0) {\n\
+            v = v * max(kv, 0.0);\n\
+        } else {\n\
+            v = v + (vec3(1.0) - v) * (kv - 1.0);\n\
+        }\n\
+    }\n\
+    gl_FragColor = vec4(clamp(v, 0.0, 1.0), src_sample.a);\n\
 }\0";
 
 #[cfg(target_os = "android")]
@@ -1762,6 +1885,7 @@ fn compile_shader(
     gl_shader_source: unsafe extern "C" fn(u32, i32, *const *const std::os::raw::c_char, *const i32),
     gl_compile_shader: unsafe extern "C" fn(u32),
     gl_get_shader_iv: unsafe extern "C" fn(u32, u32, *mut i32),
+    gl_get_shader_info_log: Option<unsafe extern "C" fn(u32, i32, *mut i32, *mut std::os::raw::c_char)>,
     shader_type: u32,
     src: &[u8],
 ) -> Option<u32> {
@@ -1777,6 +1901,13 @@ fn compile_shader(
         let mut status = 0i32;
         gl_get_shader_iv(shader, GL_COMPILE_STATUS, &mut status);
         if status == 0 {
+            if let Some(get_log) = gl_get_shader_info_log {
+                let mut buf = [0u8; 1024];
+                let mut len = 0i32;
+                get_log(shader, 1024, &mut len, buf.as_mut_ptr() as *mut _);
+                let log_str = String::from_utf8_lossy(&buf[..len.max(0) as usize]);
+                log::warn!("HardwareSurfaceScaler shader compile failed (type {shader_type}): {log_str}");
+            }
             return None;
         }
         Some(shader)
@@ -1797,6 +1928,15 @@ pub struct HardwareSurfaceScaler {
     u_tex_matrix_loc: i32,
     a_position_loc: i32,
     a_tex_coord_loc: i32,
+    u_p0_loc: i32,
+    u_p1_loc: i32,
+    u_p2_loc: i32,
+    u_p3_loc: i32,
+    u_p4_loc: i32,
+    u_p5_loc: i32,
+    u_i1_loc: i32,
+    u_resolution_loc: i32,
+    lumetri_params: [f32; 26],
     asurface_texture: *mut std::ffi::c_void,
     decoder_window: *mut std::ffi::c_void,
     _java_st_ref: Global<JObject<'static>>,
@@ -1811,6 +1951,8 @@ pub struct HardwareSurfaceScaler {
     fn_glUseProgram: unsafe extern "C" fn(u32),
     fn_glBindTexture: unsafe extern "C" fn(u32, u32),
     fn_glUniform1i: unsafe extern "C" fn(i32, i32),
+    fn_glUniform2f: unsafe extern "C" fn(i32, f32, f32),
+    fn_glUniform4fv: unsafe extern "C" fn(i32, i32, *const f32),
     fn_glUniformMatrix4fv: unsafe extern "C" fn(i32, i32, u8, *const f32),
     fn_glViewport: unsafe extern "C" fn(i32, i32, i32, i32),
     fn_glEnableVertexAttribArray: unsafe extern "C" fn(u32),
@@ -1923,11 +2065,17 @@ impl HardwareSurfaceScaler {
             let fn_glVertexAttribPointer: unsafe extern "C" fn(u32, i32, u32, u8, i32, *const std::ffi::c_void) = std::mem::transmute(load(gles_lib, b"glVertexAttribPointer\0")?);
             let fn_glUniformMatrix4fv: unsafe extern "C" fn(i32, i32, u8, *const f32) = std::mem::transmute(load(gles_lib, b"glUniformMatrix4fv\0")?);
             let fn_glUniform1i: unsafe extern "C" fn(i32, i32) = std::mem::transmute(load(gles_lib, b"glUniform1i\0")?);
+            let fn_glUniform2f: unsafe extern "C" fn(i32, f32, f32) = std::mem::transmute(load(gles_lib, b"glUniform2f\0")?);
+            let fn_glUniform4fv: unsafe extern "C" fn(i32, i32, *const f32) = std::mem::transmute(load(gles_lib, b"glUniform4fv\0")?);
             let fn_glViewport: unsafe extern "C" fn(i32, i32, i32, i32) = std::mem::transmute(load(gles_lib, b"glViewport\0")?);
             let fn_glDrawArrays: unsafe extern "C" fn(u32, i32, i32) = std::mem::transmute(load(gles_lib, b"glDrawArrays\0")?);
             let fn_glDeleteTextures: unsafe extern "C" fn(i32, *const u32) = std::mem::transmute(load(gles_lib, b"glDeleteTextures\0")?);
             let fn_glDeleteProgram: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glDeleteProgram\0")?);
             let fn_glDeleteShader: unsafe extern "C" fn(u32) = std::mem::transmute(load(gles_lib, b"glDeleteShader\0")?);
+            let fn_glGetShaderInfoLog: Option<unsafe extern "C" fn(u32, i32, *mut i32, *mut std::os::raw::c_char)> = {
+                let p = dlsym(gles_lib, b"glGetShaderInfoLog\0".as_ptr() as *const _);
+                if !p.is_null() { Some(std::mem::transmute(p)) } else { None }
+            };
 
             // NDK symbols
             let fn_ASurfaceTexture_fromSurfaceTexture: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(load(android_lib, b"ASurfaceTexture_fromSurfaceTexture\0")?);
@@ -2018,8 +2166,8 @@ impl HardwareSurfaceScaler {
             }
 
             // 3. Compile Shaders and Program
-            let vs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, GL_VERTEX_SHADER, VS_SRC);
-            let fs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, GL_FRAGMENT_SHADER, FS_SRC);
+            let vs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, fn_glGetShaderInfoLog, GL_VERTEX_SHADER, VS_SRC);
+            let fs = compile_shader(fn_glCreateShader, fn_glShaderSource, fn_glCompileShader, fn_glGetShaderiv, fn_glGetShaderInfoLog, GL_FRAGMENT_SHADER, FS_SRC);
             let (vs, fs) = match (vs, fs) {
                 (Some(v), Some(f)) => (v, f),
                 _ => {
@@ -2057,6 +2205,14 @@ impl HardwareSurfaceScaler {
             let a_tex_coord_loc = fn_glGetAttribLocation(program, b"aTexCoord\0".as_ptr() as *const _);
             let u_texture_loc = fn_glGetUniformLocation(program, b"sTexture\0".as_ptr() as *const _);
             let u_tex_matrix_loc = fn_glGetUniformLocation(program, b"uTexMatrix\0".as_ptr() as *const _);
+            let u_p0_loc = fn_glGetUniformLocation(program, b"u_p0\0".as_ptr() as *const _);
+            let u_p1_loc = fn_glGetUniformLocation(program, b"u_p1\0".as_ptr() as *const _);
+            let u_p2_loc = fn_glGetUniformLocation(program, b"u_p2\0".as_ptr() as *const _);
+            let u_p3_loc = fn_glGetUniformLocation(program, b"u_p3\0".as_ptr() as *const _);
+            let u_p4_loc = fn_glGetUniformLocation(program, b"u_p4\0".as_ptr() as *const _);
+            let u_p5_loc = fn_glGetUniformLocation(program, b"u_p5\0".as_ptr() as *const _);
+            let u_i1_loc = fn_glGetUniformLocation(program, b"u_i1\0".as_ptr() as *const _);
+            let u_resolution_loc = fn_glGetUniformLocation(program, b"u_resolution\0".as_ptr() as *const _);
 
             // 4. Create External Texture
             let mut tex_id = 0u32;
@@ -2157,6 +2313,15 @@ impl HardwareSurfaceScaler {
                 u_tex_matrix_loc,
                 a_position_loc,
                 a_tex_coord_loc,
+                u_p0_loc,
+                u_p1_loc,
+                u_p2_loc,
+                u_p3_loc,
+                u_p4_loc,
+                u_p5_loc,
+                u_i1_loc,
+                u_resolution_loc,
+                lumetri_params: DEFAULT_LUMETRI,
                 asurface_texture,
                 decoder_window,
                 _java_st_ref,
@@ -2169,6 +2334,8 @@ impl HardwareSurfaceScaler {
                 fn_glUseProgram,
                 fn_glBindTexture,
                 fn_glUniform1i,
+                fn_glUniform2f,
+                fn_glUniform4fv,
                 fn_glUniformMatrix4fv,
                 fn_glViewport,
                 fn_glEnableVertexAttribArray,
@@ -2185,6 +2352,10 @@ impl HardwareSurfaceScaler {
                 dst_h,
             })
         }
+    }
+
+    pub fn set_lumetri(&mut self, p: &[f32; 26]) {
+        self.lumetri_params = *p;
     }
 
     pub fn blit(&mut self, pts_ns: i64) -> bool {
@@ -2211,6 +2382,15 @@ impl HardwareSurfaceScaler {
             (self.fn_glBindTexture)(GL_TEXTURE_EXTERNAL_OES, self.tex_id);
             (self.fn_glUniform1i)(self.u_texture_loc, 0);
             (self.fn_glUniformMatrix4fv)(self.u_tex_matrix_loc, 1, 0, mtx.as_ptr());
+
+            (self.fn_glUniform4fv)(self.u_p0_loc, 1, self.lumetri_params[0..4].as_ptr());
+            (self.fn_glUniform4fv)(self.u_p1_loc, 1, self.lumetri_params[4..8].as_ptr());
+            (self.fn_glUniform4fv)(self.u_p2_loc, 1, self.lumetri_params[8..12].as_ptr());
+            (self.fn_glUniform4fv)(self.u_p3_loc, 1, self.lumetri_params[12..16].as_ptr());
+            (self.fn_glUniform4fv)(self.u_p4_loc, 1, self.lumetri_params[16..20].as_ptr());
+            (self.fn_glUniform4fv)(self.u_p5_loc, 1, self.lumetri_params[20..24].as_ptr());
+            (self.fn_glUniform2f)(self.u_i1_loc, self.lumetri_params[24], self.lumetri_params[25]);
+            (self.fn_glUniform2f)(self.u_resolution_loc, self.dst_w as f32, self.dst_h as f32);
 
             const POS: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
             const UV: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
