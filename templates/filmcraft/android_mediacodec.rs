@@ -291,6 +291,7 @@ pub struct MediaCodecEncoder {
     pps: Option<Vec<u8>>,
     eos_seen: bool,
     ready: Arc<Mutex<HashMap<u64, Nv12Frame>>>,
+    in_flight: usize,
 }
 
 impl MediaCodecEncoder {
@@ -352,10 +353,12 @@ impl MediaCodecEncoder {
                 format.set_i32("profile", profile);
                 format.set_i32("level", level);
             }
-            // Standard VUI color description for SDR video (BT.709, Limited Range 16-235, SDR Transfer)
-            // Ensures external video players and galleries match the preview color space exactly.
+            // Standard VUI color description for SDR video (BT.709, Full Range for GL Surface / Limited for NV12 buffer)
+            // Surface rendering via OpenGL ES produces Full-Range [0, 255] RGB values.
+            // Tagging with COLOR_RANGE_FULL (1) prevents video players from expanding
+            // 16-235 to 0-255, eliminating gradient banding, crushed shadows, and clipped highlights.
             format.set_i32("color-standard", 1); // COLOR_STANDARD_BT709
-            format.set_i32("color-range", 2);    // COLOR_RANGE_LIMITED
+            format.set_i32("color-range", if surface_mode { 1 } else { 2 });
             format.set_i32("color-transfer", 3); // COLOR_TRANSFER_SDR_VIDEO
             if with_operating_rate {
                 format.set_i32("priority", 0);
@@ -475,6 +478,7 @@ impl MediaCodecEncoder {
             pps: None,
             eos_seen: false,
             ready: Arc::new(Mutex::new(HashMap::new())),
+            in_flight: 0,
         })
     }
 
@@ -545,6 +549,7 @@ impl MediaCodecEncoder {
             self.slice_height = infmt.i32("slice-height").filter(|&h| h > 0).map(|h| h as usize).unwrap_or(self.h as usize);
         }
         self.codec = new_codec;
+        self.in_flight = 0;
         log::info!("MediaCodec successfully fell back to buffer mode (stride={}, slice_height={})", self.stride, self.slice_height);
         true
     }
@@ -618,6 +623,7 @@ impl MediaCodecEncoder {
                                             duration: self.duration,
                                             composition_offset: 0,
                                         });
+                                        self.in_flight = self.in_flight.saturating_sub(1);
                                     }
                                     Err(e) => {
                                         log::debug!("skipping packet: {e}");
@@ -717,7 +723,21 @@ impl VideoEncoder for MediaCodecEncoder {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
+            self.in_flight += 1;
+
+            // Drain any pending output packets immediately without waiting
             self.drain_output(Duration::ZERO, &mut packets)?;
+
+            // If the encoder has 4 or more frames in-flight (Qualcomm hardware limit is 8 buffer slots),
+            // wait for the hardware encoder to finish compressing earlier frames to prevent buffer overflow.
+            while self.in_flight >= 4 {
+                let prev = packets.len();
+                self.drain_output(Duration::from_millis(15), &mut packets)?;
+                if packets.len() == prev {
+                    // Codec took >15ms and produced no packet, break to avoid blocking forever
+                    break;
+                }
+            }
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..100 {
@@ -888,6 +908,7 @@ impl VideoEncoder for MediaCodecEncoder {
                 }
                 self.drain_output(Duration::from_millis(50), &mut packets)?;
             }
+            self.in_flight = 0;
             let _ = self.codec.stop();
             return Ok(packets);
         }
