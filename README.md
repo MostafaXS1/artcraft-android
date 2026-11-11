@@ -65,12 +65,50 @@ The Android build process uses templates, adapters, vendored changes, and compat
 
 ## Model Context Protocol (MCP) Integration
 
-ArtCraft Android integrates Model Context Protocol (MCP) server support across the suite via an HTTP loopback transport (`templates/android/mcp_http.rs`).
+Follow these steps to enable the Model Context Protocol (MCP) server for ArtCraft Android apps.
 
-- **AI Agent Automation**: AI coding assistants (such as Claude Code running in Termux locally on Android or connected from another computer across the same local Wi-Fi network) can inspect and drive the applications programmatically using standard MCP tool calls.
-- **Streamable HTTP Transport**: Implements standard Streamable HTTP transport, answering POST requests with JSON-RPC without requiring persistent bidirectional event streams.
-- **Bearer Token Security**: Each launch generates a secure random bearer token displayed in the app settings, requiring `Authorization: Bearer <token>` on all incoming requests.
-- **Upstream Parity**: For applications with native MCP suites (such as SolidCraft), tool calls and RPC handlers map directly onto desktop capabilities.
+### 1. Enable MCP on the Android app
+
+- Open the ArtCraft Android app.
+- Enable the MCP server in the app's settings.
+- Make sure the MCP server is running on port `27880`.
+
+### 2. Forward the MCP port using ADB
+
+Connect your Android device to your computer with USB debugging enabled, then run:
+
+```bash
+adb forward tcp:27880 tcp:27880
+```
+
+This forwards port `27880` from your computer to the Android device, allowing MCP clients running on your computer to access the app's MCP endpoint.
+
+To make the forwarded port accessible over your LAN, use an appropriate LAN-accessible proxy or port-forwarding setup, since `adb forward` itself binds to the host's local interface.
+
+### 3. Configure your MCP client
+
+Add the following configuration to your MCP client's configuration file:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "artcraft": {
+        "type": "remote",
+        "url": "http://localhost:27880/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer artcraft"
+        }
+      }
+    }
+  }
+}
+```
+
+### 4. Verify the connection
+
+Restart or refresh your MCP client and check that the `artcraft` server is connected. You should now be able to access the MCP tools exposed by the ArtCraft Android app.
 
 ## Links
 

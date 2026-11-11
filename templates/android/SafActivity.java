@@ -1122,8 +1122,17 @@ public final class __CLASS__ extends NativeActivity {
                 // chosen document stayed 0 B. Keep the extension the app asked to save as, so the
                 // staged path is the path the app writes.
                 name = keepSuggestedExtension(name, suggestedNames.get(id));
-                File stage = newStageFile(name, uri);
-                rememberUri(stage, uri);
+                // The picker adds a counter to the whole name when a document with that name is
+                // already there ("animation.webm" becomes "animation.webm (3)"), so the name no
+                // longer ends in the extension: the app asked for a video and the name it gets
+                // back ends in "webm (3)", which is no video extension. Put the counter in front
+                // of the extension ("animation (3).webm"), and give the chosen document that
+                // name too, so the file the user ends up with is one the system recognises.
+                name = extensionLast(name);
+                Uri target = renameDocument(uri, name);
+                if (!target.equals(uri)) persistPermission(target, data);
+                File stage = newStageFile(name, target);
+                rememberUri(stage, target);
                 enqueueSave(id, stage.getAbsolutePath());
             } catch (Exception e) {
                 enqueueError(id, kind, e.toString());
@@ -1236,6 +1245,62 @@ public final class __CLASS__ extends NativeActivity {
         int suggestedDot = suggested.lastIndexOf('.');
         if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
         return name + suggested.substring(suggestedDot);
+    }
+
+    /**
+     * Put a counter the picker added at the end of a name in front of the extension.
+     *
+     * <p>When a document with the name the app asked for is already there, the picker keeps the
+     * whole name and adds a counter to it: {@code animation.webm} becomes
+     * {@code animation.webm (3)}. The extension is then in the middle of the name, so the file is
+     * no longer a video (or a spreadsheet, or a drawing) as far as the app and the system are
+     * concerned — the app is told to write {@code animation.webm (3)}, whose extension is
+     * {@code webm (3)}. The counter belongs in front of the extension:
+     * {@code animation (3).webm}.</p>
+     */
+    private static String extensionLast(String name) {
+        if (name == null) return name;
+        int close = name.lastIndexOf(')');
+        if (close != name.length() - 1) return name;
+        int open = name.lastIndexOf('(', close);
+        if (open <= 0) return name;
+        String counter = name.substring(open);
+        String head = name.substring(0, open);
+        int dot = head.lastIndexOf('.');
+        if (dot <= 0) return name;
+        return head.substring(0, dot) + counter + head.substring(dot);
+    }
+
+    /**
+     * Give a chosen document the name the app works with, when the picker's name needs fixing.
+     *
+     * <p>The document is renamed only when its name really changed (the picker's counter sits
+     * behind the extension). The grant the picker gave is for the document's old URI, so the new
+     * one is checked for writing before it is kept: a provider that does not allow renaming, or
+     * one that drops the grant with the old name, leaves the document as it was. The app's
+     * working copy is written either way, so the document the user chose still gets the
+     * content.</p>
+     *
+     * @return the document's (possibly new) URI, or the one that was handed in.
+     */
+    private Uri renameDocument(Uri uri, String name) {
+        try {
+            String current = displayName(uri);
+            if (current == null || current.equals(name)) return uri;
+            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, name);
+            if (renamed == null) return uri;
+            try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(renamed, "rw")) {
+                return renamed;
+            } catch (Exception e) {
+                // The old name back, and the old URI: the document is the one the user chose.
+                try {
+                    DocumentsContract.renameDocument(getContentResolver(), renamed, current);
+                } catch (Exception ignored) { }
+                return uri;
+            }
+        } catch (Exception e) {
+            return uri;
+        }
     }
 
     /**
@@ -1661,6 +1726,20 @@ public final class __CLASS__ extends NativeActivity {
         if (lower.endsWith(".odt")) return "application/vnd.oasis.opendocument.text";
         if (lower.endsWith(".rtf")) return "application/rtf";
         if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        // Video and sound: the export writes these, and a document saved with the right type is
+        // recognised by the file manager and by the apps that open it.
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".m4v")) return "video/x-m4v";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".avi")) return "video/x-msvideo";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg")) return "audio/ogg";
+        if (lower.endsWith(".oga")) return "audio/ogg";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
+        if (lower.endsWith(".flac")) return "audio/flac";
         return "application/octet-stream";
     }
 }

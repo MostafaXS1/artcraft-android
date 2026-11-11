@@ -48,6 +48,150 @@ eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc79968157
 EOF
 fi
 
+# Vendor the storytold egui fork and inject its Android IME bridge. Android's winit backend
+# never emits IME text events: the soft keyboard's letters reach the Activity's input view
+# (`onImeCommit` -> `imeQueue`) and nothing polls them, while digits/Enter/Backspace also
+# arrive as ordinary key events. Without this bridge egui only receives numbers, so every
+# text field ignores letters (same fix as SolidCraft, commit 24c06b1).
+if [[ ! -d "$SRC_ABS/vendor/egui/.git" ]]; then
+    echo "Vendoring storytold egui fork..."
+    rm -rf "$SRC_ABS/vendor/egui"
+    mkdir -p "$SRC_ABS/vendor/egui"
+    cd "$SRC_ABS/vendor/egui"
+    git init
+    git remote add origin https://github.com/storytold/egui.git
+    git fetch --depth 1 origin 6d518fc799681571963842f95b55a6b68431b15a
+    git checkout FETCH_HEAD
+    cd "$SRC_ABS"
+fi
+
+cat > "$SRC_ABS/vendor/egui/crates/egui-winit/src/ime.rs" <<'EOF'
+//! High-performance native Android IME text bridge.
+
+#[cfg(target_os = "android")]
+pub mod android {
+    use jni::{jni_sig, jni_str, objects::{JObject, JString}, JavaVM};
+
+    #[expect(unsafe_code)]
+    pub fn poll_all_ime_events() -> Vec<String> {
+        let activity_raw = crate::android_activity::activity_raw();
+        let vm_ptr: Option<*mut jni::sys::JavaVM> = crate::android_activity::vm_raw().or_else(|| {
+            let ctx = ndk_context::android_context();
+            let p: *mut jni::sys::JavaVM = ctx.vm().cast();
+            if p.is_null() {
+                None
+            } else {
+                Some(p)
+            }
+        });
+        let Some(vm_ptr) = vm_ptr else {
+            return Vec::new();
+        };
+        let Some(activity_raw) = activity_raw else {
+            return Vec::new();
+        };
+        if activity_raw.is_null() {
+            return Vec::new();
+        }
+        let vm = unsafe { JavaVM::from_raw(vm_ptr) };
+        let res = vm.attach_current_thread(|env| -> jni::errors::Result<Vec<String>> {
+            let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&activity_raw)? };
+            let mut list = Vec::new();
+            while let Ok(val) = env.call_method(
+                &*activity,
+                jni_str!("pollIme"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            ) {
+                let obj = val.l()?;
+                if obj.is_null() {
+                    break;
+                }
+                let jstr = JString::cast_local(env, obj)?;
+                list.push(jstr.try_to_string(env)?);
+            }
+            Ok(list)
+        });
+        res.unwrap_or_default()
+    }
+}
+EOF
+
+python3 - "$SRC_ABS" <<'PY'
+import sys
+from pathlib import Path
+src = Path(sys.argv[1])
+
+# The android dependencies are already declared in the fork's egui-winit manifest; add them
+# only if a fresh vendor ever lacks them (idempotent).
+egui_winit_toml = src / "vendor/egui/crates/egui-winit/Cargo.toml"
+if egui_winit_toml.is_file():
+    txt = egui_winit_toml.read_text()
+    if "target.'cfg(target_os = \"android\")'.dependencies" not in txt:
+        txt = txt.rstrip() + "\n\n[target.'cfg(target_os = \"android\")'.dependencies]\njni = { version = \"0.22\", default-features = false }\nndk-context = { version = \"0.1\", default-features = false }\n"
+        egui_winit_toml.write_text(txt)
+
+# Declare the module next to the existing Android activity plumbing.
+lib_rs = src / "vendor/egui/crates/egui-winit/src/lib.rs"
+if lib_rs.is_file():
+    txt = lib_rs.read_text()
+    if "pub mod ime;" not in txt:
+        target = "#[cfg(target_os = \"android\")]\npub mod android_activity;\n"
+        if target in txt:
+            txt = txt.replace(target, target + "#[cfg(target_os = \"android\")]\npub mod ime;\n", 1)
+
+    # Drain the Activity's IME queue into egui input every frame. Backspace and Enter also
+    # arrive as key events from winit, so emit matching key events here; everything else is
+    # text (this is what makes letters work).
+    ime_poll = """        #[cfg(target_os = "android")]
+        {
+            if self.allow_ime {
+                self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
+            for ev in crate::ime::android::poll_all_ime_events() {
+                if ev == "\\x08" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: self.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: self.modifiers,
+                    });
+                } else if ev == "\\n" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: self.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: self.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Text("\\n".to_string()));
+                } else {
+                    self.egui_input.events.push(egui::Event::Text(ev));
+                }
+            }
+        }
+"""
+    time_stmt = "self.egui_input.time = Some(self.start_time.elapsed().as_secs_f64());\n"
+    if ime_poll.strip() not in txt and time_stmt in txt:
+        txt = txt.replace(time_stmt, time_stmt + "\n" + ime_poll, 1)
+    lib_rs.write_text(txt)
+PY
+
 # Ensure native has a [lib] entry with rlib support
 if ! grep -q '^\[lib\]' "$SRC_ABS/native/Cargo.toml"; then
     cat >> "$SRC_ABS/native/Cargo.toml" <<'EOF'

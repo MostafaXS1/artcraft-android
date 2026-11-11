@@ -1997,7 +1997,7 @@ The suite employs two distinct MCP operational architectures depending on whethe
   - `GET /status`: Diagnostic endpoint reporting server state, package name, version, and tool count.
 - **Service Advertising**:
   On startup, the app logs:
-  `MCP HTTP service started on http://127.0.0.1:<PORT>/ (LAN: http://<IP>:<PORT>/)`
+  `MCP HTTP service started on http://127.0.0.1:27880/ (LAN: http://<IP>:27880/)`
   allowing discovery via logcat or adb port forwarding.
 
 ## 55. Stylus & Digitizer Subsystem

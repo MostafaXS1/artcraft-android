@@ -223,6 +223,12 @@ pub struct State {
     /// hold-to-right-click and never presses anything underneath it.
     pending_pointer_down: Option<PendingPointerDown>,
 
+    /// Where a press committed this frame was anchored. egui hit-tests a press at the last
+    /// pointer position in the frame, so moves that arrive after the press would otherwise
+    /// hit whatever lies under the finger now instead of the pressed widget. The pointer is
+    /// pinned back here once, just before the input is handed to egui.
+    press_origin_repin: Option<winit::dpi::PhysicalPosition<f64>>,
+
     #[cfg(feature = "accesskit")]
     pub accesskit: Option<accesskit_winit::Adapter>,
 
@@ -276,6 +282,7 @@ impl State {
             gesture_touch_ids: Vec::new(),
             hold_to_right_click: None,
             pending_pointer_down: None,
+            press_origin_repin: None,
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
@@ -470,6 +477,15 @@ impl State {
             .entry(self.viewport_id)
             .or_default()
             .native_pixels_per_point = Some(window.scale_factor() as f32);
+
+        // A press committed since the last frame is hit-tested at the pointer's last
+        // position. Pin the pointer back to the press origin as the frame's final pointer
+        // event, so a burst of moves that arrived after the press cannot move the hit test
+        // off the widget the finger actually pressed (a panel divider, a slider, a
+        // scrollbar). The drag's own delta starts from the next frame's moves.
+        if let Some(pos) = self.press_origin_repin.take() {
+            self.on_cursor_moved(window, pos);
+        }
 
         self.egui_input.take()
     }
@@ -1080,6 +1096,9 @@ impl State {
                 winit::event::ElementState::Pressed,
                 winit::event::MouseButton::Left,
             );
+            // Keep the hit test anchored where the finger went down even if more moves
+            // arrive in this same frame (see `press_origin_repin`).
+            self.press_origin_repin = Some(pending.location);
             // The finger moved: this is a drag, not a hold-to-right-click. Drop the hold
             // so it cannot fire later and cancel the drag with a right-click.
             self.hold_to_right_click = None;
@@ -1261,9 +1280,13 @@ impl State {
                     self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
                 }
                 winit::event::TouchPhase::Moved => {
-                    // A finger that moves is a drag, not a hold. Commit the press first
-                    // (anchored at the touch-down point) so the drag starts in this very
-                    // frame, then move the pointer to where the finger is now.
+                    // Move the pointer to where the finger is now, then commit the press
+                    // anchored at the touch-down point. The commit's move-and-press are the
+                    // last events of the frame, so egui's hit test runs at the point the
+                    // finger went down: a drag starts on the widget that was actually
+                    // pressed (a panel divider, a slider, a scrollbar), not on whatever lies
+                    // under the finger after it crossed the slop.
+                    self.on_cursor_moved(window, touch.location);
                     if let Some(pending) = self.pending_pointer_down {
                         let dx = touch.location.x - pending.location.x;
                         let dy = touch.location.y - pending.location.y;
@@ -1271,7 +1294,6 @@ impl State {
                             self.commit_pending_pointer_down(window);
                         }
                     }
-                    self.on_cursor_moved(window, touch.location);
                     // Check hold-to-right-click: fire right-click if hold duration exceeded
                     if let Some(hold) = self.hold_to_right_click {
                         if hold.should_fire(touch.location) && self.hold_may_fire(&hold) {
@@ -1282,6 +1304,8 @@ impl State {
                     }
                 }
                 winit::event::TouchPhase::Ended => {
+                    // A release ends the gesture: never re-pin the pointer after it.
+                    self.press_origin_repin = None;
                     if let Some(pending) = self.pending_pointer_down.take() {
                         // The finger never moved and no hold fired: a tap. Press and release
                         // right away so it behaves like an ordinary click.
@@ -1317,6 +1341,7 @@ impl State {
                     self.egui_input.events.push(egui::Event::PointerGone);
                 }
                 winit::event::TouchPhase::Cancelled => {
+                    self.press_origin_repin = None;
                     self.hold_to_right_click = None;
                     self.pending_pointer_down = None;
                     // The touch was cancelled: the backend took the gesture over (a two-finger

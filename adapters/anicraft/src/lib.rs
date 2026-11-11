@@ -39,6 +39,40 @@ fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
     Some(base)
 }
 
+/// The bundled ffmpeg, next to the app's own native library.
+///
+/// The platform extracts everything under `lib/<abi>/` of the APK with the executable bit
+/// set, so the ffmpeg program the builder bundles there can be run. The app's own library
+/// is loaded from that same directory, which is where the program is found. It carries a
+/// ".so" name because that is what the packaging step keeps.
+fn bundled_ffmpeg() -> Option<PathBuf> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    let library = maps.lines().find_map(|line| {
+        let path = line.split_whitespace().last()?;
+        (path.ends_with(".so") && path.contains("/lib/")).then(|| PathBuf::from(path))
+    })?;
+    let program = library.parent()?.join(FFMPEG_BUNDLE_NAME);
+    program.is_file().then_some(program)
+}
+
+/// The name the builder bundles the ffmpeg program under.
+const FFMPEG_BUNDLE_NAME: &str = "libanicraft_ffmpeg.so";
+
+/// Point the video export at the bundled ffmpeg.
+///
+/// AniCraft runs `ANICRAFT_FFMPEG` (else `ffmpeg` from the PATH) to write the video;
+/// Android has no ffmpeg on the PATH, so without this the export cannot work.
+fn install_ffmpeg_env() {
+    let Some(program) = bundled_ffmpeg() else {
+        log::warn!("AniCraft: no bundled ffmpeg next to the native library");
+        return;
+    };
+    log::info!("AniCraft: video export uses the bundled ffmpeg at {}", program.display());
+    unsafe {
+        std::env::set_var("ANICRAFT_FFMPEG", &program);
+    }
+}
+
 fn ensure_screen_rect(app: &AndroidApp, ctx: &egui::Context, raw: &mut egui::RawInput) {
     const UNSET: f32 = 4096.0;
     let usable = raw
@@ -204,6 +238,10 @@ fn install_saf_launcher(bridge: saf::Bridge, state: Arc<SafState>) {
                 let answer = blocking_bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT);
                 if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
                     if let Some(path) = paths.first() {
+                        // The path the app writes to: the name the picker was given, and the
+                        // working copy it answers with. The two differ when the system adds a
+                        // counter to the name, so both are worth having in the log.
+                        log::info!("AniCraft Android file picker: save {name:?} -> {path:?}");
                         blocking_state.mirror.track(id, path);
                     }
                 }
@@ -333,6 +371,7 @@ fn android_main(android_app: AndroidApp) {
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     install_persist_env(&android_app);
+    install_ffmpeg_env();
     system_fonts::install_font_env(&android_app);
 
     let bridge = saf::Bridge::new(&android_app);
