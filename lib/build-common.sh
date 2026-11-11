@@ -1214,7 +1214,7 @@ elif app == "filmcraft":
         "crates/codecs/src/gop.rs",
         '        let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && want_pts > st.out_max));\n',
         '        let is_direct_export = cfg!(target_os = "android") && crate::hw::has_direct_surface();\n'
-        '        let continuing = is_direct_export || (running && (st.next > key || near) && (i >= st.next || (st.start <= i && (want_pts > st.out_max || want_pts >= s.pts(key)))));\n',
+        '        let continuing = running && (is_direct_export || ((st.next > key || near) && (i >= st.next || (st.start <= i && (want_pts > st.out_max || want_pts >= s.pts(key))))));\n',
     ):
         fixed.append("crates/codecs/src/gop.rs (prevent decoder reset on in-GOP B-frames and sequential export)")
 
@@ -2113,6 +2113,7 @@ elif app == "filmcraft":
         '            if let Some(dec_win) = filmcraft_codecs::hw::init_surface_scaler(window_ptr, src_w, src_h, dst_w, dst_h) {\n'
         '                filmcraft_codecs::hw::set_direct_surface(dec_win, src_w, src_h);\n'
         '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '                self.surface_caps.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);\n'
         '                log::info!("Pipeline configured HardwareSurfaceScaler: {src_w}x{src_h} -> {dst_w}x{dst_h}");\n'
         '                return true;\n'
         '            }\n'
@@ -2463,11 +2464,22 @@ elif app == "filmcraft":
         '        EXPORT_ACTIVE.store(false, Ordering::Relaxed);\n'
         '        filmcraft_codecs::release_idle();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
+        '        filmcraft_codecs::hw::clear_surface_scaler();\n'
         '    }\n'
         '}\n\n'
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup and EXPORT_ACTIVE)")
+
+    if fix(
+        "crates/export/src/output.rs",
+        '        let f = std::fs::OpenOptions::new()\n'
+        '            .read(settings.format.is_mp4_with(settings.multiplexer))\n',
+        '        let _ = std::fs::remove_file(path);\n'
+        '        let f = std::fs::OpenOptions::new()\n'
+        '            .read(settings.format.is_mp4_with(settings.multiplexer))\n',
+    ):
+        fixed.append("crates/export/src/output.rs (remove pre-existing export file before open)")
 
     if fix(
         "crates/export/src/lib.rs",

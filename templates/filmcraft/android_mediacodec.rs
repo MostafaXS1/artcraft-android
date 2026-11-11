@@ -1474,8 +1474,8 @@ impl VideoDecoder for MediaCodecDecoder {
 
         // 5. Drain ready output frames
         self.drain_output(Duration::ZERO, &mut frames)?;
-        if frames.is_empty() && !self.is_direct_surface {
-            // Buffer mode: poll hardware decoder in 10ms slices up to 200ms so 4K frames never time out
+        if frames.is_empty() {
+            // Poll hardware decoder in 10ms slices up to 200ms so 4K frames never time out
             for _ in 0..20 {
                 self.drain_output(Duration::from_millis(10), &mut frames)?;
                 if !frames.is_empty() {
@@ -1876,7 +1876,7 @@ void main() {\n\
             v = v + (vec3(1.0) - v) * (kv - 1.0);\n\
         }\n\
     }\n\
-    gl_FragColor = vec4(clamp(v, 0.0, 1.0), src_sample.a);\n\
+    gl_FragColor = vec4(clamp(v, 0.0, 1.0), 1.0);\n\
 }\0";
 
 #[cfg(target_os = "android")]
@@ -2438,13 +2438,16 @@ impl Drop for HardwareSurfaceScaler {
                 (self.fn_ASurfaceTexture_release)(self.asurface_texture);
             }
             if !self.display.is_null() {
+                if !self.surface.is_null() && !self.context.is_null() {
+                    (self.fn_eglMakeCurrent)(self.display, self.surface, self.surface, self.context);
+                    if self.program != 0 {
+                        (self.fn_glDeleteProgram)(self.program);
+                    }
+                    if self.tex_id != 0 {
+                        (self.fn_glDeleteTextures)(1, &self.tex_id);
+                    }
+                }
                 (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                if self.program != 0 {
-                    (self.fn_glDeleteProgram)(self.program);
-                }
-                if self.tex_id != 0 {
-                    (self.fn_glDeleteTextures)(1, &self.tex_id);
-                }
                 if !self.surface.is_null() {
                     (self.fn_eglDestroySurface)(self.display, self.surface);
                 }
