@@ -301,31 +301,34 @@ impl MediaCodecEncoder {
         let auto_bitrate_kbps = {
             let pixels = (w as u64) * (h as u64);
             let target_fps = fps.max(1.0);
-            // Pristine mobile encoding target (30-40 Mbps for 4K, 14-20 Mbps for 1080p)
             let calculated = (pixels as f64 * target_fps * 0.15 / 1000.0) as u32;
             if pixels >= 3840 * 2160 {
-                calculated.clamp(30_000, 42_000)
+                calculated.clamp(45_000, 55_000)
             } else if pixels >= 1920 * 1080 {
-                calculated.clamp(14_000, 20_000)
+                calculated.clamp(16_000, 24_000)
             } else if pixels >= 1280 * 720 {
-                calculated.clamp(6_000, 12_000)
+                calculated.clamp(8_000, 14_000)
             } else {
-                calculated.clamp(3_000, 6_000)
+                calculated.clamp(4_000, 8_000)
             }
         };
-        // Clamp mobile export bitrate to prevent hardware decoder buffer overflow and multi-gigabyte files
-        let max_mobile_kbps = if (w as u64) * (h as u64) >= 3840 * 2160 {
-            42_000
+        // Enforce high-fidelity bitrate floors to eliminate gradient banding on smooth surfaces
+        // (45-55 Mbps for 4K 60fps, 16-24 Mbps for 1080p).
+        let (min_kbps, max_kbps) = if (w as u64) * (h as u64) >= 3840 * 2160 {
+            (45_000, 55_000)
         } else if (w as u64) * (h as u64) >= 1920 * 1080 {
-            20_000
+            (16_000, 24_000)
+        } else if (w as u64) * (h as u64) >= 1280 * 720 {
+            (8_000, 14_000)
         } else {
-            10_000
+            (4_000, 8_000)
         };
-        let kbps = if s.bitrate_kbps >= 1000 {
-            s.bitrate_kbps.min(max_mobile_kbps)
+        let user_kbps = if s.bitrate_kbps >= 1000 {
+            s.bitrate_kbps
         } else {
-            auto_bitrate_kbps.min(max_mobile_kbps)
+            auto_bitrate_kbps
         };
+        let kbps = user_kbps.clamp(min_kbps, max_kbps);
         let key_interval_sec = s.keyframe_distance
             .filter(|k| *k > 0)
             .map(|k| (f64::from(k) / fps).round().max(1.0) as i32)
@@ -341,7 +344,7 @@ impl MediaCodecEncoder {
             let color_fmt = if surface_mode { 0x7F000789 } else { 21 };
             format.set_i32("color-format", color_fmt);
             format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
-            format.set_i32("max-bitrate", (kbps.saturating_mul(1200)) as i32);
+            format.set_i32("max-bitrate", (max_kbps.saturating_mul(1000)) as i32);
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
@@ -717,7 +720,7 @@ impl VideoEncoder for MediaCodecEncoder {
             self.drain_output(Duration::from_millis(1), &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
-                for _ in 0..40 {
+                for _ in 0..100 {
                     if self.sps.is_some() && self.pps.is_some() {
                         break;
                     }

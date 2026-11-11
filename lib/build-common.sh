@@ -2077,20 +2077,6 @@ elif app == "filmcraft":
         '        if !self.can_surface_render() {\n'
         '            return false;\n'
         '        }\n'
-        '        let is_1to1 = (self.opts.scale - 1.0).abs() < 1e-4;\n'
-        '        if cfg!(target_os = "android") {\n'
-        '            if is_1to1 {\n'
-        '                filmcraft_codecs::hw::set_direct_surface(window_ptr, self.w, self.h);\n'
-        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
-        '                log::info!("Pipeline configured direct 1:1 decoder-to-encoder hardware surface bridge for {}x{}", self.w, self.h);\n'
-        '                return true;\n'
-        '            } else if let Some(decoder_win) = filmcraft_codecs::hw::init_surface_scaler(window_ptr, self.src_w, self.src_h, self.w, self.h) {\n'
-        '                filmcraft_codecs::hw::set_direct_surface(decoder_win, self.src_w, self.src_h);\n'
-        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
-        '                log::info!("Pipeline configured zero-copy HardwareSurfaceScaler: {}x{} -> {}x{}", self.src_w, self.src_h, self.w, self.h);\n'
-        '                return true;\n'
-        '            }\n'
-        '        }\n'
         '        if let Some(pool) = &self.renderer {\n'
         '            let (w, h) = (self.w, self.h);\n'
         '            let mut free = pool.renderers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
@@ -2134,13 +2120,7 @@ elif app == "filmcraft":
         '    pub fn plan_frame(&self, t: filmcraft_time::Tick, sources: &dyn SourceProvider) -> filmcraft_render::plan::FramePlan {\n'
         '        filmcraft_render::plan::plan_frame(&self.project, self.seq, t, self.opts, self.surface_caps(), sources)\n'
         '    }\n\n'
-        '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan, pts_ns: i64) -> Option<bool> {\n'
-        '        if filmcraft_codecs::hw::has_direct_surface() {\n'
-        '            if filmcraft_codecs::hw::has_surface_scaler() {\n'
-        '                return Some(filmcraft_codecs::hw::blit_surface_scaler(pts_ns));\n'
-        '            }\n'
-        '            return Some(true);\n'
-        '        }\n'
+        '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan, _pts_ns: i64) -> Option<bool> {\n'
         '        let mut guard = self.surface_renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
         '        let r = guard.as_mut()?;\n'
         '        r.render_plan_to_surface(plan)\n'
@@ -2179,6 +2159,7 @@ elif app == "filmcraft":
         '                }\n'
         '            }\n'
         '        }\n'
+        '        EXPORT_ACTIVE.store(true, Ordering::Relaxed);\n'
         '        Ok(Self {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter bind_surface in set_up)")
@@ -2212,7 +2193,8 @@ elif app == "filmcraft":
         '        if end <= f {\n'
         '            return Err(ExportError::Encode("internal: an empty batch was rendered".into()));\n'
         '        }\n'
-        '        let cuts: Vec<i64> = (f + 1..=end).filter(|&g| (g - self.f0) % INTERLEAVE == 0).collect();\n'
+        '        let batch_interleave: i64 = if cfg!(target_os = "android") { 64 } else { INTERLEAVE };\n'
+        '        let cuts: Vec<i64> = (f + 1..=end).filter(|&g| (g - self.f0) % batch_interleave == 0 || g == end).collect();\n'
         '        let mut mixed = Vec::with_capacity(cuts.len());\n'
         '        if let Some(sr) = self.audio.as_ref().map(|a| a.sr) {\n'
         '            let t = web_time::Instant::now();\n'
@@ -2338,15 +2320,36 @@ elif app == "filmcraft":
     if fix(
         "crates/export/src/job.rs",
         'impl Exporter {\n',
+        'pub static EXPORT_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);\n\n'
         'impl Drop for Exporter {\n'
         '    fn drop(&mut self) {\n'
+        '        EXPORT_ACTIVE.store(false, Ordering::Relaxed);\n'
         '        filmcraft_codecs::release_idle();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
         '    }\n'
         '}\n\n'
         'impl Exporter {\n',
     ):
-        fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
+        fixed.append("crates/export/src/job.rs (Exporter Drop cleanup and EXPORT_ACTIVE)")
+
+    if fix(
+        "crates/export/src/lib.rs",
+        'pub use job::{Exporter, Step, stepped};\n',
+        'pub use job::{Exporter, Step, stepped, EXPORT_ACTIVE};\n',
+    ):
+        fixed.append("crates/export/src/lib.rs (re-export EXPORT_ACTIVE)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '    fn request_job(&self, request: FrameRequest<\'_>) {\n'
+        '        let FrameRequest { key, time, scale, project, priority: prio, prefetch, catch_up } = request;\n',
+        '    fn request_job(&self, request: FrameRequest<\'_>) {\n'
+        '        if cfg!(target_os = "android") && filmcraft_export::EXPORT_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {\n'
+        '            return;\n'
+        '        }\n'
+        '        let FrameRequest { key, time, scale, project, priority: prio, prefetch, catch_up } = request;\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (suppress UI frame jobs during active export on Android)")
 
     if fix(
         "crates/ui-egui/src/app/gpu.rs",
