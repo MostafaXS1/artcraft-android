@@ -389,6 +389,18 @@ impl MediaCodecEncoder {
                 } else {
                     log::info!("win.set_buffers_geometry({w}x{h}, RGBA_8888) succeeded");
                 }
+                #[cfg(target_os = "android")]
+                {
+                    #[link(name = "android")]
+                    unsafe extern "C" {
+                        fn ANativeWindow_setBuffersDataSpace(window: *mut std::ffi::c_void, data_space: i32) -> i32;
+                    }
+                    unsafe {
+                        // ADATASPACE_BT709 = 281083904 (STANDARD_BT709 | TRANSFER_SMPTE_170M | RANGE_LIMITED)
+                        let res = ANativeWindow_setBuffersDataSpace(win.ptr().as_ptr() as *mut std::ffi::c_void, 281083904);
+                        log::info!("ANativeWindow_setBuffersDataSpace(BT709=281083904) = {res}");
+                    }
+                }
                 Some(win)
             } else {
                 None
@@ -405,28 +417,27 @@ impl MediaCodecEncoder {
             0x2000 // AVCLevel42
         };
 
-        // Try surface mode first letting MediaCodec select optimal hardware profile/level,
-        // then try High Profile (with Level 5.2 for 4K 60fps), then Main Profile, then unconstrained surface,
-        // followed by buffer mode fallbacks.
-        let (codec, surface) = try_init(true, true, None)
+        // Try surface mode first with High Profile (AVCProfileHigh = 8, Level 5.2 for 4K 60fps),
+        // falling back through profiles and to buffer mode.
+        let (codec, surface) = try_init(true, true, Some((8, high_level)))
             .or_else(|e| {
-                log::warn!("Surface mode auto profile failed ({e}), trying High Profile");
-                try_init(true, true, Some((8, high_level)))
+                log::warn!("Surface mode High Profile Level 5.1/5.2 failed ({e}), trying Level 4.1");
+                try_init(true, true, Some((8, 0x1000)))
             })
             .or_else(|e| {
                 log::warn!("Surface mode High Profile failed ({e}), trying Main Profile");
                 try_init(true, true, Some((2, 0x1000)))
             })
             .or_else(|e| {
-                log::warn!("Surface mode Main Profile failed ({e}), trying basic surface format");
+                log::warn!("Surface mode Main Profile failed ({e}), trying unconstrained surface format");
                 try_init(true, false, None)
             })
             .or_else(|e| {
-                log::warn!("Surface mode completely failed ({e}), falling back to buffer mode");
-                try_init(false, true, None)
+                log::warn!("Surface mode completely failed ({e}), falling back to buffer mode High Profile");
+                try_init(false, true, Some((8, high_level)))
             })
             .or_else(|e| {
-                log::warn!("Buffer mode auto profile failed ({e}), trying basic buffer mode");
+                log::warn!("Buffer mode High Profile failed ({e}), trying basic buffer mode");
                 try_init(false, false, None)
             })
             .map_err(|e| format!("Failed to initialize MediaCodec encoder: {e}"))?;
@@ -516,10 +527,10 @@ impl MediaCodecEncoder {
         } else {
             0x2000
         };
-        let new_codec = match try_buffer(true, None)
-            .or_else(|_| try_buffer(false, None))
-            .or_else(|_| try_buffer(true, Some((8, high_level))))
-            .or_else(|_| try_buffer(false, Some((8, high_level)))) {
+        let new_codec = match try_buffer(true, Some((8, high_level)))
+            .or_else(|_| try_buffer(false, Some((8, high_level))))
+            .or_else(|_| try_buffer(true, None))
+            .or_else(|_| try_buffer(false, None)) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("MediaCodec failed to reinit in buffer mode: {e}");
@@ -703,7 +714,7 @@ impl VideoEncoder for MediaCodecEncoder {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
-            self.drain_output(Duration::ZERO, &mut packets)?;
+            self.drain_output(Duration::from_millis(1), &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..40 {
@@ -1973,6 +1984,18 @@ impl HardwareSurfaceScaler {
             }
 
             let surface_attribs = [EGL_NONE];
+            let fn_ANativeWindow_setBuffersDataSpace: Option<unsafe extern "C" fn(*mut std::ffi::c_void, i32) -> i32> = {
+                let sym = dlsym(android_lib, b"ANativeWindow_setBuffersDataSpace\0".as_ptr() as *const _);
+                if !sym.is_null() {
+                    Some(std::mem::transmute(sym))
+                } else {
+                    None
+                }
+            };
+            if let Some(set_ds) = fn_ANativeWindow_setBuffersDataSpace {
+                let res = set_ds(encoder_window, 281083904);
+                log::info!("HardwareSurfaceScaler: ANativeWindow_setBuffersDataSpace(encoder_window, BT709) = {res}");
+            }
             let surface = fn_eglCreateWindowSurface(display, config, encoder_window, surface_attribs.as_ptr());
             if surface.is_null() {
                 log::warn!("HardwareSurfaceScaler: eglCreateWindowSurface failed");

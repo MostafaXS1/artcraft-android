@@ -1200,6 +1200,13 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
+    if fix(
+        "crates/codecs/src/gop.rs",
+        '        let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && want_pts > st.out_max));\n',
+        '        let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && (want_pts > st.out_max || want_pts >= s.pts(key))));\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (prevent decoder reset on in-GOP B-frames)")
+
     # 12. Fast contiguous luma and ARM64 NEON SIMD chroma de-interleave in biplanar::to_frame.
     if fix(
         "crates/platform/src/biplanar.rs",
@@ -1867,11 +1874,14 @@ elif app == "filmcraft":
         '            #[link(name = "android")]\n'
         '            unsafe extern "C" {\n'
         '                fn ANativeWindow_setBuffersGeometry(window: *mut std::ffi::c_void, width: i32, height: i32, format: i32) -> i32;\n'
+        '                fn ANativeWindow_setBuffersDataSpace(window: *mut std::ffi::c_void, data_space: i32) -> i32;\n'
         '            }\n'
         '            unsafe {\n'
         '                // 1 = WINDOW_FORMAT_RGBA_8888 in android/native_window.h\n'
-        '                let res = ANativeWindow_setBuffersGeometry(window_ptr, w as i32, h as i32, 1);\n'
-        '                log::info!("ANativeWindow_setBuffersGeometry({w}x{h}, format=RGBA_8888) = {res}");\n'
+        '                let res1 = ANativeWindow_setBuffersGeometry(window_ptr, w as i32, h as i32, 1);\n'
+        '                // 281083904 = ADATASPACE_BT709 in android/data_space.h\n'
+        '                let res2 = ANativeWindow_setBuffersDataSpace(window_ptr, 281083904);\n'
+        '                log::info!("ANativeWindow_setBuffersGeometry({w}x{h}, RGBA_8888) = {res1}, setBuffersDataSpace(BT709) = {res2}");\n'
         '            }\n'
         '        }\n'
         '        let non_null = match std::ptr::NonNull::new(window_ptr) {\n'
@@ -2067,6 +2077,20 @@ elif app == "filmcraft":
         '        if !self.can_surface_render() {\n'
         '            return false;\n'
         '        }\n'
+        '        let is_1to1 = (self.opts.scale - 1.0).abs() < 1e-4;\n'
+        '        if cfg!(target_os = "android") {\n'
+        '            if is_1to1 {\n'
+        '                filmcraft_codecs::hw::set_direct_surface(window_ptr, self.w, self.h);\n'
+        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '                log::info!("Pipeline configured direct 1:1 decoder-to-encoder hardware surface bridge for {}x{}", self.w, self.h);\n'
+        '                return true;\n'
+        '            } else if let Some(decoder_win) = filmcraft_codecs::hw::init_surface_scaler(window_ptr, self.src_w, self.src_h, self.w, self.h) {\n'
+        '                filmcraft_codecs::hw::set_direct_surface(decoder_win, self.src_w, self.src_h);\n'
+        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '                log::info!("Pipeline configured zero-copy HardwareSurfaceScaler: {}x{} -> {}x{}", self.src_w, self.src_h, self.w, self.h);\n'
+        '                return true;\n'
+        '            }\n'
+        '        }\n'
         '        if let Some(pool) = &self.renderer {\n'
         '            let (w, h) = (self.w, self.h);\n'
         '            let mut free = pool.renderers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
@@ -2110,7 +2134,13 @@ elif app == "filmcraft":
         '    pub fn plan_frame(&self, t: filmcraft_time::Tick, sources: &dyn SourceProvider) -> filmcraft_render::plan::FramePlan {\n'
         '        filmcraft_render::plan::plan_frame(&self.project, self.seq, t, self.opts, self.surface_caps(), sources)\n'
         '    }\n\n'
-        '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan, _pts_ns: i64) -> Option<bool> {\n'
+        '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan, pts_ns: i64) -> Option<bool> {\n'
+        '        if filmcraft_codecs::hw::has_direct_surface() {\n'
+        '            if filmcraft_codecs::hw::has_surface_scaler() {\n'
+        '                return Some(filmcraft_codecs::hw::blit_surface_scaler(pts_ns));\n'
+        '            }\n'
+        '            return Some(true);\n'
+        '        }\n'
         '        let mut guard = self.surface_renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
         '        let r = guard.as_mut()?;\n'
         '        r.render_plan_to_surface(plan)\n'
