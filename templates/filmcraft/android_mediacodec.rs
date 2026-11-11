@@ -717,7 +717,7 @@ impl VideoEncoder for MediaCodecEncoder {
         // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
         if self.surface.is_some() && f.rgba.is_empty() {
             let mut packets = Vec::new();
-            self.drain_output(Duration::from_millis(1), &mut packets)?;
+            self.drain_output(Duration::ZERO, &mut packets)?;
 
             if self.sps.is_none() || self.pps.is_none() {
                 for _ in 0..100 {
@@ -882,11 +882,11 @@ impl VideoEncoder for MediaCodecEncoder {
             if let Err(e) = self.codec.set_signal_end_of_input_stream() {
                 log::warn!("AMediaCodec_signalEndOfInputStream failed: {e:?}");
             }
-            for _ in 0..100 {
+            for _ in 0..200 {
                 if self.eos_seen {
                     break;
                 }
-                self.drain_output(Duration::from_millis(30), &mut packets)?;
+                self.drain_output(Duration::from_millis(50), &mut packets)?;
             }
             let _ = self.codec.stop();
             return Ok(packets);
@@ -1941,6 +1941,7 @@ pub struct HardwareSurfaceScaler {
     decoder_window: *mut std::ffi::c_void,
     _java_st_ref: Global<JObject<'static>>,
     // EGL function pointers
+    fn_eglGetCurrentContext: unsafe extern "C" fn() -> *mut std::ffi::c_void,
     fn_eglMakeCurrent: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
     fn_eglSwapBuffers: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
     fn_eglDestroySurface: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> u32,
@@ -2025,6 +2026,7 @@ impl HardwareSurfaceScaler {
             };
 
             // EGL symbols
+            let fn_eglGetCurrentContext: unsafe extern "C" fn() -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglGetCurrentContext\0")?);
             let fn_eglGetDisplay: unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(load(egl_lib, b"eglGetDisplay\0")?);
             let fn_eglInitialize: unsafe extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> u32 = std::mem::transmute(load(egl_lib, b"eglInitialize\0")?);
             let fn_eglChooseConfig: unsafe extern "C" fn(*mut std::ffi::c_void, *const i32, *mut *mut std::ffi::c_void, i32, *mut i32) -> u32 = std::mem::transmute(load(egl_lib, b"eglChooseConfig\0")?);
@@ -2325,6 +2327,7 @@ impl HardwareSurfaceScaler {
                 asurface_texture,
                 decoder_window,
                 _java_st_ref,
+                fn_eglGetCurrentContext,
                 fn_eglMakeCurrent,
                 fn_eglSwapBuffers,
                 fn_eglDestroySurface,
@@ -2360,9 +2363,11 @@ impl HardwareSurfaceScaler {
 
     pub fn blit(&mut self, pts_ns: i64) -> bool {
         unsafe {
-            if (self.fn_eglMakeCurrent)(self.display, self.surface, self.surface, self.context) == 0 {
-                log::warn!("HardwareSurfaceScaler: eglMakeCurrent failed");
-                return false;
+            if (self.fn_eglGetCurrentContext)() != self.context {
+                if (self.fn_eglMakeCurrent)(self.display, self.surface, self.surface, self.context) == 0 {
+                    log::warn!("HardwareSurfaceScaler: eglMakeCurrent failed");
+                    return false;
+                }
             }
 
             let _ = (self.fn_ASurfaceTexture_updateTexImage)(self.asurface_texture);
@@ -2418,9 +2423,6 @@ impl HardwareSurfaceScaler {
             (self.fn_glDrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
 
             let swap_res = (self.fn_eglSwapBuffers)(self.display, self.surface);
-
-            // Always unbind context after blit so decoder/scaler thread can access it
-            (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
             swap_res != 0
         }

@@ -2311,10 +2311,7 @@ elif app == "filmcraft":
         '            }\n'
         '            return self.step_batch(sources, progress);\n'
         '        }\n'
-        '        self.ahead = None;\n'
-        '        filmcraft_codecs::release_idle();\n'
-        '        filmcraft_codecs::hw::clear_direct_surface();\n'
-        '        filmcraft_codecs::hw::clear_surface_scaler();\n',
+        '        self.ahead = None;\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter step_surface_batch dispatch)")
 
@@ -2436,6 +2433,9 @@ elif app == "filmcraft":
         '        note_stage(Stage::Finish, finishing.elapsed());\n'
         '        filmcraft_codecs::release_idle();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
+        '        filmcraft_codecs::hw::clear_surface_scaler();\n'
+        '        filmcraft_frame::pool::trim_f32();\n'
+        '        filmcraft_frame::pool::trim_planes();\n'
         '        let secs = self.t0.elapsed().as_secs_f64();\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter finish direct surface cleanup)")
@@ -2450,6 +2450,9 @@ elif app == "filmcraft":
         '            self.ahead = None;\n'
         '            filmcraft_codecs::release_idle();\n'
         '            filmcraft_codecs::hw::clear_direct_surface();\n'
+        '            filmcraft_codecs::hw::clear_surface_scaler();\n'
+        '            filmcraft_frame::pool::trim_f32();\n'
+        '            filmcraft_frame::pool::trim_planes();\n'
         '            return Err(ExportError::Cancelled);\n'
         '        }\n',
     ):
@@ -2465,6 +2468,8 @@ elif app == "filmcraft":
         '        filmcraft_codecs::release_idle();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
         '        filmcraft_codecs::hw::clear_surface_scaler();\n'
+        '        filmcraft_frame::pool::trim_f32();\n'
+        '        filmcraft_frame::pool::trim_planes();\n'
         '    }\n'
         '}\n\n'
         'impl Exporter {\n',
