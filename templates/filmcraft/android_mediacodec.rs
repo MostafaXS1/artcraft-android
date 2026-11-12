@@ -1384,15 +1384,19 @@ impl MediaCodecDecoder {
                                 let u_size = uv_stride * uv_rows;
                                 if slice.len() >= y_size + u_size * 2 {
                                     let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
-                                    if self.draft && cw >= 2048 {
+                                    if self.draft && cw >= 1280 {
                                         let hw = cw / 2;
                                         let hh = ch / 2;
                                         let mut yp = filmcraft_frame::pool::take_u8(hw * hh);
+                                        yp.resize(hw * hh, 0);
                                         for r in 0..hh {
                                             let src_start = (oy + r * 2) * stride + ox;
-                                            if let Some(row) = slice.get(src_start..src_start + cw) {
-                                                for chunk in row.chunks_exact(2) {
-                                                    yp.push(chunk[0]);
+                                            if src_start + cw <= slice.len() {
+                                                let src_row = &slice[src_start..src_start + cw];
+                                                let dst_start = r * hw;
+                                                let dst_row = &mut yp[dst_start..dst_start + hw];
+                                                for i in 0..hw {
+                                                    dst_row[i] = src_row[i * 2];
                                                 }
                                             }
                                         }
@@ -1402,17 +1406,24 @@ impl MediaCodecDecoder {
                                         let (cw_half, ch_half) = (hw.div_ceil(2), hh.div_ceil(2));
                                         let mut up = filmcraft_frame::pool::take_u8(cw_half * ch_half);
                                         let mut vp = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                        up.resize(cw_half * ch_half, 0);
+                                        vp.resize(cw_half * ch_half, 0);
                                         for r in 0..ch_half {
                                             let u_row = u_start + (coy + r * 2) * uv_stride + cox;
                                             let v_row = v_start + (coy + r * 2) * uv_stride + cox;
-                                            if let Some(urow) = slice.get(u_row..u_row + cuw) {
-                                                for chunk in urow.chunks_exact(2) {
-                                                    up.push(chunk[0]);
+                                            let dst_start = r * cw_half;
+                                            if u_row + cuw <= slice.len() {
+                                                let urow = &slice[u_row..u_row + cuw];
+                                                let dst_u = &mut up[dst_start..dst_start + cw_half];
+                                                for i in 0..cw_half {
+                                                    dst_u[i] = urow[i * 2];
                                                 }
                                             }
-                                            if let Some(vrow) = slice.get(v_row..v_row + cuw) {
-                                                for chunk in vrow.chunks_exact(2) {
-                                                    vp.push(chunk[0]);
+                                            if v_row + cuw <= slice.len() {
+                                                let vrow = &slice[v_row..v_row + cuw];
+                                                let dst_v = &mut vp[dst_start..dst_start + cw_half];
+                                                for i in 0..cw_half {
+                                                    dst_v[i] = vrow[i * 2];
                                                 }
                                             }
                                         }
@@ -1498,15 +1509,19 @@ impl MediaCodecDecoder {
                                 };
 
                                 let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
-                                if self.draft && cw >= 2048 {
+                                if self.draft && cw >= 1280 {
                                     let hw = cw / 2;
                                     let hh = ch / 2;
                                     let mut yp = filmcraft_frame::pool::take_u8(hw * hh);
+                                    yp.resize(hw * hh, 0);
                                     for r in 0..hh {
                                         let src_start = (oy + r * 2) * stride + ox;
-                                        if let Some(row) = luma.get(src_start..src_start + cw) {
-                                            for chunk in row.chunks_exact(2) {
-                                                yp.push(chunk[0]);
+                                        if src_start + cw <= luma.len() {
+                                            let src_row = &luma[src_start..src_start + cw];
+                                            let dst_start = r * hw;
+                                            let dst_row = &mut yp[dst_start..dst_start + hw];
+                                            for i in 0..hw {
+                                                dst_row[i] = src_row[i * 2];
                                             }
                                         }
                                     }
@@ -1514,12 +1529,18 @@ impl MediaCodecDecoder {
                                     let (cw_half, ch_half) = (hw.div_ceil(2), hh.div_ceil(2));
                                     let mut up = filmcraft_frame::pool::take_u8(cw_half * ch_half);
                                     let mut vp = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                    up.resize(cw_half * ch_half, 0);
+                                    vp.resize(cw_half * ch_half, 0);
                                     for r in 0..ch_half {
                                         let row_start = (coy + r * 2) * stride + cox * 2;
-                                        if let Some(crow) = chroma.get(row_start..row_start + cw) {
-                                            for quad in crow.chunks_exact(4) {
-                                                up.push(quad[0]);
-                                                vp.push(quad[1]);
+                                        if row_start + cw <= chroma.len() {
+                                            let crow = &chroma[row_start..row_start + cw];
+                                            let dst_start = r * cw_half;
+                                            let dst_u = &mut up[dst_start..dst_start + cw_half];
+                                            let dst_v = &mut vp[dst_start..dst_start + cw_half];
+                                            for i in 0..cw_half {
+                                                dst_u[i] = crow[i * 4];
+                                                dst_v[i] = crow[i * 4 + 1];
                                             }
                                         }
                                     }
@@ -1759,6 +1780,9 @@ impl VideoDecoder for MediaCodecDecoder {
     }
 
     fn set_draft(&mut self, on: bool) {
+        if self.draft != on {
+            log::info!("MediaCodecDecoder set_draft: {on}");
+        }
         self.draft = on;
     }
 }
