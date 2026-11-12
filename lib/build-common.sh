@@ -2577,6 +2577,59 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/ui-egui/src/app/gpu.rs (GPU compositor diagnostic log)")
 
+    if fix(
+        "crates/platform/src/hybrid.rs",
+        '    fn set_draft(&mut self, on: bool) {\n        self.draft = on;\n        if let Some(sw) = self.sw.as_mut() {\n            sw.set_draft(on);\n        }\n    }\n',
+        '    fn set_draft(&mut self, on: bool) {\n        self.draft = on;\n        if let Some(hw) = self.hw.as_mut() {\n            hw.set_draft(on);\n        }\n        if let Some(sw) = self.sw.as_mut() {\n            sw.set_draft(on);\n        }\n    }\n',
+    ):
+        fixed.append("crates/platform/src/hybrid.rs (forward set_draft to hw decoder)")
+
+    if fix(
+        "crates/ui-egui/src/panels/monitor.rs",
+        '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
+        '    let res = mv.effective_res(playing);\n',
+        '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
+        '    let scrubbing = ctx.input(|i| i.pointer.any_down() && (app.tl.drag.is_some() || app.tl.pressed.is_some() || app.scrub.is_open() || i.pointer.delta() != egui::Vec2::ZERO));\n'
+        '    let dynamic = playing || scrubbing;\n'
+        '    let res = mv.effective_res(dynamic);\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/monitor.rs (dynamic scrubbing resolution)")
+
+    if fix(
+        "crates/ui-egui/src/panels/monitor.rs",
+        '    let draft = crate::frames::draft_playback(playing, scale, app.session.prefs.playback.draft_decode);\n',
+        '    let draft = crate::frames::draft_playback(dynamic, scale, app.session.prefs.playback.draft_decode);\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/monitor.rs (draft decoding during dynamic scrub)")
+
+    if fix(
+        "crates/ui-egui/src/panels/monitor.rs",
+        '.or_else(|| app.frames.nearest_plan(key, 6))\n',
+        '.or_else(|| app.frames.nearest_plan(key, if dynamic { 30 } else { 6 }))\n',
+    ):
+        fixed.append("crates/ui-egui/src/panels/monitor.rs (widen nearest plan search during dynamic scrub)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '                if !prefetch && same_view(k) && k.frame != key.frame {\n'
+        '                    c.store(true, Ordering::Relaxed);\n'
+        '                }\n',
+        '                let near_forward = key.frame > k.frame && key.frame - k.frame <= 8;\n'
+        '                if !prefetch && same_view(k) && k.frame != key.frame && !near_forward {\n'
+        '                    c.store(true, Ordering::Relaxed);\n'
+        '                }\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (preserve nearby forward in-flight scrub jobs)")
+
+    if fix(
+        "crates/engine/src/autosave.rs",
+        '            disable_video_in_background: true,\n'
+        '            draft_decode: false,\n',
+        '            disable_video_in_background: true,\n'
+        '            draft_decode: if cfg!(target_os = "android") { true } else { false },\n',
+    ):
+        fixed.append("crates/engine/src/autosave.rs (enable draft_decode by default on Android)")
+
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
 PY

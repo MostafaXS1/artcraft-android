@@ -1099,6 +1099,7 @@ pub struct MediaCodecDecoder {
     input_annex_b: Vec<u8>,
     is_direct_surface: bool,
     last_render_pts_ns: i64,
+    draft: bool,
 }
 
 impl MediaCodecDecoder {
@@ -1265,6 +1266,7 @@ impl MediaCodecDecoder {
             input_annex_b: Vec::new(),
             is_direct_surface,
             last_render_pts_ns: 0,
+            draft: false,
         };
 
         let out_fmt = dec.codec.output_format();
@@ -1369,45 +1371,96 @@ impl MediaCodecDecoder {
                                 let u_size = uv_stride * uv_rows;
                                 if slice.len() >= y_size + u_size * 2 {
                                     let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
-                                    let mut y_plane = filmcraft_frame::pool::take_u8(cw * ch);
-                                    for r in 0..ch {
-                                        let src_start = (oy + r) * stride + ox;
-                                        if let Some(row) = slice.get(src_start..src_start + cw) {
-                                            y_plane.extend_from_slice(row);
+                                    if self.draft && cw >= 2048 {
+                                        let hw = cw / 2;
+                                        let hh = ch / 2;
+                                        let mut yp = filmcraft_frame::pool::take_u8(hw * hh);
+                                        for r in 0..hh {
+                                            let src_start = (oy + r * 2) * stride + ox;
+                                            if let Some(row) = slice.get(src_start..src_start + cw) {
+                                                for chunk in row.chunks_exact(2) {
+                                                    yp.push(chunk[0]);
+                                                }
+                                            }
                                         }
+                                        let u_start = y_size;
+                                        let v_start = y_size + u_size;
+                                        let (cox, coy, cuw) = (ox / 2, oy / 2, cw.div_ceil(2));
+                                        let (cw_half, ch_half) = (hw.div_ceil(2), hh.div_ceil(2));
+                                        let mut up = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                        let mut vp = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                        for r in 0..ch_half {
+                                            let u_row = u_start + (coy + r * 2) * uv_stride + cox;
+                                            let v_row = v_start + (coy + r * 2) * uv_stride + cox;
+                                            if let Some(urow) = slice.get(u_row..u_row + cuw) {
+                                                for chunk in urow.chunks_exact(2) {
+                                                    up.push(chunk[0]);
+                                                }
+                                            }
+                                            if let Some(vrow) = slice.get(v_row..v_row + cuw) {
+                                                for chunk in vrow.chunks_exact(2) {
+                                                    vp.push(chunk[0]);
+                                                }
+                                            }
+                                        }
+                                        let data = filmcraft_frame::PixelData::Yuv8 {
+                                            planes: [Arc::new(yp), Arc::new(up), Arc::new(vp)],
+                                            chroma: filmcraft_frame::Chroma::C420,
+                                            alpha: None,
+                                        };
+                                        frames.push(DecodedFrame {
+                                            pts,
+                                            frame: filmcraft_frame::VideoFrame {
+                                                width: hw as u32,
+                                                height: hh as u32,
+                                                data,
+                                                color: self.info.color,
+                                                par: self.info.par,
+                                                pts: filmcraft_time::Tick::ZERO,
+                                            },
+                                            draft: true,
+                                        });
+                                    } else {
+                                        let mut y_plane = filmcraft_frame::pool::take_u8(cw * ch);
+                                        for r in 0..ch {
+                                            let src_start = (oy + r) * stride + ox;
+                                            if let Some(row) = slice.get(src_start..src_start + cw) {
+                                                y_plane.extend_from_slice(row);
+                                            }
+                                        }
+                                        let u_start = y_size;
+                                        let v_start = y_size + u_size;
+                                        let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
+                                        let mut u_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                        let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
+                                        for r in 0..cuh {
+                                            let u_row = u_start + (coy + r) * uv_stride + cox;
+                                            let v_row = v_start + (coy + r) * uv_stride + cox;
+                                            if let Some(urow) = slice.get(u_row..u_row + cuw) {
+                                                u_plane.extend_from_slice(urow);
+                                            }
+                                            if let Some(vrow) = slice.get(v_row..v_row + cuw) {
+                                                v_plane.extend_from_slice(vrow);
+                                            }
+                                        }
+                                        let data = filmcraft_frame::PixelData::Yuv8 {
+                                            planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
+                                            chroma: filmcraft_frame::Chroma::C420,
+                                            alpha: None,
+                                        };
+                                        frames.push(DecodedFrame {
+                                            pts,
+                                            frame: filmcraft_frame::VideoFrame {
+                                                width: self.crop.2,
+                                                height: self.crop.3,
+                                                data,
+                                                color: self.info.color,
+                                                par: self.info.par,
+                                                pts: filmcraft_time::Tick::ZERO,
+                                            },
+                                            draft: false,
+                                        });
                                     }
-                                    let u_start = y_size;
-                                    let v_start = y_size + u_size;
-                                    let (cox, coy, cuw, cuh) = (ox / 2, oy / 2, cw.div_ceil(2), ch.div_ceil(2));
-                                    let mut u_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
-                                    let mut v_plane = filmcraft_frame::pool::take_u8(cuw * cuh);
-                                    for r in 0..cuh {
-                                        let u_row = u_start + (coy + r) * uv_stride + cox;
-                                        let v_row = v_start + (coy + r) * uv_stride + cox;
-                                        if let Some(urow) = slice.get(u_row..u_row + cuw) {
-                                            u_plane.extend_from_slice(urow);
-                                        }
-                                        if let Some(vrow) = slice.get(v_row..v_row + cuw) {
-                                            v_plane.extend_from_slice(vrow);
-                                        }
-                                    }
-                                    let data = filmcraft_frame::PixelData::Yuv8 {
-                                        planes: [Arc::new(y_plane), Arc::new(u_plane), Arc::new(v_plane)],
-                                        chroma: filmcraft_frame::Chroma::C420,
-                                        alpha: None,
-                                    };
-                                    frames.push(DecodedFrame {
-                                        pts,
-                                        frame: filmcraft_frame::VideoFrame {
-                                            width: self.crop.2,
-                                            height: self.crop.3,
-                                            data,
-                                            color: self.info.color,
-                                            par: self.info.par,
-                                            pts: filmcraft_time::Tick::ZERO,
-                                        },
-                                        draft: false,
-                                    });
                                 }
                             } else {
                                 // Default: COLOR_FormatYUV420SemiPlanar (NV12)
@@ -1431,29 +1484,74 @@ impl MediaCodecDecoder {
                                     }
                                 };
 
-                                let biplanar = biplanar::Biplanar {
-                                    luma,
-                                    chroma,
-                                    stride,
-                                    rows,
-                                };
-                                let geometry = biplanar::Geometry {
-                                    crop: self.crop,
-                                    bits: 8,
-                                    color: self.info.color,
-                                    par: self.info.par,
-                                };
-
-                                match biplanar::to_frame(&biplanar, &geometry) {
-                                    Ok(frame) => {
-                                        frames.push(DecodedFrame {
-                                            pts,
-                                            frame,
-                                            draft: false,
-                                        });
+                                let (ox, oy, cw, ch) = (self.crop.0 as usize, self.crop.1 as usize, self.crop.2 as usize, self.crop.3 as usize);
+                                if self.draft && cw >= 2048 {
+                                    let hw = cw / 2;
+                                    let hh = ch / 2;
+                                    let mut yp = filmcraft_frame::pool::take_u8(hw * hh);
+                                    for r in 0..hh {
+                                        let src_start = (oy + r * 2) * stride + ox;
+                                        if let Some(row) = luma.get(src_start..src_start + cw) {
+                                            for chunk in row.chunks_exact(2) {
+                                                yp.push(chunk[0]);
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
+                                    let (cox, coy) = (ox / 2, oy / 2);
+                                    let (cw_half, ch_half) = (hw.div_ceil(2), hh.div_ceil(2));
+                                    let mut up = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                    let mut vp = filmcraft_frame::pool::take_u8(cw_half * ch_half);
+                                    for r in 0..ch_half {
+                                        let row_start = (coy + r * 2) * stride + cox * 2;
+                                        if let Some(crow) = chroma.get(row_start..row_start + cw) {
+                                            for quad in crow.chunks_exact(4) {
+                                                up.push(quad[0]);
+                                                vp.push(quad[1]);
+                                            }
+                                        }
+                                    }
+                                    let data = filmcraft_frame::PixelData::Yuv8 {
+                                        planes: [Arc::new(yp), Arc::new(up), Arc::new(vp)],
+                                        chroma: filmcraft_frame::Chroma::C420,
+                                        alpha: None,
+                                    };
+                                    frames.push(DecodedFrame {
+                                        pts,
+                                        frame: filmcraft_frame::VideoFrame {
+                                            width: hw as u32,
+                                            height: hh as u32,
+                                            data,
+                                            color: self.info.color,
+                                            par: self.info.par,
+                                            pts: filmcraft_time::Tick::ZERO,
+                                        },
+                                        draft: true,
+                                    });
+                                } else {
+                                    let biplanar = biplanar::Biplanar {
+                                        luma,
+                                        chroma,
+                                        stride,
+                                        rows,
+                                    };
+                                    let geometry = biplanar::Geometry {
+                                        crop: self.crop,
+                                        bits: 8,
+                                        color: self.info.color,
+                                        par: self.info.par,
+                                    };
+
+                                    match biplanar::to_frame(&biplanar, &geometry) {
+                                        Ok(frame) => {
+                                            frames.push(DecodedFrame {
+                                                pts,
+                                                frame,
+                                                draft: false,
+                                            });
+                                        }
+                                        Err(e) => {
+                                            log::warn!("MediaCodecDecoder biplanar::to_frame failed: {e}");
+                                        }
                                     }
                                 }
                             }
@@ -1645,6 +1743,10 @@ impl VideoDecoder for MediaCodecDecoder {
 
     fn is_disposable(&self, sample: &[u8]) -> bool {
         self.info.is_disposable(sample)
+    }
+
+    fn set_draft(&mut self, on: bool) {
+        self.draft = on;
     }
 }
 
