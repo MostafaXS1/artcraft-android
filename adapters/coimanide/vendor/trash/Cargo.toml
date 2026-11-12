@@ -1,0 +1,10 @@
+[package]
+name = "trash"
+version = "5.2.9"
+edition = "2021"
+license = "MIT"
+description = "Builder stub of the trash crate for Android: deletes permanently (no desktop trash can)"
+
+[lib]
+name = "trash"
+path = "src/lib.rs"

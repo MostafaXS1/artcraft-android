@@ -32,9 +32,8 @@ App names:
   photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
-  notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite
-  capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft
+  notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide
 
 Examples:
   bash build.sh -photocraft
@@ -170,6 +169,7 @@ case "$APP" in
     prowave) TITLE="ProWave" ;;
     transit) TITLE="Transit" ;;
     anicraft) TITLE="AniCraft" ;;
+    coimanide) TITLE="Coiman IDE" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -226,6 +226,9 @@ elif [[ "$APP" == "transit" ]]; then
 elif [[ "$APP" == "anicraft" ]]; then
     REPO="https://github.com/storytold/AniCraft.git"
     APP_ORIGIN="https://github.com/storytold/AniCraft"
+elif [[ "$APP" == "coimanide" ]]; then
+    REPO="https://github.com/ManuelCoimbra/coiman-ide.git"
+    APP_ORIGIN="https://github.com/ManuelCoimbra/coiman-ide"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -281,7 +284,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -552,7 +555,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|coimanide)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
@@ -5770,7 +5773,14 @@ fn install_cadcraft_io() {
 
     topbar_modifier_hook = ""
     if app in ("designcraft", "wordcraft", "gridcraft", "deckcraft"):
-        topbar_modifier_hook = f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);\n"
+        # The Shift/Ctrl/Alt buttons stand in for the soft keyboard: with a hardware keyboard
+        # attached they are in the way, so the launcher tells the app's top bar about it.
+        topbar_modifier_hook = (
+            f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);\n"
+            f"        {ui_ident}::topbar_modifiers::set_hardware_keyboard_connected(\n"
+            f"            android_activity::hardware_keyboard_connected(),\n"
+            f"        );\n"
+        )
 
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
@@ -6833,6 +6843,7 @@ if [[ -d "$ANDROID_DIR/java" ]]; then
     cp "$ROOT/templates/android/ArtCraftIme.java" "$IME_DIR/ArtCraftIme.java"
 fi
 
+
 [[ -f "$ANDROID_DIR/Cargo.toml" && -f "$ANDROID_DIR/src/lib.rs" ]] || fail "Android wrapper is incomplete at $ANDROID_DIR. See the build log and adapters/README.md."
 
 # WordCraft's soft-keyboard Backspace-at-the-start-of-a-paragraph fix is applied by its own
@@ -7706,13 +7717,21 @@ else
     fi
 fi
 
-# If any built .so in jniLibs needs libc++_shared.so, bundle it from the NDK toolchain
-if find "$ANDROID_DIR/jniLibs" -name "*.so" -exec readelf -d {} + 2>/dev/null | grep -q 'Shared library: \[libc++_shared\.so\]'; then
+# If any built .so in jniLibs needs libc++_shared.so, bundle it from the NDK toolchain.
+#
+# The check reads the whole output instead of grepping for the first match: `grep -q` exits at the
+# first hit, readelf then dies of SIGPIPE, and with `set -o pipefail` that made the pipeline fail
+# (exit 141) — so the C++ runtime was left out of the APK whenever readelf had more output
+# pending, and the app died at launch with "library libc++_shared.so not found".
+NEEDS_LIBCXX="$(find "$ANDROID_DIR/jniLibs" -name "*.so" -exec readelf -d {} + 2>/dev/null | grep 'Shared library: \[libc++_shared\.so\]' || true)"
+if [[ -n "$NEEDS_LIBCXX" ]]; then
     echo "  -> bundling libc++_shared.so from NDK..."
     LIBCXX="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
     if [[ -f "$LIBCXX" ]]; then
         mkdir -p "$ANDROID_DIR/jniLibs/arm64-v8a"
         cp -f "$LIBCXX" "$ANDROID_DIR/jniLibs/arm64-v8a/libc++_shared.so"
+    else
+        echo "  -> WARNING: the NDK has no libc++_shared.so; the app will not start" >&2
     fi
 fi
 

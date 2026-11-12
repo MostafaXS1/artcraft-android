@@ -105,6 +105,10 @@ impl AndroidApp {
                 .new_global_ref(jni_activity)
                 .expect("Failed to create global ref for Activity instance");
 
+            // The keyboard's state is read from the platform when it is asked, so the asset
+            // manager (which reads the platform's configuration) has to be reachable.
+            crate::config::remember_asset_manager(&app_asset_manager);
+
             let app = Self {
                 inner: Arc::new(RwLock::new(AndroidAppInner {
                     jvm: jvm.clone(),

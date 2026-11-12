@@ -99,3 +99,102 @@ missing script is not an error (the device simply ships no font for it):
 
     adb logcat | grep -E 'system fallback font|no system font found'
 
+
+## Coiman IDE (`adapters/coimanide`) and the Termux bridge
+
+Coiman IDE ([ManuelCoimbra/coiman-ide](https://github.com/ManuelCoimbra/coiman-ide)) is a desktop
+eframe/egui IDE whose `app` and `ui` modules live in a binary crate, and whose Git panel, Run button
+and terminal run programs that only exist inside Termux. The adapter therefore has three parts:
+
+* `prepare.sh` turns the checkout into a library plus an Android shell without editing upstream by
+  hand: it writes `crates/coiman-ide/src/lib.rs` (the same modules and core re-exports as `main.rs`,
+  plus `open_file`/`open_folder`), switches eframe to wgpu and the native Activity, compiles the
+  desktop pty out on Android, replaces the `trash` crate (no Android platform) with a stub that
+  deletes permanently, points the whole egui stack at the builder's egui fork (the same one every
+  other app uses, so the Android clipboard and IME work), and hides the desktop caption buttons.
+* `src/lib.rs` is the Android shell: the SAF file bridge, the system-font handling, the modifier
+  keys, the soft-keyboard bar, and the Termux environment.
+* `shim/termux_shim.c` is compiled twice by `prepare.sh` into `extra-jniLibs/arm64-v8a/`:
+  `libcoiman_termux_shim.so` (tools) and `libcoiman_termux_shell.so` (the interactive terminal).
+  Android extracts those with the executable bit, and the shell runs them like ordinary programs.
+
+### How a command reaches Termux
+
+Android gives an app no way to run another app's binaries, so the shell talks to Termux through its
+official `RUN_COMMAND` service:
+
+1. `quiet_command` (every tool Coiman runs: git, cargo, python, the language servers, the Run
+   button) and `which` (its "is this installed?" probe) are patched in `coiman-core` to route the
+   allowlisted tools to the shim.
+2. The shim writes a request into the app's own files directory and waits.
+3. `TermuxBroker` (in the Activity) sees the request and sends
+   `com.termux.RUN_COMMAND` to `com.termux.app.RunCommandService` with a generated `run.sh`.
+4. Termux runs the script; the shim relays stdin, stdout, stderr and the exit code, so the caller
+   sees an ordinary child process.
+
+Everything the two apps exchange lives in `/sdcard/Documents/CoimanTermux`: Termux cannot read an
+app's own external files directory, so shared storage is the only place both can write.
+
+Two details are specific to Android:
+
+* **Shared storage has no named pipes** (`mkfifo` is refused there). The stdin bridge is therefore
+  a regular file: the shim appends what it receives to `<scratch>/in`, and the generated script
+  feeds that file into a FIFO it creates inside Termux's own temporary directory.
+* **Shared storage caches file attributes**, so the script reads the heartbeat's *contents* (a
+  timestamp) rather than the file's modification time.
+
+### What the user needs on the device
+
+* Termux installed, opened once, with `allow-external-apps` enabled (Termux's own setting).
+* The `RUN_COMMAND` permission granted (the app asks for it on first start).
+* `pkg install util-linux` in Termux for the `script` command, which gives the interactive terminal
+  a real pty. Without it the terminal still works, but without job control.
+* Storage access for Termux (`termux-setup-storage`), so it can reach the project folder.
+
+### The soft keyboard on a tablet
+
+Android 15 and later keep the window edge to edge: the keyboard is drawn over the app instead of
+resizing it. Coiman keeps its terminal and its other panels at the bottom of the window, so the
+shell does what an app that resizes for the keyboard does, for this app only:
+
+* the Activity reports the keyboard's height (`imeInsetBottom`, and `nativeImeHeight` to the shell
+  so the app repaints when it changes);
+* the shell shortens egui's screen by that height, so the whole layout — the editor above it and
+  the terminal panel at the bottom — moves above the keyboard;
+* the search popups are real text fields, so they publish an IME output and the keyboard comes up
+  as it always did. The editor and the terminal deliberately do not: a keyboard that opens under
+  every tap in the text area is in the way, so there the keyboard comes up only when the user
+  asks for it;
+* the back button toggles the keyboard while the editor or the terminal has the focus: with the
+  keyboard up it hides it, with it down it shows it again. Android delivers the back button as a
+  key event, so the shell handles it there (a popup, which is a real text field, still closes on
+  the back button). A tablet has no other way to get the keyboard back after dismissing it.
+
+### The text bar (Cut, Copy, Paste, Delete)
+
+Coiman's editor and its terminal draw their own text, so neither of them is a `TextEdit` and the
+builder's text bar (which looks for a `TextEdit`'s selection) had nothing to show. They now
+publish their selection: the editor and the terminal write it into egui's own `TextEditState` (so
+the bar's test finds it) and the rectangle it is at into `coiman_core::selection` (so the bar sits
+next to the text instead of at the top of the screen).
+
+### The themes
+
+The themes the user has in VS Code are bundled with the app (`adapters/coimanide/themes`, 23 of
+them, without Breeze Dark and Breeze Light). Coiman can read VS Code color themes already; it
+finds them in the VS Code extensions folder or in `<config>/themes`, so `prepare.sh` copies the
+bundled ones into the staged app's assets, the Activity unpacks them, and the shell copies them
+into Coiman's config folder, where its theme picker lists them.
+
+### Asking for Termux
+
+When Termux is not installed, the Activity asks for it with a dialog like the builder's update
+window: **Download** (opens Termux's page on F-Droid), **Ignore once** and **Always ignore** (the
+last one is remembered in the app's settings).
+
+### Inspecting the bridge on-device
+
+The broker logs to logcat, and the bridge keeps a log of its sessions in the shared folder:
+
+    adb logcat | grep CoimanTermux
+    adb shell cat /sdcard/Documents/CoimanTermux/coiman-termux.log

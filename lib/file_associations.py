@@ -249,6 +249,41 @@ EXT_MIME = {
     "anicraft": ("application/x-anicraft",),
     "fla": ("application/x-shockwave-flash", "application/octet-stream"),
     "xfl": ("application/vnd.adobe.xfl", "application/xml", "text/xml"),
+    # Source code and configuration (Coiman IDE; the extension filters carry the rest)
+    "rs": ("text/x-rust",),
+    "toml": ("application/toml",),
+    "py": ("text/x-python",),
+    "pyw": ("text/x-python",),
+    "c": ("text/x-c",),
+    "h": ("text/x-c",),
+    "cc": ("text/x-c++src",),
+    "cpp": ("text/x-c++src",),
+    "cxx": ("text/x-c++src",),
+    "hpp": ("text/x-c++hdr",),
+    "hh": ("text/x-c++hdr",),
+    "java": ("text/x-java",),
+    "go": ("text/x-go",),
+    "rb": ("text/x-ruby",),
+    "php": ("application/x-httpd-php", "text/x-php"),
+    "lua": ("text/x-lua",),
+    "sh": ("application/x-sh", "text/x-shellscript"),
+    "bash": ("application/x-sh", "text/x-shellscript"),
+    "zsh": ("application/x-sh", "text/x-shellscript"),
+    "sql": ("application/sql",),
+    "yaml": ("application/yaml", "application/x-yaml", "text/yaml"),
+    "yml": ("application/yaml", "application/x-yaml", "text/yaml"),
+    "html": ("text/html",),
+    "htm": ("text/html",),
+    "css": ("text/css",),
+    "scss": ("text/x-scss",),
+    "sass": ("text/x-sass",),
+    "less": ("text/x-less",),
+    "xml": ("application/xml", "text/xml"),
+    "ini": ("text/plain",),
+    "conf": ("text/plain",),
+    "properties": ("text/plain",),
+    "diff": ("text/x-diff",),
+    "patch": ("text/x-diff",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -305,6 +340,13 @@ ASSOCIATIONS = {
     "prowave": ["prowave", "mid", "midi", "smf", "wav", "sf2"],
     "transit": ["transit", "dawproject", "mid", "midi", "wav", "wave", "aif", "aiff", "flac", "ogg", "opus", "mp3"],
     "anicraft": ["anicraft", "fla", "xfl", "svg", "png", "gif", "json"],
+    "coimanide": [
+        "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
+        "md", "markdown", "txt", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "java", "kt", "kts",
+        "go", "rb", "php", "lua", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+        "yaml", "yml", "html", "htm", "css", "scss", "sass", "less", "xml", "sql",
+        "ini", "cfg", "conf", "properties", "gradle", "mk", "cmake", "diff", "patch", "lock",
+    ],
 }
 
 MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }'
@@ -313,6 +355,10 @@ MAIN_FILTER = '{ actions = ["android.intent.action.MAIN"], categories = ["androi
 def _mime_types(app):
     seen = []
     for ext in ASSOCIATIONS.get(app, []):
+        # `.ts` is TypeScript in Coiman, but the shared table also knows MPEG transport streams
+        # for the video apps. Coiman keeps the extension filter and skips the video MIME types.
+        if app == "coimanide" and ext == "ts":
+            continue
         for mime in EXT_MIME.get(ext, ()):
             if mime not in seen:
                 seen.append(mime)

@@ -8,6 +8,25 @@ use egui::{vec2, Color32, CornerRadius, Modifiers, Pos2, Rect, Response, Stroke,
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+/// Whether a hardware keyboard is attached.
+///
+/// With a keyboard the soft keyboard is not needed, and buttons that stand in for it (the
+/// Shift/Ctrl/Alt toggles) only get in the way: the keyboard has those keys.
+///
+/// This module lives in the app's own crate, which is also built for the desktop and cannot
+/// depend on Android, so the launcher tells it the state (see `set_hardware_keyboard_connected`).
+static HARDWARE_KEYBOARD: AtomicBool = AtomicBool::new(false);
+
+/// Whether a hardware keyboard is attached.
+pub fn hardware_keyboard_connected() -> bool {
+    HARDWARE_KEYBOARD.load(Ordering::Relaxed)
+}
+
+/// Tells the module whether a hardware keyboard is attached. The launcher calls this.
+pub fn set_hardware_keyboard_connected(connected: bool) {
+    HARDWARE_KEYBOARD.store(connected, Ordering::Relaxed);
+}
+
 pub static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static CTRL_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static ALT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -78,6 +97,11 @@ pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
 /// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline into the current UI row.
 pub fn render_topbar_modifiers(ui: &mut Ui) {
     if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
+    if hardware_keyboard_connected() {
+        // A hardware keyboard is attached: it has the modifier keys, so these buttons would only
+        // get in the way.
         return;
     }
     ui.spacing_mut().item_spacing.x = 6.0;

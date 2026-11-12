@@ -170,8 +170,29 @@ Replace `-pdfcraft` with any supported application name.
 | `rustgis` | Unofficial | [opengeos/RustGIS](https://github.com/opengeos/RustGIS) |
 | `tracedraw` | Unofficial | [tracedraw/tracedraw](https://github.com/tracedraw/tracedraw) |
 | `transit` | Unofficial | [transit-audio/transit](https://github.com/transit-audio/transit) |
+| `coimanide` | Unofficial | [ManuelCoimbra/coiman-ide](https://github.com/ManuelCoimbra/coiman-ide) |
 
 App names are passed as command-line flags, such as `-photocraft` or `-anicraft`.
+
+#### Coiman IDE needs Termux
+
+**Coiman IDE** is an IDE, so it runs programs: Git, the language servers, the compilers and the
+tools of the project you are working on. Android does not let an app run another app's programs,
+so Coiman IDE runs them **in Termux**, over Termux's official `RUN_COMMAND` service. The editor
+itself works without it; the Git panel, the Run button, the tests and the terminal need it.
+
+To get the full IDE on a device:
+
+1. Install **Termux** (the F-Droid build, `com.termux`) and open it once. Coiman IDE asks for
+   Termux's `RUN_COMMAND` permission the first time it starts; if Termux is missing, the app
+   offers to download it.
+2. In Termux, run `pkg install util-linux` — the interactive terminal needs Termux's `script` for
+   a real pty (without it the terminal still runs, but without job control) — and
+   `pkg install git` for the Git panel.
+3. Run `termux-setup-storage` in Termux so it can reach the project folders in shared storage.
+
+The bridge is documented in `adapters/README.md`, and its log is on the device at
+`/sdcard/Documents/CoimanTermux/coiman-termux.log`.
 
 ### Build Options
 

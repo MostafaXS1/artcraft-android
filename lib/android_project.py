@@ -126,6 +126,16 @@ def manifest_xml(android_meta):
             attrs += f' android:maxSdkVersion="{_esc(permission["max_sdk_version"])}"'
         lines.append(f"    <uses-permission {attrs} />")
 
+    # Android 11+ package visibility: an app that talks to another installed package (Termux's
+    # RUN_COMMAND service for Coiman IDE) must declare it here, or the service cannot be resolved.
+    queries = _as_list(android_meta.get("queries"))
+    if queries:
+        lines.append("    <queries>")
+        for query in queries:
+            if query.get("package") is not None:
+                lines.append(f'        <package android:name="{_esc(query["package"])}" />')
+        lines.append("    </queries>")
+
     application = android_meta.get("application") or {}
     app_attrs = [
         f'{attr}="{_esc(application[key])}"'

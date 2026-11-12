@@ -1111,6 +1111,11 @@ impl eframe::App for PhotoCraftAndroidApp {
         touch_gestures::process_raw_input(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         photocraft_ui_egui::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);
+        // The Shift/Ctrl/Alt buttons stand in for the soft keyboard: with a hardware
+        // keyboard attached they are in the way.
+        photocraft_ui_egui::topbar_modifiers::set_hardware_keyboard_connected(
+            android_activity::hardware_keyboard_connected(),
+        );
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }

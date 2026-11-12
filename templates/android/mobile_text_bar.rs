@@ -20,6 +20,17 @@ pub enum Action {
 }
 
 static BAR_BUTTONS: std::sync::Mutex<Vec<(Rect, Action)>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether a hardware keyboard is attached.
+///
+/// With a keyboard the soft keyboard is not needed, and a bar that stands in for it (cut, copy,
+/// paste, delete) only gets in the way: the keyboard does all of that with Ctrl+X, Ctrl+C, Ctrl+V
+/// and Delete. The state comes from the device's own configuration, which the builder's
+/// android-activity keeps up to date.
+pub fn hardware_keyboard_connected() -> bool {
+    android_activity::hardware_keyboard_connected()
+}
+
 static ACTIVE_TOUCH: std::sync::Mutex<Option<(egui::TouchId, Action)>> = std::sync::Mutex::new(None);
 static ACTIVE_POINTER: std::sync::Mutex<Option<Action>> = std::sync::Mutex::new(None);
 
@@ -57,6 +68,13 @@ fn get_clipboard_text() -> Option<String> {
 /// and synthesizes the corresponding editing events directly into `raw.events`.
 pub fn process_raw_input(ctx: &Context, raw: &mut egui::RawInput) {
     if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
+    if hardware_keyboard_connected() {
+        // Nothing to press: the hardware keyboard does it.
+        if let Ok(mut b) = BAR_BUTTONS.lock() {
+            b.clear();
+        }
         return;
     }
     let buttons = {
@@ -179,6 +197,14 @@ pub fn process_raw_input(ctx: &Context, raw: &mut egui::RawInput) {
 /// Safe to call every frame inside the UI pass.
 pub fn show_text_bar(ctx: &Context) {
     if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
+        return;
+    }
+    if hardware_keyboard_connected() {
+        // A hardware keyboard is attached: the soft keyboard is not needed, and neither is a bar
+        // that stands in for it.
+        if let Ok(mut b) = BAR_BUTTONS.lock() {
+            b.clear();
+        }
         return;
     }
     let Some(field_id) = ctx.memory(|m| m.focused()) else {
