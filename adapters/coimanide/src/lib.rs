@@ -18,6 +18,7 @@
 //! ARTCRAFT_COIMANIDE_ANDROID_SHELL_V1
 
 use android_activity::AndroidApp;
+use coiman_ide::android_keyboard::{self, Mode, Request};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -118,57 +119,160 @@ fn ensure_screen_rect(app: &AndroidApp, ctx: &egui::Context, raw: &mut egui::Raw
 /// The on-screen keyboard's height in pixels, as the Activity reports it (0 when it is hidden).
 static IME_HEIGHT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
-/// The egui context, so the Activity can ask for a repaint when the keyboard's height changes.
-static IME_CONTEXT: std::sync::OnceLock<egui::Context> = std::sync::OnceLock::new();
-
 /// Whether the app published an IME output in the last frame.
 ///
-/// A real text field (the search popups) does, and so does nothing else: Coiman's editor and its
-/// terminal draw their own text and deliberately do not, so the keyboard stays away until the
-/// user asks for it. The back button uses this to tell "close the popup" from "toggle the
-/// keyboard" apart.
+/// The editor and the terminal publish one while they have focus, and so do the search popups
+/// (real text fields). The shell uses this to tell "a text surface has the keyboard" from "the
+/// app is only looking at the code".
 static IME_PUBLISHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Toggle the soft keyboard while there is something to type into.
-///
-/// Android hands the back button to the app as a key event (it never reaches the Activity's
-/// `onBackPressed`), so this is where the tablet's "put the keyboard away / bring it back" lives:
-/// with the keyboard up the back button hides it, with it down it shows it again. A tablet has
-/// no other way to get the keyboard back after dismissing it.
-fn toggle_keyboard(ctx: &egui::Context, bridge: &saf::Bridge) {
-    // The IME output says what wants the keyboard: the editor and the terminal both draw their
-    // own text, so neither of them is a TextEdit.
-    let wants = ctx.egui_wants_keyboard_input();
-    let height = IME_HEIGHT.load(Ordering::Relaxed);
-    // A text field (a search popup) publishes an IME output; then the back button belongs to the
-    // popup and not to the keyboard.
-    let published = IME_PUBLISHED.load(Ordering::Relaxed);
-    log::info!("back button: something wants the keyboard: {wants}, it is {height} px tall");
-    if !wants || published {
-        return;
-    }
-    if height > 0 {
-        bridge.hide_soft_input();
-    } else {
-        bridge.show_soft_input();
-    }
+/// What the user last asked the keyboard button to do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Intent {
+    /// Nobody said anything: the mode's own rule decides.
+    Automatic,
+    /// The user asked for the keyboard.
+    Wanted,
+    /// The user asked for the keyboard to go away.
+    Unwanted,
 }
 
-/// Called by the Activity when the keyboard's height changes (`nativeImeHeight`).
+/// The soft keyboard, as the keyboard button in the bottom bar sees it.
 ///
-/// The keyboard opens and closes without the app asking for a repaint, so the Activity says so
-/// from its layout listener; without this the app would keep drawing the old layout until
-/// something else happened to repaint it.
-#[no_mangle]
-pub extern "system" fn Java_com_artcraft_coimanide_CoimanIdActivity_nativeImeHeight(
-    _env: *mut std::ffi::c_void,
-    _this: *mut std::ffi::c_void,
-    pixels: i32,
-) {
-    IME_HEIGHT.store(pixels.max(0), Ordering::Relaxed);
-    log::info!("the keyboard is {pixels} px tall");
-    if let Some(ctx) = IME_CONTEXT.get() {
-        ctx.request_repaint();
+/// The button carries a mode — always on, never on its own, or as the app sees fit — and can
+/// ask for the keyboard right away. This is the Android shell's side of that: the shell owns the
+/// Activity, and with it the only way to show or hide the soft keyboard.
+struct Keyboard {
+    /// The mode the button is in.
+    mode: Mode,
+    /// What the user last asked for.
+    intent: Intent,
+    /// When the app last asked the platform for the keyboard: a request that does not take
+    /// effect is not repeated every frame.
+    last_ask: Option<std::time::Instant>,
+    /// Show the keyboard once, right now. Auto and Off must not keep re-showing it after the
+    /// user dismissed it; only an explicit "Show now", a tap in a text surface, or On do.
+    force_show: bool,
+}
+
+impl Keyboard {
+    fn new() -> Keyboard {
+        Keyboard {
+            mode: Mode::Auto,
+            intent: Intent::Automatic,
+            last_ask: None,
+            force_show: false,
+        }
+    }
+
+    /// Carries out what the button asked for, and what the mode says.
+    fn apply(&mut self, ctx: &egui::Context, bridge: &saf::Bridge) {
+        // What the button asked for right now.
+        match android_keyboard::take_request() {
+            Some(Request::Show) => {
+                self.intent = Intent::Wanted;
+                self.force_show = true;
+            }
+            Some(Request::Hide) => {
+                self.intent = Intent::Unwanted;
+                self.force_show = false;
+            }
+            Some(Request::TextTapped) => {
+                // A tap in the editor or the terminal asks for the keyboard again, unless the
+                // user chose Off: that mode never opens it on its own.
+                if self.mode != Mode::Off {
+                    self.intent = Intent::Automatic;
+                    self.force_show = true;
+                }
+            }
+            Some(Request::Automatic) => {
+                // The user picked Auto: forget any earlier "Show now"/"Hide now".
+                self.intent = Intent::Automatic;
+                self.force_show = false;
+            }
+            None => {}
+        }
+
+        // A mode the user has just picked. The mode's rule below carries it out.
+        let mode = android_keyboard::mode();
+        if mode != self.mode {
+            self.mode = mode;
+            self.intent = Intent::Automatic;
+            self.force_show = mode == Mode::On;
+        }
+
+        // What the mode wants this frame. `published` is egui's own IME output: the editor and
+        // the terminal publish it while they have focus, and the search popups while they are
+        // open.
+        let published = IME_PUBLISHED.load(Ordering::Relaxed);
+        let wanted = match self.mode {
+            // On: up even without a text surface. "Hide now" is the one exception.
+            Mode::On => self.intent != Intent::Unwanted,
+            // Off: never on its own. "Show now" is the one exception.
+            Mode::Off => self.intent == Intent::Wanted,
+            // Auto: while a text surface has focus, and after a "Show now".
+            Mode::Auto => {
+                self.intent != Intent::Unwanted && (published || self.intent == Intent::Wanted)
+            }
+        };
+
+        // egui-winit opens and closes the keyboard as the IME output comes and goes. Keep one
+        // published while the mode wants the keyboard up (On has no text surface to publish
+        // one), and take it away when the mode does not (Off must suppress a text field's own
+        // output too).
+        if wanted {
+            if !published {
+                let rect = ctx.content_rect();
+                ctx.output_mut(|o| {
+                    o.ime = Some(egui::output::IMEOutput {
+                        owner: egui::Id::NULL,
+                        context_generation: 0,
+                        purpose: egui::IMEPurpose::Normal,
+                        rect,
+                        cursor_rect: egui::Rect::from_min_size(
+                            rect.left_bottom(),
+                            egui::vec2(1.0, 1.0),
+                        ),
+                        should_interrupt_composition: false,
+                        reset_request: None,
+                        change_cause: egui::output::ImeChangeCause::Other,
+                        surrounding_text: egui::output::IMESurroundingText::Unavailable,
+                    });
+                });
+            }
+        } else {
+            ctx.output_mut(|o| o.ime = None);
+        }
+
+        // The mode's own rule, every frame.
+        let height = IME_HEIGHT.load(Ordering::Relaxed);
+        if wanted {
+            // The platform only shows the keyboard implicitly when a text field appears; On,
+            // "Show now" and a tap in a text surface force it, which is also what makes it work
+            // with a hardware keyboard attached. Auto does not force it on its own: the user
+            // dismissing the keyboard must stick until a text surface is tapped again. The rate
+            // limit keeps a refused request from looping.
+            if height == 0 && (self.force_show || self.mode == Mode::On) {
+                self.show(bridge);
+            }
+        } else if height > 0 {
+            bridge.hide_soft_input();
+        }
+        self.force_show = false;
+    }
+
+    /// Asks the platform for the soft keyboard, at most once a second.
+    fn show(&mut self, bridge: &saf::Bridge) {
+        let now = std::time::Instant::now();
+        let too_soon = self
+            .last_ask
+            .is_some_and(|last| now.duration_since(last) < std::time::Duration::from_millis(800));
+        if too_soon {
+            return;
+        }
+        self.last_ask = Some(now);
+        log::info!("the keyboard button asks for the soft keyboard");
+        bridge.show_soft_input();
     }
 }
 
@@ -321,6 +425,8 @@ struct CoimanAndroidApp {
     bridge: saf::Bridge,
     state: Arc<SafState>,
     modifiers: egui::Modifiers,
+    /// The soft keyboard, as the keyboard button in the bottom bar sees it.
+    keyboard: Keyboard,
     /// Files the system asked us to open are staged by the Activity; this is the shared queue the
     /// app's per-frame poll drains. `intent_warmup` skips the first couple of frames so Coiman has
     /// finished restoring its own session, and goes negative if the host has no intent bridge.
@@ -357,15 +463,8 @@ impl eframe::App for CoimanAndroidApp {
         }) {
             raw.events.retain(|event| !matches!(event, egui::Event::Text(text) if text == "\n"));
         }
-        // The back button toggles the soft keyboard (Android delivers it as a key event).
-        if raw.events.iter().any(|event| {
-            matches!(
-                event,
-                egui::Event::Key { key: egui::Key::BrowserBack, pressed: true, .. }
-            )
-        }) {
-            toggle_keyboard(ctx, &self.bridge);
-        }
+        // The back button belongs to the app: the keyboard is the button in the bottom bar's
+        // business now.
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.state.mirror.sync(&self.bridge);
@@ -375,9 +474,11 @@ impl eframe::App for CoimanAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         eframe::App::ui(&mut self.inner, ui, frame);
-        // Inside the pass, the output says whether a text field asked for the keyboard.
+        // Inside the pass, the output says whether a text surface asked for the keyboard.
         IME_PUBLISHED.store(ui.ctx().output(|o| o.ime.is_some()), Ordering::Relaxed);
         coiman_text_bar::show_text_bar(ui.ctx());
+        // The keyboard button in the bottom bar has been drawn, and may have been tapped.
+        self.keyboard.apply(ui.ctx(), &self.bridge);
     }
 
     fn on_exit(&mut self) {
@@ -496,12 +597,12 @@ fn android_main(android_app: AndroidApp) {
         native,
         Box::new(move |cc| {
             let inner = coiman_ide::app::CodeApp::new(None, &cc.egui_ctx);
-            let _ = IME_CONTEXT.set(cc.egui_ctx.clone());
             Ok(Box::new(CoimanAndroidApp {
                 inner,
                 app: app_bridge.android_app().clone(),
                 state: Arc::clone(&state),
                 modifiers: egui::Modifiers::default(),
+                keyboard: Keyboard::new(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
             }))

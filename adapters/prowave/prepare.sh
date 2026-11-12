@@ -87,9 +87,38 @@ text = "".join(filtered)
 text = re.sub(r'(?m)^struct App\b', 'pub struct App', text)
 text = re.sub(r'(?m)^struct UiState\b', 'pub struct UiState', text)
 
-# Add create_app helper at the end
-helper = '''
+# Add the create_app helper at the end.
+#
+# The Android shell needs an `App`, and upstream's own construction of one is the truth: the
+# adapter used to spell out every field itself, so each release that added a field broke the
+# Android build ("error[E0063]: missing fields `shot` and `shot_exit` in initializer of `App`").
+# The literal is copied over instead, and the values main() takes from its command line are
+# supplied empty: `bench_out`, `shots_dir` and `shot_out` are the paths the desktop app reads
+# from its arguments (there are none on Android), `measuring` is what upstream uses to switch
+# the MIDI ports off (Android has none), and `shot_exit` is the code a failed `--screenshot`
+# leaves behind (`Default::default()` is the same fresh counter).
+literal = None
+for marker in ("let mut app = App {", "let app = App {"):
+    at = text.find(marker)
+    if at < 0:
+        continue
+    start_brace = text.index("{", at + len(marker) - 1)
+    depth = 0
+    for i in range(start_brace, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                literal = text[start_brace + 1 : i]
+                break
+    break
+if literal is None:
+    raise SystemExit("prowave-app/src/main.rs no longer constructs an `App` the way the adapter reads it")
 
+helper = """
+
+/// The Android shell's app: upstream's own construction, with the desktop-only bits empty.
 pub fn create_app(cc: &eframe::CreationContext<'_>) -> App {
     theme::apply(&cc.egui_ctx);
     cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -101,29 +130,15 @@ pub fn create_app(cc: &eframe::CreationContext<'_>) -> App {
             None
         }
     };
-    App {
-        saved: file_commands::content(&project),
-        history: undo::History::new(&project),
-        project,
-        ui: UiState::new(),
-        sync,
-        bounce: None,
-        region_bounce: None,
-        path: None,
-        native_menu: None,
-        bench: None,
-        shots: None,
-        frames_since_record: 0,
-        midi: None,
-        midi_out: None,
-        mtc_in: None,
-        clock_in: clock_in::ClockIn::default(),
-        clock_follow: clock_follow::ClockFollower::default(),
-        chase: mtc_in::Chase::default(),
-        updater: updater::Updater::new(),
-    }
+    let bench_out = bench::requested(&[]);
+    let shots_dir = bench::shots_requested(&[]);
+    let shot_out = bench::screenshot_requested(&[]);
+    let measuring = true;
+    let shot_exit: std::sync::Arc<std::sync::atomic::AtomicI32> = Default::default();
+    let midi_out = None;
+    App {""" + literal + """}
 }
-'''
+"""
 dst.write_text(text + helper)
 PY
 

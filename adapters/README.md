@@ -157,18 +157,21 @@ Android 15 and later keep the window edge to edge: the keyboard is drawn over th
 resizing it. Coiman keeps its terminal and its other panels at the bottom of the window, so the
 shell does what an app that resizes for the keyboard does, for this app only:
 
-* the Activity reports the keyboard's height (`imeInsetBottom`, and `nativeImeHeight` to the shell
-  so the app repaints when it changes);
+* the Activity caches the keyboard's height on the UI thread (`imeInsetBottom`) and wakes the
+  shell when it changes, so the app repaints without waiting for the next input event;
 * the shell shortens egui's screen by that height, so the whole layout — the editor above it and
   the terminal panel at the bottom — moves above the keyboard;
-* the search popups are real text fields, so they publish an IME output and the keyboard comes up
-  as it always did. The editor and the terminal deliberately do not: a keyboard that opens under
-  every tap in the text area is in the way, so there the keyboard comes up only when the user
-  asks for it;
-* the back button toggles the keyboard while the editor or the terminal has the focus: with the
-  keyboard up it hides it, with it down it shows it again. Android delivers the back button as a
-  key event, so the shell handles it there (a popup, which is a real text field, still closes on
-  the back button). A tablet has no other way to get the keyboard back after dismissing it.
+* the editor, the terminal and the search popups publish an IME output while they have focus, so
+  the keyboard can follow the text. A tap in the editor or the terminal brings the keyboard back
+  after the user dismissed it;
+* the bottom bar (Coiman's status bar) carries a keyboard **icon** at its right end, followed by
+  the mode the app is in. Tapping it opens a menu with the three modes — **On** (the keyboard
+  stays up and comes back when it is dismissed), **Off** (the app never opens the keyboard by
+  itself) and **Auto** (the keyboard follows the text: it opens for the editor, the terminal and
+  the real text fields, and goes away when none of them is focused) — and with "Show now" and
+  "Hide now". The mode is kept in Coiman's own settings folder, so it survives a restart. The
+  button replaces the old back-button toggle: the back button belongs to the app again (a popup,
+  which is a real text field, still closes on it).
 
 ### The text bar (Cut, Copy, Paste, Delete)
 

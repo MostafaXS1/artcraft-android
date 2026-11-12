@@ -8,7 +8,11 @@ license = "GPL-3.0-or-later"
 crate-type = ["cdylib"]
 
 [dependencies]
-prowave-app = { path = "../../crates/prowave-app" }
+# The desktop app's default features (`x11`, `accessibility`) are desktop-only: the
+# `accessibility` one pulls `eframe/accesskit`, which eframe refuses with the
+# `android-native-activity` backend the Android build uses ("`accesskit` feature is only
+# available with `android-game-activity`").
+prowave-app = { path = "../../crates/prowave-app", default-features = false }
 prowave-engine = { path = "../../crates/prowave-engine" }
 prowave-project = { path = "../../crates/prowave-project" }
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "persistence", "android-native-activity"] }

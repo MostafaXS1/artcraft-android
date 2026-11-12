@@ -8,16 +8,25 @@ SRC_ABS="$ROOT/$SRC"
 ADAPTER="$ROOT/adapters/capsulecraft"
 DEST="$SRC_ABS/apps/$APP-android"
 
-# Create root workspace if missing
+# Create root workspace if missing.
+#
+# `exclude = ["vendor"]` keeps the vendored egui fork (a nested workspace of its own) out of
+# this workspace: without the exclusion the fork's crates are taken as members here, and its
+# `egui-winit` then inherits `rust-version` from this manifest, which does not define one, and
+# the build stops with "error inheriting `rust-version` from workspace root manifest's
+# `workspace.package.rust-version`". The fork asks for a recent toolchain, so the manifest also
+# declares the `rust-version` the whole workspace needs.
 if [[ ! -f "$SRC_ABS/Cargo.toml" ]]; then
     cat > "$SRC_ABS/Cargo.toml" <<'EOF'
 [workspace]
 resolver = "2"
 members = ["native", "apps/*"]
+exclude = ["vendor"]
 
 [workspace.package]
 version = "2.1.0"
 edition = "2021"
+rust-version = "1.95"
 
 [patch.crates-io]
 ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
@@ -47,6 +56,32 @@ egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev
 eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 EOF
 fi
+
+# An upstream root manifest (a newer CapsuleCraft release may ship one) needs the same two
+# things: the vendored fork is a nested workspace of its own and must stay out of this one, and
+# the workspace has to declare the `rust-version` the fork asks for.
+python3 - "$SRC_ABS/Cargo.toml" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# The vendored fork is a nested workspace: keep it out of this one.
+if re.search(r'(?m)^exclude\s*=\s*\[', s):
+    if '"vendor"' not in s:
+        s = re.sub(r'(?m)^(exclude\s*=\s*\[)', r'\1 "vendor",', s, count=1)
+else:
+    s = re.sub(r'(?m)^(members\s*=\s*\[[^\]]*\])', r'\1\nexclude = ["vendor"]', s, count=1)
+
+# The fork asks for a recent toolchain; the workspace says which one the whole build needs.
+if not re.search(r'(?m)^rust-version\s*=', s):
+    s = re.sub(r'(?m)^(\[workspace\.package\])', r'\1\nrust-version = "1.95"', s, count=1)
+
+p.write_text(s)
+print("capsulecraft: the root manifest excludes the vendored fork and declares its rust-version")
+PY
 
 # Vendor the storytold egui fork and inject its Android IME bridge. Android's winit backend
 # never emits IME text events: the soft keyboard's letters reach the Activity's input view

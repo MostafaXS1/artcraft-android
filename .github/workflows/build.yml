@@ -78,6 +78,7 @@ jobs:
           - prowave
           - transit
           - anicraft
+          - coimanide
 
     steps:
       - name: Free runner disk space

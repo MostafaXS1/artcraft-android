@@ -137,6 +137,7 @@ lib = '''//! Library form of Coiman IDE, used by the Android shell in `apps/coim
 //! opened. It also re-exports the core modules under the names the app's `crate::buffer`,
 //! `crate::document`, ... paths expect, exactly as `main.rs` does.
 
+pub mod android_keyboard;
 pub mod app;
 pub mod ui;
 
@@ -344,13 +345,51 @@ else:
     raise SystemExit("workbench.rs no longer has window_buttons")
 PY
 
+# The soft-keyboard button in the bottom bar.
+#
+# Coiman's editor draws its own text and never asks Android for the soft keyboard: a keyboard
+# that opens under every tap in the text area is in the way. On a tablet the user still needs
+# the keyboard at hand, so the bottom bar (the status bar) gets a button that shows it and says
+# what the app does with it: always on, never on its own, or as the app sees fit.
+#
+# The button itself is the builder's own module: it lives in Coiman's crate because that is
+# where the status bar is drawn, and the Android shell reads the mode and the user's requests
+# from it (only the shell can talk to the platform).
+cp -f "$ADAPTER/patches/android_keyboard.rs" "$SRC_ABS/crates/coiman-ide/src/android_keyboard.rs"
+
+python3 - "$SRC_ABS/crates/coiman-ide/src/app/shell/workbench.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# The button goes at the right end of the status bar: the bar's right-hand group is laid out
+# right to left, so the first widget in it is the one furthest right.
+anchor = """            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                if self.shown_image().is_some() {
+"""
+patched = """            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                // The soft keyboard is an Android thing; the desktop has no such button.
+                #[cfg(target_os = "android")]
+                crate::android_keyboard::button(ui);
+                if self.shown_image().is_some() {
+"""
+if "crate::android_keyboard::button(ui);" in s:
+    print("workbench.rs: the keyboard button is already in the status bar")
+elif anchor in s:
+    p.write_text(s.replace(anchor, patched, 1))
+    print("workbench.rs: the keyboard button is in the status bar")
+else:
+    raise SystemExit("workbench.rs no longer has the status bar's right-hand group")
+PY
+
 # The editor on Android: a tap has to place the cursor, and the platform's text bar
 # (Cut/Copy/Paste/Delete) has to know about the selection.
 #
-# The editor deliberately does *not* publish an IME output: that is what tells Android to open
-# the soft keyboard, and a keyboard that opens under every tap in the text area is in the way.
-# The keyboard comes up when the user asks for it (the back button), and the search popups, which
-# are real text fields, still open it as they always did.
+# The editor publishes its IME output while it has focus: that is what tells Android where the
+# text is and lets the soft keyboard follow it in Auto mode. The shell decides whether the
+# keyboard is allowed (Off suppresses this output; On keeps one published even without focus).
 python3 - "$SRC_ABS/crates/coiman-ide/src/ui/editor_view.rs" <<'PY'
 from pathlib import Path
 import sys
@@ -358,9 +397,8 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# The IME output is what tells Android to open the soft keyboard. The editor must not publish
-# one: a keyboard that opens under every tap in the text area is in the way. (An earlier build
-# published one; it is removed here so the keyboard only comes up when the user asks for it.)
+# The upstream block uses crates.io egui 0.37's IMEOutput; the build uses the storytold fork,
+# whose IMEOutput carries the owner/generation fields too.
 ime_block_pristine = """    if has_focus {
         let to_global = ui.ctx().layer_transform_to_global(ui.layer_id()).unwrap_or_default();
         ui.output_mut(|o| {
@@ -390,11 +428,18 @@ ime_block_patched = """    if has_focus {
         });
     }
 """
-for block in (ime_block_patched, ime_block_pristine):
-    if block in s:
-        s = s.replace(block, "", 1)
-        print("editor_view.rs: the editor no longer asks for the soft keyboard")
-        break
+widget_info = '    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Editor"));'
+if ime_block_patched in s:
+    print("editor_view.rs: the editor asks for the soft keyboard when it has focus")
+elif ime_block_pristine in s:
+    s = s.replace(ime_block_pristine, ime_block_patched, 1)
+    print("editor_view.rs: the editor asks for the soft keyboard when it has focus")
+elif widget_info in s:
+    # An earlier build removed the block; put the fork's version back in the same place.
+    s = s.replace(widget_info, ime_block_patched + widget_info, 1)
+    print("editor_view.rs: the editor asks for the soft keyboard again when it has focus")
+else:
+    raise SystemExit("the editor no longer has the IME output's anchor")
 
 # A tap on Android is a press and a release in the same frame: the builder's touch handling only
 # knows it is a tap once the finger lifts, and egui clears "the button is down on this widget" on
@@ -414,6 +459,28 @@ elif old_press in s:
     print("editor_view.rs: a tap counts as a press")
 else:
     raise SystemExit("editor_view.rs no longer finds the pointer press")
+
+# A tap in the editor is the user saying "type here": in Auto mode the shell brings the
+# keyboard back when the user dismissed it.
+tap_anchor = """    if response.clicked() || response.drag_started() {
+        response.request_focus();
+    }
+"""
+tap_patched = """    if response.clicked() || response.drag_started() {
+        response.request_focus();
+        // A tap is the user saying "type here": in Auto, the keyboard comes back if it was
+        // dismissed.
+        #[cfg(target_os = "android")]
+        crate::android_keyboard::text_tapped();
+    }
+"""
+if "crate::android_keyboard::text_tapped();" in s:
+    print("editor_view.rs: a tap already asks for the soft keyboard again")
+elif tap_anchor in s:
+    s = s.replace(tap_anchor, tap_patched, 1)
+    print("editor_view.rs: a tap asks for the soft keyboard again")
+else:
+    raise SystemExit("editor_view.rs no longer focuses the editor on a tap")
 
 
 # The platform's text bar looks for a TextEdit's selection to decide whether to offer
@@ -457,9 +524,9 @@ p.write_text(s)
 PY
 
 # The terminal on Android: the platform's text bar (Cut/Copy/Paste/Delete) has to know about the
-# selection. Like the editor, the terminal deliberately does not publish an IME output: that is
-# what opens the soft keyboard, and a keyboard that opens under every tap in the terminal is in
-# the way. The keyboard comes up when the user asks for it (the back button).
+# selection, and the terminal is a text surface, so it publishes its IME output while it has
+# focus. The shell decides whether the keyboard is allowed (Off suppresses the output; On keeps
+# one published even without focus).
 python3 - "$SRC_ABS/crates/coiman-ide/src/ui/terminal.rs" <<'PY'
 from pathlib import Path
 import re, sys
@@ -507,8 +574,68 @@ if anchor not in s:
     raise SystemExit("terminal.rs no longer paints the terminal grid")
 if "coiman_core::selection::set" not in s:
     s = s.replace(anchor, anchor + block, 1)
+
+# The IME output opens the soft keyboard in Auto mode and gives the platform the cursor's cell;
+# without it, egui-winit would close the keyboard again while the terminal is being typed in.
+marker = "// The terminal is a text surface: publish its IME output while it has focus."
+# Replace any earlier version of the block: it is written once, in one shape.
+s = re.sub(
+    r"\n        // The terminal is a text surface: publish its IME output while it has focus\."
+    r".*?\n        \}\n",
+    "\n",
+    s,
+    flags=re.S,
+)
+ime_block = """        // The terminal is a text surface: publish its IME output while it has focus.
+        if focused {
+            let term = tab.session.term();
+            let content = term.renderable_content();
+            let point = content.cursor.point;
+            let row = point.line.0 + content.display_offset as i32;
+            let to_global = ui.ctx().layer_transform_to_global(ui.layer_id()).unwrap_or_default();
+            let cursor_pos = egui::pos2(
+                text_rect.left() + point.column.0 as f32 * char_w,
+                text_rect.top() + row as f32 * row_h,
+            );
+            let cursor_rect = egui::Rect::from_min_size(cursor_pos, egui::vec2(char_w, row_h));
+            ui.output_mut(|o| {
+                o.ime = Some(egui::output::IMEOutput {
+                    owner: id,
+                    context_generation: 0,
+                    purpose: egui::IMEPurpose::Terminal,
+                    rect: to_global * rect,
+                    cursor_rect: to_global * cursor_rect,
+                    should_interrupt_composition: false,
+                    reset_request: None,
+                    change_cause: egui::output::ImeChangeCause::Other,
+                    surrounding_text: egui::output::IMESurroundingText::Unavailable,
+                });
+            });
+        }
+"""
+s = s.replace(anchor, anchor + ime_block, 1)
+
+# A tap in the terminal is the user saying "type here": in Auto mode the shell brings the
+# keyboard back when the user dismissed it.
+tap_anchor = """        if focus_requested || response.clicked() || response.drag_started() {
+            response.request_focus();
+        }
+"""
+tap_patched = """        if focus_requested || response.clicked() || response.drag_started() {
+            response.request_focus();
+            // A tap is the user saying "type here": in Auto, the keyboard comes back if it was
+            // dismissed.
+            #[cfg(target_os = "android")]
+            crate::android_keyboard::text_tapped();
+        }
+"""
+if "crate::android_keyboard::text_tapped();" not in s:
+    if tap_anchor not in s:
+        raise SystemExit("terminal.rs no longer focuses the terminal on a tap")
+    s = s.replace(tap_anchor, tap_patched, 1)
+    print("terminal.rs: a tap asks for the soft keyboard again")
 p.write_text(s)
-print("terminal.rs: the selection reaches the text bar")
+print("terminal.rs: the selection reaches the text bar, and the terminal asks for the soft keyboard")
 PY
 
 # egui's text cursor lives in `egui::text` (the `cursor` module is epaint's and is not
@@ -629,6 +756,23 @@ text = (
 )
 
 field_anchor = '    private static final String TAG = "CoimanIdActivity";'
+
+# The system's NativeActivity loads the native library for its own class loader; the app's
+# classes (ArtCraftIme, whose JNI wake the keyboard listener calls) need it in their own. Loading
+# it here as well is harmless when it is already loaded, and makes the JNI symbol resolve.
+lib_loader = field_anchor + """
+
+    static {
+        try {
+            System.loadLibrary("coimanide_android");
+        } catch (Throwable ignored) {
+        }
+    }
+"""
+if 'System.loadLibrary("coimanide_android")' not in text:
+    text = text.replace(field_anchor, lib_loader, 1)
+    print("CoimanIdActivity.java: the app class loader can resolve the JNI wake")
+
 if "private TermuxBroker termuxBroker;" not in text:
     text = text.replace(
         field_anchor,
@@ -712,11 +856,22 @@ if "public String termuxStatus()" not in text:
     /**
      * How much of the window the soft keyboard covers, in pixels (0 when it is hidden).
      *
-     * Android 15 and later keep the window edge to edge and do not resize it for the keyboard:
-     * the inset is only reported to the app, which has to keep whatever it draws at the bottom
-     * (Coiman keeps its terminal there) clear of it.
+     * The value is read on the UI thread by {@link #watchKeyboardHeight} and kept here: the
+     * shell asks for it from the render thread every frame, and window insets may only be read
+     * from the UI thread.
      */
     public int imeInsetBottom() {
+        return imeInset;
+    }
+
+    /** The keyboard inset the layout listener saw last, in pixels. */
+    private volatile int imeInset = 0;
+
+    /** The height reported last; -1 when it has never been reported. */
+    private int lastImeHeight = -1;
+
+    /** Reads the keyboard's inset; UI thread only. */
+    private int computeImeInset() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 android.view.WindowInsets insets =
@@ -731,34 +886,20 @@ if "public String termuxStatus()" not in text:
     }
 
     /**
-     * The on-screen keyboard's height in pixels, reported to the shell so it lays out above the
-     * keyboard instead of under it. The shell draws the terminal and the other panels at the
-     * bottom of the window, and a keyboard on top of them makes the terminal unusable.
-     */
-    private native void nativeImeHeight(int pixels);
-
-    /** The height reported last; -1 when it has never been reported. */
-    private int lastImeHeight = -1;
-
-    /**
      * Reports the keyboard's height whenever the window's layout changes (the keyboard opens or
      * closes). The shell needs a repaint to draw the new layout, and nothing else would ask for
-     * one at that moment.
+     * one at that moment: {@link #wakeNativeLoop()} sends it an input event.
      */
     private void watchKeyboardHeight() {
         android.view.View decor = getWindow() == null ? null : getWindow().getDecorView();
         if (decor == null) return;
         decor.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            int height = imeInsetBottom();
+            int height = computeImeInset();
+            imeInset = height;
             if (height == lastImeHeight) return;
             lastImeHeight = height;
             Log.i(TAG, "keyboard height: " + height + " px");
-            try {
-                nativeImeHeight(height);
-            } catch (UnsatisfiedLinkError error) {
-                // The native library is not loaded yet: the next layout tells it.
-                lastImeHeight = -1;
-            }
+            wakeNativeLoop();
         });
     }
 }

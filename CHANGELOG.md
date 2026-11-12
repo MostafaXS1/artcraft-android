@@ -40,6 +40,14 @@
     picker lists them.
   - Registered in `lib/build-common.sh` (title, repository, SAF launcher, the usage list) and
     documented in `adapters/README.md`.
+  - A **keyboard button in the bottom bar** for Coiman IDE: at the right end of the status bar,
+    a keyboard icon followed by the mode the app is in. Tapping it opens a menu with the three
+    modes — **On** (the keyboard stays up and comes back when it is dismissed), **Off** (the app
+    never opens the keyboard by itself) and **Auto** (the keyboard follows the text: it opens
+    for the editor, the terminal and the real text fields, and goes away when none of them is
+    focused) — plus "Show now" and "Hide now". The mode is kept in Coiman's own settings folder,
+    so it survives a restart. The button replaces the back-button toggle, which handed the back
+    button back to the app.
 - Added file associations and intent filters for source code and configuration documents
   (Rust, Python, C/C++, Java, Go, shell, TOML, YAML, HTML, CSS, SQL, …) for Coiman IDE in
   `lib/file_associations.py`.
@@ -48,26 +56,50 @@
   the metadata are unaffected: their manifests are unchanged.
 - Added file associations and intent filters for 3D CAD, model, and procedural texture formats in `lib/file_associations.py`.
 - Added `solidcraft`, `materialcraft`, and `texturecraft` to GitHub Actions CI build matrix (`.github/workflows/build.yml`).
+- Added `coimanide` to the GitHub Actions CI build matrix (`.github/workflows/build.yml`): Coiman
+  IDE is built by CI like every other target.
 - Registered build targets and SAF launcher recipes in `lib/build-common.sh`.
 
 ### Fixed
+- **Three Android builds that CI could not build** — each was a change in the upstream project
+  the builder follows, and each is now taken from upstream at build time instead of being frozen
+  in the adapter:
+  - **PhotoCraft**: the adapter shipped a frozen copy of upstream's `control_server.rs`, and
+    upstream v0.23 replaced `security::authentication_reply` with the `ServerHandshake` state
+    machine, so the build stopped with `error[E0432]: unresolved import
+    photocraft_automation::security::authentication_reply`. The file is now taken from the
+    upstream checkout on every build; only the desktop's `eprintln!` becomes the Android logger
+    and the test module (which needs the desktop's test dependencies) is dropped.
+  - **ProWave**: upstream's `main` gave `prowave-app` the default features `x11` and
+    `accessibility`, and `accessibility` pulls `eframe/accesskit`, which eframe refuses with the
+    `android-native-activity` backend the Android build uses ("`accesskit` feature is only
+    available with `android-game-activity`"). The Android launcher now asks for the crate without
+    its default features. Upstream also added fields to its `App` struct (`shot`, `shot_exit`),
+    which broke the adapter's hand-written constructor ("missing fields `shot` and `shot_exit` in
+    initializer of `App`"); the constructor is now built from upstream's own `App { ... }` literal,
+    so a new field no longer breaks the Android build.
+  - **CapsuleCraft**: `prepare.sh` writes the root workspace manifest (upstream ships none), and
+    it left out `exclude = ["vendor"]`. The vendored egui fork is a nested workspace of its own,
+    so cargo took its crates as members of the outer one, and the fork's `egui-winit` then
+    inherited a `rust-version` the outer manifest does not define ("error inheriting
+    `rust-version` from workspace root manifest's `workspace.package.rust-version`"). The
+    manifest now excludes the vendored fork and declares the `rust-version` the fork asks for.
 - **Coiman IDE on Android** — the first Android build of Coiman had a handful of platform
   problems, all fixed in the adapter and in build-time patches of the upstream sources:
   - A tap in the editor did nothing: on Android a tap is a press *and* a release in the same
     frame, and egui clears "the button is down on this widget" on the release, so the editor's
     "the cursor goes where the pointer went down" test was never true. The editor now also
     accepts `clicked()`, which survives the same-frame release.
-  - The soft keyboard never came up in the terminal, and came up in the editor whether the user
-    wanted it or not. Coiman's editor and terminal draw their own text, so neither is a
-    `TextEdit` and neither published an IME output — which is exactly what tells Android to
-    open the keyboard. The search popups (real text fields) still open it; in the editor and the
-    terminal the keyboard now comes up only when the user asks for it, and the **back button
-    toggles it** (Android delivers the back button as a key event, so the shell handles it
-    there; a popup still closes on it).
+  - The soft keyboard could not follow Coiman's text. The editor and the terminal draw their own
+    text, so neither is a `TextEdit`; both now publish an IME output while they have focus, so
+    the keyboard opens and closes with them, and a tap in either asks for it back after it was
+    dismissed. The **keyboard button in the bottom bar** chooses the policy: **Auto** follows
+    the text, **On** keeps the keyboard up, **Off** never opens it. The search popups (real text
+    fields) work the same way, and a popup still closes on the back button.
   - The keyboard covered the terminal: Android 15 and later keep the window edge to edge and do
-    not resize it for the keyboard. The Activity now reports the keyboard's height and the
-    shell shortens egui's screen by it, so the whole layout — the editor above, the terminal
-    panel at the bottom — moves above the keyboard.
+    not resize it for the keyboard. The Activity caches the keyboard's inset on the UI thread
+    and wakes the shell when it changes; the shell shortens egui's screen by it, so the whole
+    layout — the editor above, the terminal panel at the bottom — moves above the keyboard.
   - The Cut/Copy/Paste/Delete bar never appeared, and appeared at the top of the screen. The
     editor and the terminal publish their selection now (into egui's own `TextEditState`, which
     is what the bar looks for, and into `coiman_core::selection`, which is where the bar goes).
