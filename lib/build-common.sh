@@ -2688,8 +2688,7 @@ elif app == "filmcraft":
         '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
         '    let res = mv.effective_res(playing);\n',
         '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
-        '    let touching = ctx.input(|i| i.pointer.any_down() || i.pointer.primary_down());\n'
-        '    let dynamic = playing || touching || app.tl.drag.is_some() || app.tl.pressed.is_some() || app.scrub.is_open();\n'
+        '    let dynamic = playing || app.tl.drag.is_some() || app.scrub.is_open();\n'
         '    let res = if cfg!(target_os = "android") && dynamic { crate::state::PlaybackRes::Half } else { mv.effective_res(dynamic) };\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (dynamic scrubbing resolution)")
@@ -2730,18 +2729,18 @@ elif app == "filmcraft":
         '    }\n',
         '    pub fn nearest_plan(&self, key: FrameKey, max_back: i64) -> Option<(FrameKey, Arc<GpuPlan>)> {\n'
         '        let mut g = self.shared.plans.lock().unwrap_or_else(PoisonError::into_inner);\n'
-        '        for d in 0..=max_back {\n'
-        '            for offset in [0, -d, d] {\n'
-        '                let f = key.frame + offset;\n'
-        '                for draft in [key.draft, !key.draft] {\n'
-        '                    let k = FrameKey { frame: f, draft, ..key };\n'
-        '                    if let Some(p) = g.get(&k) {\n'
-        '                        return Some((k, p));\n'
-        '                    }\n'
-        '                }\n'
-        '            }\n'
+        '        if let Some(p) = g.get(&key) {\n'
+        '            return Some((key, p));\n'
         '        }\n'
-        '        None\n'
+        '        let best_k = g.map.keys()\n'
+        '            .filter(|k| k.target == key.target && (k.frame - key.frame).abs() <= max_back)\n'
+        '            .min_by_key(|k| ((k.frame - key.frame).abs(), k.draft != key.draft))\n'
+        '            .copied();\n'
+        '        if let Some(k) = best_k {\n'
+        '            g.get(&k).map(|p| (k, p))\n'
+        '        } else {\n'
+        '            None\n'
+        '        }\n'
         '    }\n',
     ):
         fixed.append("crates/ui-egui/src/frames.rs (bidirectional draft-aware nearest_plan)")

@@ -40,21 +40,22 @@ const MAX_CONCURRENT_HW_DECODERS: usize = 1;
 static ACTIVE_HW_DECODERS: AtomicUsize = AtomicUsize::new(0);
 
 fn try_acquire_hw_decoder() -> bool {
-    let mut current = ACTIVE_HW_DECODERS.load(Ordering::Relaxed);
-    loop {
-        if current >= MAX_CONCURRENT_HW_DECODERS {
-            return false;
+    for _ in 0..50 {
+        let mut current = ACTIVE_HW_DECODERS.load(Ordering::Relaxed);
+        while current < MAX_CONCURRENT_HW_DECODERS {
+            match ACTIVE_HW_DECODERS.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => current = actual,
+            }
         }
-        match ACTIVE_HW_DECODERS.compare_exchange_weak(
-            current,
-            current + 1,
-            Ordering::SeqCst,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => return true,
-            Err(actual) => current = actual,
-        }
+        std::thread::sleep(Duration::from_millis(2));
     }
+    false
 }
 
 fn release_hw_decoder() {
@@ -1139,6 +1140,9 @@ impl MediaCodecDecoder {
             Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
         });
         let has_direct = direct_window.is_some();
+        if has_direct {
+            drain_surface_scaler_texture();
+        }
 
         let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
@@ -2648,6 +2652,9 @@ impl HardwareSurfaceScaler {
             (self.fn_glDrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
 
             let swap_res = (self.fn_eglSwapBuffers)(self.display, self.surface);
+
+            // ALWAYS unbind context after blit so any other thread can call drain_surface_scaler_texture, reset, or drop
+            (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
             swap_res != 0
         }
