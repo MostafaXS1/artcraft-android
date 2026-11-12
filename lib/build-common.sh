@@ -845,6 +845,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
+    # 1aa. Add filmcraft-media dependency to crates/platform/Cargo.toml.
+    if fix(
+        "crates/platform/Cargo.toml",
+        'filmcraft-time = { workspace = true }\n',
+        'filmcraft-time = { workspace = true }\nfilmcraft-media = { workspace = true }\n',
+    ):
+        fixed.append("crates/platform/Cargo.toml (filmcraft-media dependency)")
+
     # 1a. Allow unsafe code in crates/platform/Cargo.toml for NEON SIMD optimizations.
     if fix(
         "crates/platform/Cargo.toml",
@@ -1176,7 +1184,8 @@ elif app == "filmcraft":
         '                if let Some(removed) = self.uploads.remove(&k) {\n'
         '                    for (opt, view) in removed.textures.into_iter().zip(removed.views.into_iter()) {\n'
         '                        if let Some((w, h, fmt, tex)) = opt {\n'
-        '                            if self.plane_pool.len() < 32 {\n'
+        '                            let max_pool = if cfg!(target_os = "android") { 4 } else { 32 };\n'
+        '                            if self.plane_pool.len() < max_pool {\n'
         '                                self.plane_pool.push((w, h, fmt, tex, view));\n'
         '                            }\n'
         '                        }\n'

@@ -11,6 +11,7 @@
 #![allow(unsafe_code)]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -28,6 +29,39 @@ use ndk::media::media_codec::{
 };
 use ndk::media::media_format::MediaFormat;
 use ndk::native_window::NativeWindow;
+
+/// Maximum concurrent active hardware video decoders allowed on Android.
+/// Qualcomm Venus/Adreno allocates ~250MB of contiguous DMA buffers per 4K decoder session.
+/// Limiting to 1 concurrent decoder guarantees the driver never exhausts ION/dma-buf memory,
+/// preventing driver MMAP failures and avoiding kernel low-memory-killer (LMK) eviction
+/// of com.miui.home and home-screen widgets.
+const MAX_CONCURRENT_HW_DECODERS: usize = 1;
+
+static ACTIVE_HW_DECODERS: AtomicUsize = AtomicUsize::new(0);
+
+fn try_acquire_hw_decoder() -> bool {
+    let mut current = ACTIVE_HW_DECODERS.load(Ordering::Relaxed);
+    loop {
+        if current >= MAX_CONCURRENT_HW_DECODERS {
+            return false;
+        }
+        match ACTIVE_HW_DECODERS.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+fn release_hw_decoder() {
+    let _ = ACTIVE_HW_DECODERS.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |val| {
+        Some(val.saturating_sub(1))
+    });
+}
 
 #[cfg(target_os = "android")]
 use jni::{
@@ -995,6 +1029,10 @@ pub fn decoder_factory(
         log::info!("MediaCodec hardware decoding skipped: disabled in settings");
         return None;
     }
+    if filmcraft_media::cancel::background() {
+        log::info!("MediaCodec hardware decoding skipped: background task (thumbnail), using software decoder");
+        return None;
+    }
     let info = match NalStreamInfo::from_entry(entry) {
         Some(Ok(info)) => info,
         Some(Err(why)) => {
@@ -1006,9 +1044,23 @@ pub fn decoder_factory(
             return None;
         }
     };
+    if !decoder_for(&info) {
+        return None;
+    }
+    if !try_acquire_hw_decoder() {
+        log::info!(
+            "MediaCodec hardware decoding skipped: max concurrent decoders ({MAX_CONCURRENT_HW_DECODERS}) reached, falling back to software"
+        );
+        return None;
+    }
     match MediaCodecDecoder::new(info.clone()) {
         Ok(dec) => {
-            log::info!("MediaCodec hardware decoder activated for {} video ({})", entry.codec.name(), dec.name());
+            log::info!(
+                "MediaCodec hardware decoder activated for {} video ({}) [active hw decoders: {}]",
+                entry.codec.name(),
+                dec.name(),
+                ACTIVE_HW_DECODERS.load(Ordering::Relaxed)
+            );
             Some(Ok(Box::new(HybridDecoder::new(
                 Box::new(dec),
                 entry.clone(),
@@ -1016,6 +1068,7 @@ pub fn decoder_factory(
             ))))
         }
         Err(why) => {
+            release_hw_decoder();
             log::warn!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
             filmcraft_codecs::hw::note_hw_declined();
             None
@@ -1602,6 +1655,18 @@ impl Drop for MediaCodecDecoder {
             drain_surface_scaler_texture();
         }
         let _ = self.codec.stop();
+        release_hw_decoder();
+        log::info!(
+            "MediaCodec hardware decoder released (remaining active: {})",
+            ACTIVE_HW_DECODERS.load(Ordering::Relaxed)
+        );
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+impl Drop for MediaCodecDecoder {
+    fn drop(&mut self) {
+        release_hw_decoder();
     }
 }
 
