@@ -1212,6 +1212,55 @@ elif app == "filmcraft":
 
     if fix(
         "crates/codecs/src/gop.rs",
+        'const MAX_LIVE_DECODERS: usize = 4;\n',
+        'const MAX_LIVE_DECODERS: usize = if cfg!(target_os = "android") { 1 } else { 4 };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound MAX_LIVE_DECODERS on Android)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'const IDLE: Duration = Duration::from_secs(3);\n',
+        'const IDLE: Duration = if cfg!(target_os = "android") { Duration::from_millis(1500) } else { Duration::from_secs(3) };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound IDLE duration on Android)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'const RECENT: Duration = Duration::from_millis(500);\n',
+        'const RECENT: Duration = if cfg!(target_os = "android") { Duration::from_millis(200) } else { Duration::from_millis(500) };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound RECENT duration on Android)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'const HARD_DECODERS: usize = 8;\n',
+        'const HARD_DECODERS: usize = if cfg!(target_os = "android") { 2 } else { 8 };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound HARD_DECODERS on Android)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'pub const FRAME_BUDGET: usize = 1 << 30;\n',
+        'pub const FRAME_BUDGET: usize = if cfg!(target_os = "android") { 128 << 20 } else { 1 << 30 };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (bound FRAME_BUDGET on Android)")
+
+    if fix(
+        "crates/frame/src/pool.rs",
+        'const MAX_BYTES: usize = 192 << 20;\n',
+        'const MAX_BYTES: usize = if cfg!(target_os = "android") { 48 << 20 } else { 192 << 20 };\n',
+    ):
+        fixed.append("crates/frame/src/pool.rs (bound MAX_BYTES on Android)")
+
+    if fix(
+        "crates/frame/src/pool.rs",
+        'const F32_MAX_BYTES: usize = 320 << 20;\n',
+        'const F32_MAX_BYTES: usize = if cfg!(target_os = "android") { 64 << 20 } else { 320 << 20 };\n',
+    ):
+        fixed.append("crates/frame/src/pool.rs (bound F32_MAX_BYTES on Android)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
         '        let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && want_pts > st.out_max));\n',
         '        let is_direct_export = cfg!(target_os = "android") && crate::hw::has_direct_surface();\n'
         '        let continuing = running && (is_direct_export || ((st.next > key || near) && (i >= st.next || (st.start <= i && (want_pts > st.out_max || want_pts >= s.pts(key))))));\n',
@@ -3771,6 +3820,13 @@ impl filmcraft_export::FrameRenderer for GpuFrameRenderer {
     }
 }
 
+#[inline]
+fn trim_filmcraft_memory() {
+    filmcraft_codecs::release_idle();
+    filmcraft_frame::pool::trim_f32();
+    filmcraft_frame::pool::trim_planes();
+}
+
 /// Show a native file dialog without blocking the frame loop: the app gets the receiver, keeps
 /// running its frames and runs the continuation once this worker thread answers. Blocking on the
 /// frame thread instead stalls `AndroidApp::poll_events`, which Android's lifecycle callbacks wait
@@ -3780,6 +3836,7 @@ fn saf_dialog_async(bridge: saf::Bridge, state: Arc<SafState>, dialog: filmcraft
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         use filmcraft_ui_egui::native_dialogs::FileDialog;
+        trim_filmcraft_memory();
         let paths = match dialog {
             FileDialog::OpenFiles { .. } => saf_open_paths(&bridge, &state),
             FileDialog::OpenFile { .. } | FileDialog::OpenProject | FileDialog::Relink { .. } => {
@@ -3814,13 +3871,13 @@ fn saf_hooks(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Hos
     let open_file_state = Arc::clone(&state);
     HostHooks {
         run_dialog: Some(Box::new(move |dialog: filmcraft_ui_egui::native_dialogs::FileDialog| saf_dialog_async(dialog_bridge.clone_ref(), Arc::clone(&dialog_state), dialog))),
-        pick_files: Some(Box::new(move |_exts: &[&str]| saf_open_paths(&files_bridge, &files_state))),
-        pick_folder: Some(Box::new(move || saf_folder_path(&folder_bridge, &folder_state))),
-        pick_folder_at: Some(Box::new(move |_start: &str| saf_folder_path(&folder_at_bridge, &folder_at_state))),
-        pick_open_project: Some(Box::new(move || saf_open_paths(&project_bridge, &project_state).into_iter().next())),
-        pick_save: Some(Box::new(move |name: &str| saf_save_path(&save_bridge, &save_state, name))),
-        pick_save_as: Some(Box::new(move |_filter: &str, _exts: &[&str], name: &str| saf_save_path(&save_as_bridge, &save_as_state, name))),
-        pick_open_file: Some(Box::new(move |_filter: &str, _exts: &[&str]| saf_open_paths(&open_file_bridge, &open_file_state).into_iter().next())),
+        pick_files: Some(Box::new(move |_exts: &[&str]| { trim_filmcraft_memory(); saf_open_paths(&files_bridge, &files_state) })),
+        pick_folder: Some(Box::new(move || { trim_filmcraft_memory(); saf_folder_path(&folder_bridge, &folder_state) })),
+        pick_folder_at: Some(Box::new(move |_start: &str| { trim_filmcraft_memory(); saf_folder_path(&folder_at_bridge, &folder_at_state) })),
+        pick_open_project: Some(Box::new(move || { trim_filmcraft_memory(); saf_open_paths(&project_bridge, &project_state).into_iter().next() })),
+        pick_save: Some(Box::new(move |name: &str| { trim_filmcraft_memory(); saf_save_path(&save_bridge, &save_state, name) })),
+        pick_save_as: Some(Box::new(move |_filter: &str, _exts: &[&str], name: &str| { trim_filmcraft_memory(); saf_save_path(&save_as_bridge, &save_as_state, name) })),
+        pick_open_file: Some(Box::new(move |_filter: &str, _exts: &[&str]| { trim_filmcraft_memory(); saf_open_paths(&open_file_bridge, &open_file_state).into_iter().next() })),
         ..HostHooks::default()
     }
 }
@@ -4893,7 +4950,7 @@ try:
     # every open failed with "file formats are not available in this build". The launcher needs the
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
-    # FilmCraft hardware encoding and GPU export compositing on Android require platform, gpu, export, render, project, and time crates.
+    # FilmCraft hardware encoding, GPU export compositing, and memory trimming on Android require platform, gpu, export, render, project, time, codecs, and frame crates.
     platform_dep = (
         'filmcraft-platform = { path = "../../crates/platform" }\n'
         'filmcraft-gpu = { path = "../../crates/gpu" }\n'
@@ -4901,6 +4958,8 @@ try:
         'filmcraft-render = { path = "../../crates/render" }\n'
         'filmcraft-project = { path = "../../crates/project" }\n'
         'filmcraft-time = { path = "../../crates/time" }\n'
+        'filmcraft-codecs = { path = "../../crates/codecs" }\n'
+        'filmcraft-frame = { path = "../../crates/frame" }\n'
         if app == "filmcraft"
         else ''
     )
@@ -5104,6 +5163,15 @@ icon = "@mipmap/ic_launcher"
                 inner_hook = "self.inner.raw_input_hook(ctx, raw);"
         else:
             inner_hook = "let _ = (ctx, raw);"
+    focus_loss_hook = (
+        '        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {\n'
+        '            filmcraft_codecs::release_idle();\n'
+        '            filmcraft_frame::pool::trim_f32();\n'
+        '            filmcraft_frame::pool::trim_planes();\n'
+        '        }\n'
+        if app == "filmcraft"
+        else ''
+    )
 
     # The Android back button asks the app before it leaves, so an app with unsaved work opens
     # its own "quit without saving?" prompt instead of the app disappearing. The check is the
@@ -5816,7 +5884,7 @@ impl eframe::App for AndroidShell {{
         apply_android_modifiers(&mut self.modifiers, raw);
         self.map_android_back(raw);
         self.handle_clipboard_shortcuts(raw);
-{persist_hook}        {inner_hook}
+{focus_loss_hook}{persist_hook}        {inner_hook}
     }}
 {persist_on_exit}}}
 '''
