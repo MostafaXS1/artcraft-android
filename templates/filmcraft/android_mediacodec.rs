@@ -631,20 +631,36 @@ impl MediaCodecEncoder {
     fn drain_output(&mut self, initial_timeout: Duration, packets: &mut Vec<EncodedPacket>) -> Result<()> {
         let mut timeout = initial_timeout;
         loop {
-            match self.codec.dequeue_output_buffer(timeout) {
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.codec.dequeue_output_buffer(timeout)
+            }));
+            let dequeued = match res {
+                Ok(r) => r,
+                Err(_) => {
+                    log::warn!("MediaCodecEncoder: dequeue_output_buffer panicked (codec released or errored)");
+                    return Err(ExportError::Encode("MediaCodec hardware encoder failed".into()));
+                }
+            };
+            match dequeued {
                 Ok(DequeuedOutputBufferInfoResult::Buffer(output_buffer)) => {
                     let info = *output_buffer.info();
                     let flags = info.flags();
                     let offset = info.offset().max(0) as usize;
                     let size = info.size().max(0) as usize;
 
-                    if size > 0 {
-                        let raw = output_buffer.buffer();
-                        if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
-                            if (flags & 2) != 0 {
-                                // BUFFER_FLAG_CODEC_CONFIG = 2
+                    if (flags & 2) != 0 {
+                        // BUFFER_FLAG_CODEC_CONFIG = 2
+                        if size > 0 {
+                            let raw = output_buffer.buffer();
+                            if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
                                 Self::parse_param_set(slice, &mut self.sps, &mut self.pps);
-                            } else {
+                            }
+                        }
+                    } else {
+                        self.in_flight = self.in_flight.saturating_sub(1);
+                        if size > 0 {
+                            let raw = output_buffer.buffer();
+                            if let Some(slice) = raw.get(offset..offset.saturating_add(size)) {
                                 if self.sps.is_none() || self.pps.is_none() {
                                     Self::parse_param_set(slice, &mut self.sps, &mut self.pps);
                                 }
@@ -657,7 +673,6 @@ impl MediaCodecEncoder {
                                             duration: self.duration,
                                             composition_offset: 0,
                                         });
-                                        self.in_flight = self.in_flight.saturating_sub(1);
                                     }
                                     Err(e) => {
                                         log::debug!("skipping packet: {e}");
@@ -762,15 +777,13 @@ impl VideoEncoder for MediaCodecEncoder {
             // Drain any pending output packets immediately without waiting
             self.drain_output(Duration::ZERO, &mut packets)?;
 
-            // If the encoder has 4 or more frames in-flight (Qualcomm hardware limit is 8 buffer slots),
-            // wait for the hardware encoder to finish compressing earlier frames to prevent buffer overflow.
-            while self.in_flight >= 4 {
-                let prev = packets.len();
-                self.drain_output(Duration::from_millis(15), &mut packets)?;
-                if packets.len() == prev {
-                    // Codec took >15ms and produced no packet, break to avoid blocking forever
+            // If the encoder has 3 or more frames in-flight (Qualcomm hardware queue has only 4-8 slots),
+            // wait for earlier frames to be compressed so the hardware buffer queue NEVER overflows!
+            for _ in 0..100 {
+                if self.in_flight < 3 {
                     break;
                 }
+                self.drain_output(Duration::from_millis(10), &mut packets)?;
             }
 
             if self.sps.is_none() || self.pps.is_none() {

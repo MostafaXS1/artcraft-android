@@ -1298,21 +1298,42 @@ elif app == "filmcraft":
         'pub fn release_idle() {\n'
         '    Pool::global().release_idle();\n'
         '}\n',
+        'static MEMORY_TRIMMERS: std::sync::Mutex<Vec<Box<dyn Fn() + Send + Sync>>> = std::sync::Mutex::new(Vec::new());\n\n'
+        'pub fn register_memory_trimmer(f: Box<dyn Fn() + Send + Sync>) {\n'
+        '    if let Ok(mut trimmers) = MEMORY_TRIMMERS.lock() {\n'
+        '        trimmers.push(f);\n'
+        '    }\n'
+        '}\n\n'
         'pub fn release_idle() {\n'
         '    Pool::global().release_idle();\n'
         '}\n\n'
         'pub fn release_all_decoders() {\n'
         '    Pool::global().release_all();\n'
+        '    filmcraft_frame::pool::trim_planes();\n'
+        '    filmcraft_frame::pool::trim_f32();\n'
+        '    if let Ok(trimmers) = MEMORY_TRIMMERS.lock() {\n'
+        '        for t in trimmers.iter() {\n'
+        '            t();\n'
+        '        }\n'
+        '    }\n'
         '}\n',
     ):
-        fixed.append("crates/codecs/src/gop.rs (release_all_decoders function)")
+        fixed.append("crates/codecs/src/gop.rs (release_all_decoders with pool trim and memory trimmers)")
 
     if fix(
         "crates/codecs/src/lib.rs",
         'pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders, release_idle};\n',
-        'pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders, release_all_decoders, release_idle};\n',
+        'pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders, register_memory_trimmer, release_all_decoders, release_idle};\n',
     ):
-        fixed.append("crates/codecs/src/lib.rs (re-export release_all_decoders)")
+        fixed.append("crates/codecs/src/lib.rs (re-export release_all_decoders and register_memory_trimmer)")
+
+    if fix(
+        "crates/ui-egui/src/lib.rs",
+        'const MAX_THUMB_TEXTURES: usize = 512;\n',
+        'const MAX_THUMB_TEXTURES: usize = if cfg!(target_os = "android") { 48 } else { 512 };\n\n'
+        'pub use filmcraft_codecs::{register_memory_trimmer, release_all_decoders};\n',
+    ):
+        fixed.append("crates/ui-egui/src/lib.rs (bound MAX_THUMB_TEXTURES on Android and re-export release_all_decoders)")
 
     if fix(
         "crates/frame/src/pool.rs",
@@ -2391,17 +2412,27 @@ elif app == "filmcraft":
     # 17. Bind surface in Exporter::set_up and use step_surface_batch for zero-copy hardware encoding.
     if fix(
         "crates/export/src/job.rs",
+        'pub const IN_FLIGHT_BUDGET: u64 = 1 << 29;\n',
+        'pub const IN_FLIGHT_BUDGET: u64 = if cfg!(target_os = "android") { 64 << 20 } else { 1 << 29 };\n',
+    ):
+        fixed.append("crates/export/src/job.rs (bound IN_FLIGHT_BUDGET on Android)")
+
+    if fix(
+        "crates/export/src/job.rs",
         '        let venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
+        '        EXPORT_ACTIVE.store(true, Ordering::Relaxed);\n'
+        '        filmcraft_codecs::release_all_decoders();\n'
+        '        filmcraft_codecs::hw::clear_direct_surface();\n'
+        '        filmcraft_codecs::hw::clear_surface_scaler();\n'
         '        let mut venc = make_venc(&settings, pipe.w, pipe.h, pipe.rate)?;\n',
     ):
-        fixed.append("crates/export/src/job.rs (Exporter let mut venc in set_up)")
+        fixed.append("crates/export/src/job.rs (Exporter let mut venc in set_up and early release_all_decoders)")
 
     if fix(
         "crates/export/src/job.rs",
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
         '        Ok(Self {\n',
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
-        '        EXPORT_ACTIVE.store(true, Ordering::Relaxed);\n'
         '        if pipe.can_surface_render() {\n'
         '            if let Some(surface_ptr) = venc.input_surface() {\n'
         '                if pipe.bind_surface(surface_ptr) {\n'
@@ -2692,10 +2723,95 @@ elif app == "filmcraft":
 
     if fix(
         "crates/ui-egui/src/frames.rs",
+        'impl PlanCache {\n'
+        '    const MAX: usize = 96;\n'
+        '    const BUDGET: usize = 1 << 30;\n',
+        'impl PlanCache {\n'
+        '    const MAX: usize = if cfg!(target_os = "android") { 8 } else { 96 };\n'
+        '    const BUDGET: usize = if cfg!(target_os = "android") { 48 << 20 } else { 1 << 30 };\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (bound PlanCache on Android)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '    pub fn set_cache_budget(&self, bytes: usize) {\n',
+        '    pub fn clear_preview_caches(&self) {\n'
+        '        if let Ok(mut d) = self.shared.done.try_lock() {\n'
+        '            d.map.clear();\n'
+        '            d.bytes = 0;\n'
+        '        }\n'
+        '        if let Ok(mut p) = self.shared.plans.try_lock() {\n'
+        '            p.map.clear();\n'
+        '            p.bytes = 0;\n'
+        '        }\n'
+        '        if let Ok(mut q) = self.shared.queue.try_lock() {\n'
+        '            q.clear();\n'
+        '        }\n'
+        '    }\n\n'
+        '    pub fn set_cache_budget(&self, bytes: usize) {\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (clear_preview_caches method)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '        #[cfg(not(target_arch = "wasm32"))]\n'
+        '        for i in 0..workers.max(1) {\n',
+        '        #[cfg(target_os = "android")]\n'
+        '        {\n'
+        '            let sh_trim = Arc::downgrade(&shared);\n'
+        '            filmcraft_codecs::register_memory_trimmer(Box::new(move || {\n'
+        '                if let Some(sh) = sh_trim.upgrade() {\n'
+        '                    if let Ok(mut d) = sh.done.try_lock() {\n'
+        '                        d.map.clear();\n'
+        '                        d.bytes = 0;\n'
+        '                    }\n'
+        '                    if let Ok(mut p) = sh.plans.try_lock() {\n'
+        '                        p.map.clear();\n'
+        '                        p.bytes = 0;\n'
+        '                    }\n'
+        '                    if let Ok(mut q) = sh.queue.try_lock() {\n'
+        '                        q.clear();\n'
+        '                    }\n'
+        '                }\n'
+        '            }));\n'
+        '        }\n'
+        '        #[cfg(not(target_arch = "wasm32"))]\n'
+        '        for i in 0..workers.max(1) {\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (register memory trimmer callback on Android)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
         'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: 768 << 20, clock: 0 }),\n',
-        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: if cfg!(target_os = "android") { 96 << 20 } else { 768 << 20 }, clock: 0 }),\n',
+        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: if cfg!(target_os = "android") { 48 << 20 } else { 768 << 20 }, clock: 0 }),\n',
     ):
         fixed.append("crates/ui-egui/src/frames.rs (bound done frame cache budget on Android)")
+
+    if fix(
+        "crates/engine/src/settings/prefs.rs",
+        '    fn default() -> Self {\n'
+        '        Self { ram_reserved_gb: 4, frame_cache_mb: 768 }\n'
+        '    }\n',
+        '    fn default() -> Self {\n'
+        '        Self {\n'
+        '            ram_reserved_gb: if cfg!(target_os = "android") { 1 } else { 4 },\n'
+        '            frame_cache_mb: if cfg!(target_os = "android") { 48 } else { 768 },\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/engine/src/settings/prefs.rs (bound default MemoryPrefs on Android)")
+
+    if fix(
+        "crates/ui-egui/src/app/prefs.rs",
+        '        self.frames.set_cache_budget(p.memory.frame_cache_mb as usize * (1 << 20));\n',
+        '        let budget_mb = if cfg!(target_os = "android") {\n'
+        '            (p.memory.frame_cache_mb as usize).min(48)\n'
+        '        } else {\n'
+        '            p.memory.frame_cache_mb as usize\n'
+        '        };\n'
+        '        self.frames.set_cache_budget(budget_mb * (1 << 20));\n',
+    ):
+        fixed.append("crates/ui-egui/src/app/prefs.rs (clamp runtime frame cache budget on Android)")
 
     if fix(
         "crates/ui-egui/src/frames.rs",
@@ -4607,7 +4723,9 @@ PERSIST_RECIPES = {
     inner.session.sync_persistence();
     if let Some(p) = inner.session.persistence.as_ref() {
         p.flush();
-    }''',
+    }
+    inner.frames.clear_preview_caches();
+    @UI@::release_all_decoders();''',
     },
     "pdfcraft": {
         "load": '''if let Some(bytes) = persist_read(dir, "ui.json") {
