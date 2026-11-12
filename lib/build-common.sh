@@ -1255,6 +1255,66 @@ elif app == "filmcraft":
         fixed.append("crates/codecs/src/gop.rs (bound FRAME_BUDGET on Android)")
 
     if fix(
+        "crates/codecs/src/gop.rs",
+        '    fn release_idle(&self) {\n'
+        '        let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();\n'
+        '        let mut released = Vec::new();\n'
+        '        for c in &all {\n'
+        '            // try-locked: a cache another thread holds is decoding, so it is in use\n'
+        '            if let Some(mut st) = try_state(c) {\n'
+        '                st.release_frames(self, || true);\n'
+        '                released.extend(st.release_decoder(self));\n'
+        '            }\n'
+        '        }\n'
+        '        drop(released);\n'
+        '    }\n',
+        '    fn release_idle(&self) {\n'
+        '        let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();\n'
+        '        let mut released = Vec::new();\n'
+        '        for c in &all {\n'
+        '            // try-locked: a cache another thread holds is decoding, so it is in use\n'
+        '            if let Some(mut st) = try_state(c) {\n'
+        '                st.release_frames(self, || true);\n'
+        '                released.extend(st.release_decoder(self));\n'
+        '            }\n'
+        '        }\n'
+        '        drop(released);\n'
+        '    }\n\n'
+        '    fn release_all(&self) {\n'
+        '        let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();\n'
+        '        let mut released = Vec::new();\n'
+        '        for c in &all {\n'
+        '            let mut st = c.state.lock().unwrap_or_else(PoisonError::into_inner);\n'
+        '            st.release_frames(self, || true);\n'
+        '            released.extend(st.release_decoder(self));\n'
+        '        }\n'
+        '        drop(released);\n'
+        '    }\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (Pool::release_all)")
+
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'pub fn release_idle() {\n'
+        '    Pool::global().release_idle();\n'
+        '}\n',
+        'pub fn release_idle() {\n'
+        '    Pool::global().release_idle();\n'
+        '}\n\n'
+        'pub fn release_all_decoders() {\n'
+        '    Pool::global().release_all();\n'
+        '}\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (release_all_decoders function)")
+
+    if fix(
+        "crates/codecs/src/lib.rs",
+        'pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders, release_idle};\n',
+        'pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders, release_all_decoders, release_idle};\n',
+    ):
+        fixed.append("crates/codecs/src/lib.rs (re-export release_all_decoders)")
+
+    if fix(
         "crates/frame/src/pool.rs",
         'const MAX_BYTES: usize = 192 << 20;\n',
         'const MAX_BYTES: usize = if cfg!(target_os = "android") { 48 << 20 } else { 192 << 20 };\n',
@@ -2341,10 +2401,11 @@ elif app == "filmcraft":
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
         '        Ok(Self {\n',
         '        let measured = !settings.effects.loudness.enabled || audio.is_none();\n'
+        '        EXPORT_ACTIVE.store(true, Ordering::Relaxed);\n'
         '        if pipe.can_surface_render() {\n'
         '            if let Some(surface_ptr) = venc.input_surface() {\n'
-        '                filmcraft_codecs::release_idle();\n'
         '                if pipe.bind_surface(surface_ptr) {\n'
+        '                    filmcraft_codecs::release_all_decoders();\n'
         '                    log::info!("Exporter enabled zero-copy hardware surface pipeline for {}x{}", pipe.w, pipe.h);\n'
         '                } else {\n'
         '                    log::warn!("Pipeline failed to bind hardware surface; falling back to buffer mode");\n'
@@ -2352,7 +2413,6 @@ elif app == "filmcraft":
         '                }\n'
         '            }\n'
         '        }\n'
-        '        EXPORT_ACTIVE.store(true, Ordering::Relaxed);\n'
         '        Ok(Self {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter bind_surface in set_up)")
@@ -2489,7 +2549,7 @@ elif app == "filmcraft":
         '        note_stage(Stage::Finish, finishing.elapsed());\n'
         '        let secs = self.t0.elapsed().as_secs_f64();\n',
         '        note_stage(Stage::Finish, finishing.elapsed());\n'
-        '        filmcraft_codecs::release_idle();\n'
+        '        filmcraft_codecs::release_all_decoders();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
         '        filmcraft_codecs::hw::clear_surface_scaler();\n'
         '        filmcraft_frame::pool::trim_f32();\n'
@@ -2506,7 +2566,7 @@ elif app == "filmcraft":
         '        }\n',
         '        if progress.cancel.load(Ordering::Relaxed) {\n'
         '            self.ahead = None;\n'
-        '            filmcraft_codecs::release_idle();\n'
+        '            filmcraft_codecs::release_all_decoders();\n'
         '            filmcraft_codecs::hw::clear_direct_surface();\n'
         '            filmcraft_codecs::hw::clear_surface_scaler();\n'
         '            filmcraft_frame::pool::trim_f32();\n'
@@ -2523,7 +2583,7 @@ elif app == "filmcraft":
         'impl Drop for Exporter {\n'
         '    fn drop(&mut self) {\n'
         '        EXPORT_ACTIVE.store(false, Ordering::Relaxed);\n'
-        '        filmcraft_codecs::release_idle();\n'
+        '        filmcraft_codecs::release_all_decoders();\n'
         '        filmcraft_codecs::hw::clear_direct_surface();\n'
         '        filmcraft_codecs::hw::clear_surface_scaler();\n'
         '        filmcraft_frame::pool::trim_f32();\n'
@@ -2629,6 +2689,38 @@ elif app == "filmcraft":
         '            draft_decode: if cfg!(target_os = "android") { true } else { false },\n',
     ):
         fixed.append("crates/engine/src/autosave.rs (enable draft_decode by default on Android)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: 768 << 20, clock: 0 }),\n',
+        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: if cfg!(target_os = "android") { 96 << 20 } else { 768 << 20 }, clock: 0 }),\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (bound done frame cache budget on Android)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '    pub fn default_workers() -> usize {\n'
+        '        std::thread::available_parallelism().map(|n| n.get().clamp(2, 6)).unwrap_or(3)\n'
+        '    }\n',
+        '    pub fn default_workers() -> usize {\n'
+        '        if cfg!(target_os = "android") {\n'
+        '            2\n'
+        '        } else {\n'
+        '            std::thread::available_parallelism().map(|n| n.get().clamp(2, 6)).unwrap_or(3)\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (bound default_workers to 2 on Android)")
+
+    if fix(
+        "crates/ui-egui/src/app/textures.rs",
+        '        let rev = self.item_revision(item);\n'
+        '        let key = FrameKey { target: Target::Item(item), frame, size: width, revision: rev, draft: false };\n',
+        '        let rev = self.item_revision(item);\n'
+        '        let draft = if cfg!(target_os = "android") { true } else { false };\n'
+        '        let key = FrameKey { target: Target::Item(item), frame, size: width, revision: rev, draft };\n',
+    ):
+        fixed.append("crates/ui-egui/src/app/textures.rs (enable draft mode for thumbnails on Android)")
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
