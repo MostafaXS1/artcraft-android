@@ -2689,14 +2689,14 @@ elif app == "filmcraft":
         '    let res = mv.effective_res(playing);\n',
         '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
         '    let dynamic = playing || app.tl.drag.is_some() || app.scrub.is_open();\n'
-        '    let res = mv.effective_res(dynamic);\n',
+        '    let res = if cfg!(target_os = "android") && dynamic { crate::state::PlaybackRes::Half } else { mv.effective_res(dynamic) };\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (dynamic scrubbing resolution)")
 
     if fix(
         "crates/ui-egui/src/panels/monitor.rs",
         '    let draft = crate::frames::draft_playback(playing, scale, app.session.prefs.playback.draft_decode);\n',
-        '    let draft = crate::frames::draft_playback(dynamic, scale, app.session.prefs.playback.draft_decode);\n',
+        '    let draft = if cfg!(target_os = "android") { dynamic } else { crate::frames::draft_playback(dynamic, scale, app.session.prefs.playback.draft_decode) };\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (draft decoding during dynamic scrub)")
 
@@ -2706,6 +2706,57 @@ elif app == "filmcraft":
         '.or_else(|| app.frames.nearest_plan(key, if dynamic { 30 } else { 6 }))\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (widen nearest plan search during dynamic scrub)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        'pub fn draft_playback(playing: bool, scale: f32, enabled: bool) -> bool {\n'
+        '    enabled && playing && scale <= 0.5\n'
+        '}\n',
+        'pub fn draft_playback(playing: bool, scale: f32, enabled: bool) -> bool {\n'
+        '    (enabled || cfg!(target_os = "android")) && playing && (scale <= 0.5 || cfg!(target_os = "android"))\n'
+        '}\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (always enable draft_playback on Android)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        '    pub fn nearest_plan(&self, key: FrameKey, max_back: i64) -> Option<(FrameKey, Arc<GpuPlan>)> {\n'
+        '        let mut g = self.shared.plans.lock().unwrap_or_else(PoisonError::into_inner);\n'
+        '        (0..=max_back).find_map(|d| {\n'
+        '            let k = FrameKey { frame: key.frame - d, ..key };\n'
+        '            g.get(&k).map(|p| (k, p))\n'
+        '        })\n'
+        '    }\n',
+        '    pub fn nearest_plan(&self, key: FrameKey, max_back: i64) -> Option<(FrameKey, Arc<GpuPlan>)> {\n'
+        '        let mut g = self.shared.plans.lock().unwrap_or_else(PoisonError::into_inner);\n'
+        '        if let Some(p) = g.get(&key) {\n'
+        '            return Some((key, p));\n'
+        '        }\n'
+        '        let best_k = g.map.keys()\n'
+        '            .filter(|k| k.target == key.target && (k.frame - key.frame).abs() <= max_back)\n'
+        '            .min_by_key(|k| ((k.frame - key.frame).abs(), k.draft != key.draft))\n'
+        '            .copied();\n'
+        '        if let Some(k) = best_k {\n'
+        '            g.get(&k).map(|p| (k, p))\n'
+        '        } else {\n'
+        '            None\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (bidirectional draft-aware nearest_plan)")
+
+    if fix(
+        "crates/ui-egui/src/frames.rs",
+        'pub fn prefetch_depth(speed: f64) -> i64 {\n'
+        '    if speed.abs() > 1.5 { 24 } else { 14 }\n'
+        '}\n',
+        'pub fn prefetch_depth(speed: f64) -> i64 {\n'
+        '    if cfg!(target_os = "android") {\n'
+        '        if speed.abs() > 1.5 { 6 } else { 4 }\n'
+        '    } else if speed.abs() > 1.5 { 24 } else { 14 }\n'
+        '}\n',
+    ):
+        fixed.append("crates/ui-egui/src/frames.rs (light prefetch depth on Android)")
 
     if fix(
         "crates/ui-egui/src/frames.rs",
