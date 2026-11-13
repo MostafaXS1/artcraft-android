@@ -403,6 +403,97 @@ else:
     raise SystemExit("workbench.rs no longer has the status bar's right-hand group")
 PY
 
+# The command palette closes on a press outside its own area. On Android a tap arrives as a
+# press and a release in the same frame, so the tap on Explorer's "New File"/"New Folder"/
+# "Rename" opens the field and that very press then reads as "outside", closing it again before
+# it can be seen. The palette has to ignore presses for the frame it opened in.
+python3 - "$SRC_ABS/crates/coiman-ide/src/ui/palette.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# The input field clears `just_opened` while placing the caret, so remember it first.
+input_fn = """    fn input_ui(&mut self, ctx: &egui::Context, kind: InputKind, placeholder: &str) -> Option<PaletteResult> {
+        let enter = ctx.input(|i| i.key_pressed(Key::Enter));
+"""
+input_fn_patched = """    fn input_ui(&mut self, ctx: &egui::Context, kind: InputKind, placeholder: &str) -> Option<PaletteResult> {
+        // Whether this is the frame the field opened in, before the focus block below clears it.
+        let just_opened = self.just_opened;
+        let enter = ctx.input(|i| i.key_pressed(Key::Enter));
+"""
+if input_fn_patched in s:
+    print("palette.rs: the input already remembers the frame it opened in")
+elif input_fn in s:
+    s = s.replace(input_fn, input_fn_patched, 1)
+    print("palette.rs: the input remembers the frame it opened in")
+else:
+    raise SystemExit("palette.rs no longer has input_ui's opening")
+
+input_close = """        self.close_on_click_outside(ctx, area.response.rect);
+        if enter && !self.query.trim().is_empty() {
+"""
+input_close_patched = """        // On Android the tap that opened the field is a press in this same frame, and it is
+        // outside the just-drawn area: it must not close the field.
+        if !just_opened {
+            self.close_on_click_outside(ctx, area.response.rect);
+        }
+        if enter && !self.query.trim().is_empty() {
+"""
+if input_close_patched in s:
+    print("palette.rs: the input already ignores its opening press")
+elif input_close in s:
+    s = s.replace(input_close, input_close_patched, 1)
+    print("palette.rs: the input ignores its opening press")
+else:
+    raise SystemExit("palette.rs no longer closes the input on an outside press")
+
+# Pickers opened from a tap (a bookmark, a recent file) are shown in the same frame too.
+ui_open = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            self.open = false;
+            return None;
+        }
+
+        if let Some((kind, placeholder)) = self.input {
+"""
+ui_open_patched = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            self.open = false;
+            return None;
+        }
+        // Before the list's focus block clears it: whether this is the frame it opened in.
+        let just_opened = self.just_opened;
+
+        if let Some((kind, placeholder)) = self.input {
+"""
+if "let just_opened = self.just_opened;\n\n        if let Some((kind, placeholder)) = self.input" in s:
+    print("palette.rs: the list already remembers the frame it opened in")
+elif ui_open in s:
+    s = s.replace(ui_open, ui_open_patched, 1)
+    print("palette.rs: the list remembers the frame it opened in")
+else:
+    raise SystemExit("palette.rs no longer has the palette's opening")
+
+list_close = """        self.close_on_click_outside(ctx, area.response.rect);
+        let picked = result.map(|i| items.swap_remove(i).2);
+"""
+list_close_patched = """        // The tap that opened a picker can be a press outside its area in this same frame.
+        if !just_opened {
+            self.close_on_click_outside(ctx, area.response.rect);
+        }
+        let picked = result.map(|i| items.swap_remove(i).2);
+"""
+if list_close_patched in s:
+    print("palette.rs: the list already ignores its opening press")
+elif list_close in s:
+    s = s.replace(list_close, list_close_patched, 1)
+    print("palette.rs: the list ignores its opening press")
+else:
+    raise SystemExit("palette.rs no longer closes the list on an outside press")
+
+p.write_text(s)
+PY
+
 # The editor on Android: a tap has to place the cursor, and the platform's text bar
 # (Cut/Copy/Paste/Delete) has to know about the selection.
 #
