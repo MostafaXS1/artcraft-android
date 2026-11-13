@@ -1135,16 +1135,14 @@ elif app == "filmcraft":
     if fix(
         "crates/ui-egui/src/app/frame.rs",
         '        let job = running?;\n',
-        '        static LAST_EXPORT_NOTIFIED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);\n'
         '        for j in self.session.jobs.iter().rev() {\n'
         '            if j.progress.finished.load(Ordering::Relaxed) {\n'
-        '                if LAST_EXPORT_NOTIFIED.swap(j.id as u64, Ordering::Relaxed) != j.id as u64 {\n'
-        '                    let st = j.progress.status.lock().unwrap_or_else(|e| e.into_inner()).clone();\n'
-        '                    if st.starts_with("Done in ") || st.starts_with("Export failed") {\n'
-        '                        log::info!("Export complete: {st}");\n'
-        '                        self.ui.status = st.clone();\n'
-        '                        self.status_seen = (st, ctx.input(|i| i.time));\n'
-        '                    }\n'
+        '                let st = j.progress.status.lock().unwrap_or_else(|e| e.into_inner()).clone();\n'
+        '                if (st.starts_with("Done in ") || st.starts_with("Export failed")) && self.status_seen.0 != st {\n'
+        '                    log::info!("Export complete: {st}");\n'
+        '                    self.ui.status = st.clone();\n'
+        '                    self.status_seen = (st, ctx.input(|i| i.time));\n'
+        '                    ctx.request_repaint();\n'
         '                }\n'
         '                break;\n'
         '            }\n'
@@ -1221,11 +1219,11 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/export/src/job.rs (bound default batch size on Android)")
 
-    # 11. Bound GOP decoded frame cache ceiling on Android (256 MiB instead of 384 MiB).
+    # 11. Bound GOP decoded frame cache ceiling on Android (96 MiB instead of 384 MiB).
     if fix(
         "crates/codecs/src/gop.rs",
         'const FRAME_CACHE_CEILING: usize = 384 << 20;\n',
-        'const FRAME_CACHE_CEILING: usize = if cfg!(target_os = "android") { 256 << 20 } else { 384 << 20 };\n',
+        'const FRAME_CACHE_CEILING: usize = if cfg!(target_os = "android") { 96 << 20 } else { 384 << 20 };\n',
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
@@ -1260,7 +1258,7 @@ elif app == "filmcraft":
     if fix(
         "crates/codecs/src/gop.rs",
         'pub const FRAME_BUDGET: usize = 1 << 30;\n',
-        'pub const FRAME_BUDGET: usize = if cfg!(target_os = "android") { 384 << 20 } else { 1 << 30 };\n',
+        'pub const FRAME_BUDGET: usize = if cfg!(target_os = "android") { 128 << 20 } else { 1 << 30 };\n',
     ):
         fixed.append("crates/codecs/src/gop.rs (bound FRAME_BUDGET on Android)")
 
@@ -1348,7 +1346,7 @@ elif app == "filmcraft":
     if fix(
         "crates/frame/src/pool.rs",
         'const MAX_BYTES: usize = 192 << 20;\n',
-        'const MAX_BYTES: usize = if cfg!(target_os = "android") { 96 << 20 } else { 192 << 20 };\n',
+        'const MAX_BYTES: usize = if cfg!(target_os = "android") { 48 << 20 } else { 192 << 20 };\n',
     ):
         fixed.append("crates/frame/src/pool.rs (bound MAX_BYTES on Android)")
 
@@ -2698,7 +2696,7 @@ elif app == "filmcraft":
     if fix(
         "crates/ui-egui/src/panels/monitor.rs",
         '    let draft = crate::frames::draft_playback(playing, scale, app.session.prefs.playback.draft_decode);\n',
-        '    let draft = if cfg!(target_os = "android") { false } else { crate::frames::draft_playback(dynamic, scale, app.session.prefs.playback.draft_decode) };\n',
+        '    let draft = if cfg!(target_os = "android") { dynamic } else { crate::frames::draft_playback(dynamic, scale, app.session.prefs.playback.draft_decode) };\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (draft decoding during dynamic scrub)")
 
@@ -2754,7 +2752,7 @@ elif app == "filmcraft":
         '}\n',
         'pub fn prefetch_depth(speed: f64) -> i64 {\n'
         '    if cfg!(target_os = "android") {\n'
-        '        if speed.abs() > 1.5 { 16 } else { 10 }\n'
+        '        if speed.abs() > 1.5 { 6 } else { 4 }\n'
         '    } else if speed.abs() > 1.5 { 24 } else { 14 }\n'
         '}\n',
     ):
@@ -2787,8 +2785,8 @@ elif app == "filmcraft":
         '    const MAX: usize = 96;\n'
         '    const BUDGET: usize = 1 << 30;\n',
         'impl PlanCache {\n'
-        '    const MAX: usize = if cfg!(target_os = "android") { 32 } else { 96 };\n'
-        '    const BUDGET: usize = if cfg!(target_os = "android") { 128 << 20 } else { 1 << 30 };\n',
+        '    const MAX: usize = if cfg!(target_os = "android") { 8 } else { 96 };\n'
+        '    const BUDGET: usize = if cfg!(target_os = "android") { 48 << 20 } else { 1 << 30 };\n',
     ):
         fixed.append("crates/ui-egui/src/frames.rs (bound PlanCache on Android)")
 
@@ -2843,7 +2841,7 @@ elif app == "filmcraft":
     if fix(
         "crates/ui-egui/src/frames.rs",
         'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: 768 << 20, clock: 0 }),\n',
-        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: if cfg!(target_os = "android") { 128 << 20 } else { 768 << 20 }, clock: 0 }),\n',
+        'done: Mutex::new(Cache { map: HashMap::new(), bytes: 0, budget: if cfg!(target_os = "android") { 48 << 20 } else { 768 << 20 }, clock: 0 }),\n',
     ):
         fixed.append("crates/ui-egui/src/frames.rs (bound done frame cache budget on Android)")
 
@@ -2855,7 +2853,7 @@ elif app == "filmcraft":
         '    fn default() -> Self {\n'
         '        Self {\n'
         '            ram_reserved_gb: if cfg!(target_os = "android") { 1 } else { 4 },\n'
-        '            frame_cache_mb: if cfg!(target_os = "android") { 128 } else { 768 },\n'
+        '            frame_cache_mb: if cfg!(target_os = "android") { 48 } else { 768 },\n'
         '        }\n'
         '    }\n',
     ):
@@ -2865,7 +2863,7 @@ elif app == "filmcraft":
         "crates/ui-egui/src/app/prefs.rs",
         '        self.frames.set_cache_budget(p.memory.frame_cache_mb as usize * (1 << 20));\n',
         '        let budget_mb = if cfg!(target_os = "android") {\n'
-        '            (p.memory.frame_cache_mb as usize).min(128)\n'
+        '            (p.memory.frame_cache_mb as usize).min(48)\n'
         '        } else {\n'
         '            p.memory.frame_cache_mb as usize\n'
         '        };\n'
