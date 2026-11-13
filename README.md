@@ -116,9 +116,43 @@ Restart or refresh your MCP client and check that the `artcraft` server is conne
 - **ArtCraft website:** [getartcraft.com](https://getartcraft.com/)
 - **Explore the apps:** [getartcraft.com/apps](https://getartcraft.com/apps)
 - **Source code:** [ArtCraft Android repository](https://github.com/MostafaXS1/artcraft-android)
+- **ArtCraft Launcher:** [launcher](https://github.com/MostafaXS1/artcraft-android/tree/main/launcher)
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)
 - **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
+
+---
+
+### ArtCraft Launcher
+
+The **ArtCraft Launcher** is an Android app that installs, updates, and launches all 35 ArtCraft applications (16 official + 19 community). It connects to the `MostafaXS1/artcraft-android` GitHub releases (plus each external app's own release feed), downloads APKs with SHA-256 verification, and manages them through a native Rust/egui interface.
+
+### Launcher Features
+
+- **Live release checks** on launch and every 12 minutes (respects GitHub rate limits with ETag caching)
+- **In-app download/install/launch** — no browser hand-off
+- **All 35 apps** with brand colors and icons (official apps match getartcraft.com colors; community apps use their project colors)
+- **Search with soft keyboard** — IME input via hidden `ArtCraftInputView`
+- **Auto-refresh** after install/uninstall — no need to reopen the app
+- **Pause/resume/cancel** downloads
+- **Uninstall** via system dialog with immediate re-detection
+- **Theme follows system** light/dark mode automatically
+- **Package name:** `com.artcraft.launcher`
+
+### Launcher Screenshots
+
+| Home (35 apps) | Search + Keyboard | Install Progress |
+|:---:|:---:|:---:|
+| ![Launcher Home](artcraft-launcher-home.png) | ![Search](artcraft-launcher-search.png) | ![Install](artcraft-launcher-install.png) |
+
+### Installing the Launcher
+
+```sh
+# From a release
+adb install -r Artcraft-launcher.apk
+
+# Or build from source (see below)
+```
 
 ---
 
@@ -147,6 +181,113 @@ bash build.sh -pdfcraft
 # Debug APK for testing
 bash build-debug.sh -pdfcraft
 ```
+
+### Building the ArtCraft Launcher
+
+The launcher is built from `launcher/` using the provided build script.
+
+```sh
+# From project root
+./build-launcher.sh                    # Release APK (output/Artcraft-launcher.apk)
+PROFILE=dev ./build-launcher.sh        # Debug APK (faster, unoptimized)
+RELEASE_BUILD=3 ./build-launcher.sh    # 3rd Android release of same version
+```
+
+**Requirements:**
+- Rust toolchain with `aarch64-linux-android` target
+- `cargo-ndk` (`cargo install cargo-ndk`)
+- Android SDK (platform 35) and NDK (r27+)
+- JDK 17
+- `rustup target add aarch64-linux-android`
+
+**Output:** `output/Artcraft-launcher.apk`
+
+### Modifying the Launcher's App Catalog
+
+The launcher's 35 apps are defined in a single JSON file: `launcher/apps/artcraft-launcher-android/app-catalog.json`
+
+To add/remove/edit apps:
+
+1. Edit `app-catalog.json` with the app's details:
+   ```json
+   {
+     "id": "myapp",
+     "name": "MyApp",
+     "tagline": "What it does",
+     "color": [18, 52, 86],
+     "repo": "owner/repo",
+     "publisher": "Publisher Name",
+     "site": "https://example.com",
+     "bundle": "com.example.myapp"
+   }
+   ```
+
+2. Regenerate the Rust catalog (optional — the build scripts do it automatically):
+   ```sh
+   cd launcher/apps/artcraft-launcher-android
+   ./generate-catalog.sh
+   ```
+
+3. Rebuild the launcher:
+   ```sh
+   cd /home/mostafa/artcraft-android-builder
+   ./build-launcher.sh
+   ```
+
+**Apps from an external GitHub repository:** by default every app's APK comes from the
+`MostafaXS1/artcraft-android` shared release, named `<app-id>-<version>.apk`. An app can instead
+name its own repository and the file to fetch from that repository's latest release. Add a
+`release` block and (for installed detection, launching and uninstalling) the Android package id:
+
+```json
+{
+  "id": "keydeck",
+  "name": "Keydeck",
+  "tagline": "Presentations: Keynote and PowerPoint files",
+  "color": [194, 48, 106],
+  "repo": "bramble-apps/bramble-office",
+  "publisher": "Bramble Apps",
+  "site": "https://bramble-apps.github.io",
+  "release": {
+    "repo": "bramble-apps/bramble-office",
+    "asset": "Keydeck*apk"
+  },
+  "package": "app.bramble.keydeck"
+}
+```
+
+`asset` is a case-insensitive glob matched against the latest release's files (`*` matches any
+run of characters), so `Bramble*apk`, `Keydeck*apk`, or `*-android.apk` all work. Each repository
+is checked separately and cached separately, so one feed being rate-limited doesn't hide the
+others. Without `package`, the launcher assumes `com.artcraft.<id>`.
+
+**Installed-app detection:** Android 11+ only lets the launcher see packages named in its
+manifest's `<queries>`. `generate-catalog.sh` rebuilds that list from every app's `package` (or
+`com.artcraft.<id>`) plus the optional top-level `"query_packages"` array, so adding an app or an
+alternate package id does not require editing the XML. Put any extra application ids the launcher
+should detect there:
+
+```json
+{
+  "version": 1,
+  "query_packages": ["com.example.alternate.id"],
+  "official_apps": []
+}
+```
+
+**Official apps** (16): Match getartcraft.com colors, repo is `storytold/<id>`, publisher is "ArtCraft"
+
+**Community apps** (19): Use project's GitHub repo as `repo`, display name as `publisher`, optional `site` and `bundle` fields
+
+### GitHub Actions
+
+The launcher builds automatically on push to `main` and on tags matching `android-v*`. The workflow:
+- Builds the APK with cargo-ndk + Gradle
+- Outputs to `output/Artcraft-launcher.apk`
+- Uploads as artifact
+- Creates GitHub Release on tag push with APK attached
+
+See [`.github/workflows/build-android-launcher.yml`](.github/workflows/build-android-launcher.yml) for details.
 
 Replace `-pdfcraft` with any supported application name.
 

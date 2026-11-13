@@ -59,6 +59,62 @@ fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
     Some(config)
 }
 
+/// Phone screens (smallest width below 600 dp) start at 95% zoom: Coiman's desktop default of
+/// 125% crowds the workbench on a handset, leaving too little room for the editor. Tablets and
+/// external displays keep the desktop default. Returns `None` when the Activity can't answer.
+#[cfg(target_os = "android")]
+fn device_is_phone(app: &AndroidApp) -> Option<bool> {
+    use jni::{JavaVM, jni_sig, jni_str};
+    // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
+    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
+        let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
+        Ok(env
+            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
+            .z()?)
+    });
+    match result {
+        Ok(is_phone) => Some(is_phone),
+        Err(error) => {
+            log::warn!("Could not determine the screen size: {error}");
+            None
+        }
+    }
+}
+
+/// Applies the 95% phone zoom to Coiman's user settings once per device.
+///
+/// `settings.toml` belongs to the user, so the choice is remembered with a `device_class` sidecar:
+/// the first launch on a phone sets 95%, while a user who later changes the zoom by hand keeps it.
+#[cfg(target_os = "android")]
+fn apply_phone_zoom_once(app: &AndroidApp) {
+    const PHONE_ZOOM: &str = "0.95";
+    let Some(settings) = coiman_core::settings::user_settings_path() else { return };
+    let Some(folder) = settings.parent() else { return };
+    let marker = folder.join("device_class");
+    if std::fs::read_to_string(&marker).ok().is_some_and(|saved| saved.trim() == "scaled") {
+        return;
+    }
+    if device_is_phone(app) != Some(true) {
+        return;
+    }
+    let text = std::fs::read_to_string(&settings).unwrap_or_default();
+    let text = coiman_core::settings::set_value_in_text(&text, "workbench", "zoom", PHONE_ZOOM);
+    let temporary = settings.with_extension("toml.tmp");
+    let written = std::fs::create_dir_all(folder)
+        .and_then(|()| std::fs::write(&temporary, text))
+        .and_then(|()| std::fs::rename(&temporary, &settings));
+    if let Err(error) = written {
+        log::warn!("could not apply the phone zoom to {}: {error}", settings.display());
+        return;
+    }
+    if let Err(error) = std::fs::write(&marker, b"scaled") {
+        log::warn!("could not remember the phone zoom in {}: {error}", marker.display());
+    }
+    log::info!("phone screen: using {PHONE_ZOOM} zoom");
+}
+
 /// Copies the bundled VS Code themes into Coiman's config folder.
 ///
 /// Coiman's theme picker looks for VS Code themes in the user's VS Code extensions folder and in
@@ -562,6 +618,7 @@ fn android_main(android_app: AndroidApp) {
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     let _config_dir = install_persist_env(&android_app);
+    apply_phone_zoom_once(&android_app);
     system_fonts::install_font_env(&android_app);
     termux::install_env(&android_app);
     // Coiman's own log (what the app did, and why it stopped) lives in the app's config folder.

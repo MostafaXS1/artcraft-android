@@ -34,3 +34,37 @@ Thumbs.db
 .backups/
 keys/*.jks
 keys/.keystore-password
+
+# ArtCraft Launcher (Android) build artifacts
+artcraft-android-launcher/launcher/target/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/build/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/.gradle/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/.cxx/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/gradle.properties
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/local.properties
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/src/main/jniLibs/
+
+# Gradle wrapper and cache
+**/gradle/wrapper/dists/
+**/.gradle/
+
+# Cargo vendor patches (generated)
+artcraft-android-launcher/launcher/vendor-egui-winit-*/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/target/
+
+# Launcher output (built APKs)
+output/Artcraft-launcher.apk
+output/*.apk
+
+# IDE and editor files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+temp/

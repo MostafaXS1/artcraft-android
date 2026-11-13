@@ -1,0 +1,129 @@
+# Build ArtCraft Launcher Android APK
+# Runs on push to main and tags, and can be triggered manually.
+
+name: Build Android Launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'launcher/**'
+      - 'launcher/Cargo.toml'
+      - 'launcher/Cargo.lock'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile'
+        required: false
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - dev
+      release_build:
+        description: 'Android release build number (for repeat releases of same version)'
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  ANDROID_SDK_ROOT: /usr/lib/android-sdk
+  ANDROID_NDK_ROOT: /usr/lib/android-sdk/ndk/27.2.12479018
+
+jobs:
+  build:
+    name: Build APK (${{ github.event.inputs.profile || 'release' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 35
+          ndk-version: r27
+          emulator: false
+
+      - name: Build Android Launcher
+        working-directory: ./launcher/apps/artcraft-launcher-android
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+          PROFILE: ${{ github.event.inputs.profile || 'release' }}
+          RELEASE_BUILD: ${{ github.event.inputs.release_build || '0' }}
+        run: |
+          ./build.sh
+
+      - name: Copy APK to output folder
+        run: |
+          VERSION=$(grep '^version' ./launcher/Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          RELEASE_BUILD="${{ github.event.inputs.release_build || '0' }}"
+          if [[ "$RELEASE_BUILD" -gt 0 ]]; then
+            APK_VERSION="${VERSION}-${RELEASE_BUILD}"
+          else
+            APK_VERSION="${VERSION}"
+          fi
+          BUILT_APK="./launcher/target/android/artcraft-launcher-${APK_VERSION}-arm64-v8a.apk"
+          mkdir -p ./output
+          cp "$BUILT_APK" ./output/Artcraft-launcher.apk
+          echo "APK_PATH=./output/Artcraft-launcher.apk" >> $GITHUB_ENV
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Artcraft-launcher-${{ env.APK_VERSION }}-arm64-v8a
+          path: ./output/Artcraft-launcher.apk
+          retention-days: 30
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./output/Artcraft-launcher.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to GitHub Packages (on tag)
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        run: |
+          gh release upload "${{ github.ref_name }}" ./output/Artcraft-launcher.apk --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -62,7 +62,7 @@ const PAN_DEADZONE_PX: f64 = 36.0;
 
 /// How far the two fingers' spread must change (physical pixels) before a two-finger gesture can
 /// be a pinch (a zoom) rather than a pan.
-const PINCH_DEADZONE_PX: f64 = 40.0;
+const PINCH_DEADZONE_PX: f64 = 80.0;
 
 /// How much more the two fingers' spread must change than their midpoint moves for a pinch to win
 /// the gesture. A pan holds the fingers a fixed distance apart while the pair slides; a pinch
