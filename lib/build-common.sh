@@ -853,6 +853,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (filmcraft-media dependency)")
 
+    # 1ab. Add filmcraft-codecs dependency to crates/ui-egui/Cargo.toml for memory trimming and decoder release.
+    if fix(
+        "crates/ui-egui/Cargo.toml",
+        'filmcraft-scopes = { workspace = true }\n',
+        'filmcraft-scopes = { workspace = true }\nfilmcraft-codecs = { workspace = true }\n',
+    ):
+        fixed.append("crates/ui-egui/Cargo.toml (filmcraft-codecs dependency)")
+
     # 1a. Allow unsafe code in crates/platform/Cargo.toml for NEON SIMD optimizations.
     if fix(
         "crates/platform/Cargo.toml",
