@@ -56,6 +56,37 @@ fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
         std::env::set_var("TMPDIR", &cache);
     }
     log::info!("config directory: {}", config.display());
+
+    // Call Java extractThemes() to unpack bundled themes from assets to files/coiman-themes
+    // This must run after the native activity is initialized but before the theme picker runs.
+    unsafe {
+        use jni::{JavaVM, jni_sig, jni_str};
+        // SAFETY: AndroidApp owns the live VM pointer for the lifetime of the activity.
+        let jvm = JavaVM::from_raw(app.vm_as_ptr() as *mut _);
+        let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+        let result = jvm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            let activity = unsafe { env.as_cast_raw::<jni::objects::JObject>(&activity_raw)? };
+            env.call_method(
+                &*activity,
+                jni_str!("extractThemes"),
+                jni_sig!("()V"),
+                &[]
+            )?;
+            // Check for exceptions
+            if env.exception_check() {
+                env.exception_describe();
+                env.exception_clear();
+                log::warn!("Java extractThemes() threw an exception");
+            } else {
+                log::info!("Called Java extractThemes() from Rust");
+            }
+            Ok(())
+        });
+        if let Err(e) = result {
+            log::warn!("Failed to call Java extractThemes(): {e}");
+        }
+    }
+
     install_bundled_themes(&base, &config.join("coiman-ide").join("themes"));
     Some(config)
 }
@@ -122,21 +153,41 @@ fn apply_phone_zoom_once(app: &AndroidApp) {
 /// `<config>/themes`. There is no VS Code on a tablet, so the themes that ship with the app (the
 /// Activity unpacks them next to the app's files) are copied there once.
 fn install_bundled_themes(base: &Path, target: &Path) {
-    // The Java Activity extracts themes to getFilesDir()/coiman-themes, which is
-    // internal_data_path()/files/coiman-themes. Look there first.
-    let source = base.join("files").join("coiman-themes");
+    // The Java Activity extracts themes to getFilesDir()/coiman-themes. internal_data_path() IS
+    // the files dir on Android (e.g. /data/user/0/<pkg>/files), so that's base/coiman-themes.
+    let source = base.join("coiman-themes");
 
-    // Wait for Java extraction to complete (up to 5 seconds).
+    // Wait for Java extraction to complete (up to 10 seconds).
     // On first install, the Java onCreate() runs extractThemes() but it may not finish
-    // before android_main() starts. Retry a few times.
-    let mut entries = std::fs::read_dir(&source);
+    // before android_main() starts. The Java code creates the directory first, then writes
+    // files - so we must wait for at least one .json file to appear, not just the directory.
     let mut attempts = 0;
-    while entries.is_err() && attempts < 50 {
+    let mut has_json = false;
+    let mut entries = std::fs::read_dir(&source);
+    while attempts < 100 {
+        if let Ok(e) = &mut entries {
+            for entry in e {
+                if let Ok(entry) = entry {
+                    if entry.path().extension().is_some_and(|ext| ext == "json") {
+                        has_json = true;
+                        break;
+                    }
+                }
+            }
+            if has_json { break; }
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
         entries = std::fs::read_dir(&source);
         attempts += 1;
     }
-    let Ok(entries) = entries else { return };
+    let Ok(entries) = entries else {
+        log::warn!("bundled themes were not extracted: {} does not exist", source.display());
+        return;
+    };
+    if !has_json {
+        log::warn!("bundled themes were not extracted: no .json files in {}", source.display());
+        return;
+    }
 
     if std::fs::create_dir_all(target).is_err() {
         return;

@@ -238,6 +238,8 @@ android {{
             // Include both the source checkout's assets (for backward compatibility with other apps)
             // and the Android project's own assets (for adapter-injected themes like Coiman's)
             assets.srcDirs = ['../../../assets', '../assets']
+            // Exclude app-icon from source checkout to avoid duplicates with adapter-provided icons
+            assets.excludes = ['app-icon/**']
         }}
     }}
 
