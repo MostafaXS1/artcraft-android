@@ -802,6 +802,22 @@ p.write_text(s)
 print(f"workbench.rs: {count} places now leave the caption buttons' space to the bar")
 PY
 
+# The themes the user has in VS Code, bundled with the app.
+#
+# Coiman's theme picker reads VS Code color themes (it has its own VS Code theme loader), and it
+# finds them in the user's VS Code extensions folder or in `<config>/themes`. On a tablet there
+# is no VS Code, so the themes are bundled as assets, unpacked by the Activity and copied into
+# Coiman's config folder, where the picker lists them.
+# Theme injection comes from the builder (adapter), not the source checkout.
+THEMES_DIR="$ADAPTER/themes"
+ADAPTER_ASSETS_DIR="$ADAPTER/assets"
+if [[ -d "$THEMES_DIR" ]] && [[ -n "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]]; then
+    rm -rf "$ADAPTER_ASSETS_DIR/coiman-themes"
+    mkdir -p "$ADAPTER_ASSETS_DIR/coiman-themes"
+    cp "$THEMES_DIR"/*.json "$ADAPTER_ASSETS_DIR/coiman-themes/"
+    echo "Bundled $(ls -1 "$ADAPTER_ASSETS_DIR/coiman-themes" | wc -l) themes with the app."
+fi
+
 # The Android shell crate itself.
 # --------------------------------------------------------------------------------------------------
 mkdir -p "$DEST"
@@ -1017,20 +1033,6 @@ if "public String termuxStatus()" not in text:
 Path(sys.argv[2]).write_text(text)
 print("CoimanIdActivity.java: SAF Activity + TermuxBroker")
 PY
-
-# The themes the user has in VS Code, bundled with the app.
-#
-# Coiman's theme picker reads VS Code color themes (it has its own VS Code theme loader), and it
-# finds them in the user's VS Code extensions folder or in `<config>/themes`. On a tablet there
-# is no VS Code, so the themes are bundled as assets, unpacked by the Activity and copied into
-# Coiman's config folder, where the picker lists them.
-THEMES_DIR="$ADAPTER/themes"
-if [[ -d "$THEMES_DIR" ]] && [[ -n "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]]; then
-    rm -rf "$SRC_ABS/assets/coiman-themes"
-    mkdir -p "$SRC_ABS/assets/coiman-themes"
-    cp "$THEMES_DIR"/*.json "$SRC_ABS/assets/coiman-themes/"
-    echo "Bundled $(ls -1 "$SRC_ABS/assets/coiman-themes" | wc -l) themes with the app."
-fi
 
 python3 "$ROOT/lib/app_icons.py" --src "$SRC_ABS" --app "$APP" --dest "$DEST/res" || true
 

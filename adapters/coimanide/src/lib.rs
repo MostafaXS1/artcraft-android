@@ -22,6 +22,7 @@ use coiman_ide::android_keyboard::{self, Mode, Request};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::thread;
 
 mod coiman_text_bar;
 mod saf;
@@ -121,8 +122,22 @@ fn apply_phone_zoom_once(app: &AndroidApp) {
 /// `<config>/themes`. There is no VS Code on a tablet, so the themes that ship with the app (the
 /// Activity unpacks them next to the app's files) are copied there once.
 fn install_bundled_themes(base: &Path, target: &Path) {
-    let source = base.join("coiman-themes");
-    let Ok(entries) = std::fs::read_dir(&source) else { return };
+    // The Java Activity extracts themes to getFilesDir()/coiman-themes, which is
+    // internal_data_path()/files/coiman-themes. Look there first.
+    let source = base.join("files").join("coiman-themes");
+
+    // Wait for Java extraction to complete (up to 5 seconds).
+    // On first install, the Java onCreate() runs extractThemes() but it may not finish
+    // before android_main() starts. Retry a few times.
+    let mut entries = std::fs::read_dir(&source);
+    let mut attempts = 0;
+    while entries.is_err() && attempts < 50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        entries = std::fs::read_dir(&source);
+        attempts += 1;
+    }
+    let Ok(entries) = entries else { return };
+
     if std::fs::create_dir_all(target).is_err() {
         return;
     }

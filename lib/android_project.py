@@ -235,7 +235,9 @@ android {{
             java.srcDirs = ['../java']
             res.srcDirs = ['../res']
             jniLibs.srcDirs = ['../jniLibs', '../extra-jniLibs']
-            assets.srcDirs = ['../../../assets']
+            // Include both the source checkout's assets (for backward compatibility with other apps)
+            // and the Android project's own assets (for adapter-injected themes like Coiman's)
+            assets.srcDirs = ['../../../assets', '../assets']
         }}
     }}
 
