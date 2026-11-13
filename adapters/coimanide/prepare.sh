@@ -202,6 +202,9 @@ PY
 
 cp -f "$ADAPTER/patches/android_termux.rs" "$SRC_ABS/crates/coiman-core/src/android_termux.rs"
 cp -f "$ADAPTER/patches/pty_android.rs" "$SRC_ABS/crates/coiman-core/src/terminal/pty_android.rs"
+# The editor and the terminal publish their selection through this module; upstream does not have
+# it, so the adapter owns the file.
+cp -f "$ADAPTER/patches/selection.rs" "$SRC_ABS/crates/coiman-core/src/selection.rs"
 
 python3 - "$SRC_ABS/crates/coiman-core/src/lib.rs" "$SRC_ABS/crates/coiman-core/src/terminal/pty.rs" \
     "$SRC_ABS/crates/coiman-core/src/language/lsp/discovery.rs" "$SRC_ABS/crates/coiman-core/src/language/lsp/servers.rs" <<'PY'
@@ -210,16 +213,32 @@ import sys
 
 root, pty, discovery, servers = (Path(arg) for arg in sys.argv[1:])
 
-# --- the module that knows which programs Termux provides -------------------------------------
 lib = root.read_text()
+changed = False
+
+# --- the module that tells the text bar where the selection is --------------------------------
+if "pub mod selection;" not in lib:
+    anchor = "pub mod analysis;"
+    if anchor not in lib:
+        raise SystemExit("coiman-core/src/lib.rs no longer contains 'pub mod analysis;'; cannot register selection")
+    lib = lib.replace(anchor, anchor + "\npub mod selection;", 1)
+    changed = True
+
+# --- the module that knows which programs Termux provides -------------------------------------
 if "pub mod android_termux;" not in lib:
+    anchor = "pub mod analysis;"
+    if anchor not in lib:
+        raise SystemExit("coiman-core/src/lib.rs no longer contains 'pub mod analysis;'; cannot register android_termux")
     lib = lib.replace(
-        "pub mod analysis;",
-        "pub mod analysis;\n#[cfg(target_os = \"android\")]\npub mod android_termux;",
+        anchor,
+        anchor + "\n#[cfg(target_os = \"android\")]\npub mod android_termux;",
         1,
     )
+    changed = True
+
+if changed:
     root.write_text(lib)
-    print("coiman-core: android_termux module registered")
+    print("coiman-core: selection and android_termux modules registered")
 
 # --- pty.rs: the desktop Session is compiled out on Android -----------------------------------
 text = pty.read_text()

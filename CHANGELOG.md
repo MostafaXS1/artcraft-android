@@ -84,6 +84,10 @@
     inherited a `rust-version` the outer manifest does not define ("error inheriting
     `rust-version` from workspace root manifest's `workspace.package.rust-version`"). The
     manifest now excludes the vendored fork and declares the `rust-version` the fork asks for.
+    A pristine checkout also needs the fork's `android_activity` and `ime` modules, which the
+    adapter now writes and declares itself, and every egui crate now resolves to the vendored
+    fork instead of compiling two different `egui` crates (eframe from the git fork, egui-winit
+    from the path copy), which failed with mismatched `egui::Context` types.
 - **Coiman IDE on Android** — the first Android build of Coiman had a handful of platform
   problems, all fixed in the adapter and in build-time patches of the upstream sources:
   - A tap in the editor did nothing: on Android a tap is a press *and* a release in the same

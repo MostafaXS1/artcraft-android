@@ -57,6 +57,73 @@ eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc79968157
 EOF
 fi
 
+# Make every egui crate in the graph come from the vendored fork.
+#
+# The vendored egui-winit and egui-wgpu are path crates from the fork's own workspace, and that
+# workspace depends on the fork's path `egui`, `epaint`, `ecolor` and `emath`. The launcher takes
+# `eframe` from the same fork's git repository, so without redirecting the git source as well,
+# cargo builds two different `egui` crates: eframe gets the git one, the vendored egui-winit gets
+# the path one, and every call between them fails with "expected `egui_winit::egui::Context`,
+# found `egui::Context`". The [patch."<fork>"] table below points the git source's crates at the
+# very same vendored copies, so the whole graph has one egui.
+python3 - "$SRC_ABS/Cargo.toml" <<'PY'
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+FORK = "https://github.com/storytold/egui.git"
+CRATES_IO = "[patch.crates-io]"
+FORK_PATCH = f'[patch."{FORK}"]'
+
+# The crates eframe and the vendored egui-winit/egui-wgpu reach through different sources.
+paths = {
+    "egui": "vendor/egui/crates/egui",
+    "epaint": "vendor/egui/crates/epaint",
+    "ecolor": "vendor/egui/crates/ecolor",
+    "emath": "vendor/egui/crates/emath",
+    "egui-wgpu": "vendor/egui-wgpu",
+    "egui-winit": "vendor/egui/crates/egui-winit",
+}
+
+
+def split_table(text, header):
+    """Split `text` into everything through `header`, the table body, and the rest."""
+    start = text.index(header) + len(header)
+    match = re.search(r'(?m)^\[', text[start:])
+    end = start + match.start() if match else len(text)
+    return text[:start], text[start:end], text[end:]
+
+
+def upsert(text, header):
+    """Put the vendored paths into a patch table, replacing that table's old entries."""
+    if header in text:
+        head, body, tail = split_table(text, header)
+    else:
+        head, body, tail = text.rstrip("\n") + "\n\n" + header + "\n", "", ""
+    for crate, path in paths.items():
+        line = f'{crate} = {{ path = "{path}" }}'
+        pattern = re.compile(rf'(?m)^[ \t]*{re.escape(crate)}[ \t]*=[ \t]*\{{[^}}\n]*\}}[^\n]*$')
+        if pattern.search(body):
+            body = pattern.sub(line, body, count=1)
+        else:
+            body = body.rstrip("\n") + "\n" + line + "\n"
+    return head + body + tail
+
+
+# [patch.crates-io]: the launcher's own `egui`/`epaint` must be the vendored path crates too.
+s = upsert(s, CRATES_IO)
+# [patch."<fork>"]: every crate eframe takes from the git fork resolves to the vendored copy.
+s = upsert(s, FORK_PATCH)
+
+tomllib.loads(s)
+p.write_text(s)
+print("capsulecraft: all egui crates resolve to the vendored fork")
+PY
+
 # An upstream root manifest (a newer CapsuleCraft release may ship one) needs the same two
 # things: the vendored fork is a nested workspace of its own and must stay out of this one, and
 # the workspace has to declare the `rust-version` the fork asks for.
@@ -99,6 +166,31 @@ if [[ ! -d "$SRC_ABS/vendor/egui/.git" ]]; then
     git checkout FETCH_HEAD
     cd "$SRC_ABS"
 fi
+
+cat > "$SRC_ABS/vendor/egui/crates/egui-winit/src/android_activity.rs" <<'EOF'
+//! Shared Android JNI plumbing for the `egui-winit` Android integrations.
+
+#![cfg(target_os = "android")]
+
+static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+static VM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+pub fn set_activity(activity_as_ptr: *mut std::ffi::c_void) {
+    let _ = ACTIVITY.set(activity_as_ptr as usize);
+}
+
+pub fn set_vm(vm_as_ptr: *mut std::ffi::c_void) {
+    let _ = VM.set(vm_as_ptr as usize);
+}
+
+pub fn activity_raw() -> Option<jni::sys::jobject> {
+    ACTIVITY.get().copied().map(|ptr| ptr as jni::sys::jobject)
+}
+
+pub fn vm_raw() -> Option<*mut jni::sys::JavaVM> {
+    VM.get().copied().map(|ptr| ptr as *mut jni::sys::JavaVM)
+}
+EOF
 
 cat > "$SRC_ABS/vendor/egui/crates/egui-winit/src/ime.rs" <<'EOF'
 //! High-performance native Android IME text bridge.
@@ -166,14 +258,21 @@ if egui_winit_toml.is_file():
         txt = txt.rstrip() + "\n\n[target.'cfg(target_os = \"android\")'.dependencies]\njni = { version = \"0.22\", default-features = false }\nndk-context = { version = \"0.1\", default-features = false }\n"
         egui_winit_toml.write_text(txt)
 
-# Declare the module next to the existing Android activity plumbing.
+# Declare the Android modules next to the existing module list. The vendored fork has neither
+# `android_activity` nor `ime`, so both declarations (and the files above) come from the adapter.
 lib_rs = src / "vendor/egui/crates/egui-winit/src/lib.rs"
 if lib_rs.is_file():
     txt = lib_rs.read_text()
-    if "pub mod ime;" not in txt:
-        target = "#[cfg(target_os = \"android\")]\npub mod android_activity;\n"
-        if target in txt:
-            txt = txt.replace(target, target + "#[cfg(target_os = \"android\")]\npub mod ime;\n", 1)
+    if "pub mod android_activity;" not in txt or "pub mod ime;" not in txt:
+        anchor = "mod window_settings;\n"
+        if anchor not in txt:
+            raise SystemExit("egui-winit/src/lib.rs no longer contains 'mod window_settings;'")
+        addition = ""
+        if "pub mod android_activity;" not in txt:
+            addition += "#[cfg(target_os = \"android\")]\npub mod android_activity;\n"
+        if "pub mod ime;" not in txt:
+            addition += "#[cfg(target_os = \"android\")]\npub mod ime;\n"
+        txt = txt.replace(anchor, anchor + addition, 1)
 
     # Drain the Activity's IME queue into egui input every frame. Backspace and Enter also
     # arrive as key events from winit, so emit matching key events here; everything else is
