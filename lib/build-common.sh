@@ -1237,7 +1237,7 @@ elif app == "filmcraft":
     if fix(
         "crates/codecs/src/gop.rs",
         'const IDLE: Duration = Duration::from_secs(3);\n',
-        'const IDLE: Duration = if cfg!(target_os = "android") { Duration::from_millis(1500) } else { Duration::from_secs(3) };\n',
+        'const IDLE: Duration = if cfg!(target_os = "android") { Duration::from_secs(5) } else { Duration::from_secs(3) };\n',
     ):
         fixed.append("crates/codecs/src/gop.rs (bound IDLE duration on Android)")
 
@@ -2688,8 +2688,7 @@ elif app == "filmcraft":
         '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
         '    let res = mv.effective_res(playing);\n',
         '    let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };\n'
-        '    let scrubbing = ctx.input(|i| i.pointer.any_down() && (app.tl.drag.is_some() || app.tl.pressed.is_some() || app.scrub.is_open() || i.pointer.delta() != egui::Vec2::ZERO));\n'
-        '    let dynamic = playing || scrubbing;\n'
+        '    let dynamic = playing || app.tl.drag.is_some() || app.scrub.is_open();\n'
         '    let res = mv.effective_res(dynamic);\n',
     ):
         fixed.append("crates/ui-egui/src/panels/monitor.rs (dynamic scrubbing resolution)")
@@ -4727,12 +4726,11 @@ PERSIST_RECIPES = {
     if let Err(error) = inner.session.set_prefs(prefs) {
         log::warn!("saving preferences: {error}");
     }
-    let _ = inner.session.execute("file.autoSaveNow", serde_json::json!({}));
     inner.session.sync_persistence();
     if let Some(p) = inner.session.persistence.as_ref() {
         p.flush();
-    }
-    inner.frames.clear_preview_caches();
+    }''',
+        "background": '''inner.frames.clear_preview_caches();
     @UI@::release_all_decoders();''',
     },
     "pdfcraft": {
@@ -4970,6 +4968,7 @@ PERSIST_METHODS = r'''
         if let Some(dir) = self.persist.clone() {
             persist_save(&mut self.inner, &dir);
         }
+        persist_background(&mut self.inner);
         self.saf_state.mirror.sync(&self.saf_bridge);
     }
 '''
@@ -5064,6 +5063,7 @@ _persist = PERSIST_RECIPES.get(app)
 if _persist:
     _load = _persist["load"].replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
     _save = _persist["save"].replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
+    _bg = _persist.get("background", "").replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
     persist_support = PERSIST_SUPPORT + f'''
 fn persist_load(inner: &mut {app_type}, dir: &std::path::Path) {{
 {_load}
@@ -5071,6 +5071,11 @@ fn persist_load(inner: &mut {app_type}, dir: &std::path::Path) {{
 
 fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
 {_save}
+}}
+
+#[allow(unused_variables)]
+fn persist_background(inner: &mut {app_type}) {{
+{_bg}
 }}
 '''
     persist_fields = "\n    persist: Option<std::path::PathBuf>,\n    persist_last: Option<std::time::Instant>,"
