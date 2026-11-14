@@ -100,6 +100,7 @@
         <package android:name="com.artcraft.transit" />
         <package android:name="com.artcraft.vectorcraft" />
         <package android:name="com.artcraft.wordcraft" />
+        <package android:name="com.jackharvest.shapecraft" />
         <package android:name="dev.tracedraw.app" />
         <package android:name="io.github.artcraftandroid.capcraft" />
         <package android:name="io.github.artcraftandroid.procraft" />

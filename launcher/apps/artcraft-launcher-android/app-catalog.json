@@ -1,118 +1,182 @@
 {
   "version": 1,
-  "updated_at": "2026-11-13T00:00:00Z",
+  "updated_at": "2026-11-14T00:00:00Z",
   "query_packages": [],
   "official_apps": [
     {
       "id": "photocraft",
       "name": "PhotoCraft",
       "tagline": "Image editing",
-      "color": [47, 123, 245],
+      "color": [
+        47,
+        123,
+        245
+      ],
       "repo": "storytold/photocraft"
     },
     {
       "id": "vectorcraft",
       "name": "VectorCraft",
       "tagline": "Vector illustration",
-      "color": [232, 87, 63],
+      "color": [
+        232,
+        87,
+        63
+      ],
       "repo": "storytold/vectorcraft"
     },
     {
       "id": "filmcraft",
       "name": "FilmCraft",
       "tagline": "Video editing, color and sound",
-      "color": [139, 92, 246],
+      "color": [
+        139,
+        92,
+        246
+      ],
       "repo": "storytold/filmcraft"
     },
     {
       "id": "lightcraft",
       "name": "LightCraft",
       "tagline": "Photo library and raw development",
-      "color": [242, 165, 22],
+      "color": [
+        242,
+        165,
+        22
+      ],
       "repo": "storytold/lightcraft"
     },
     {
       "id": "pdfcraft",
       "name": "PdfCraft",
       "tagline": "Reading, organizing and protecting PDFs",
-      "color": [232, 32, 79],
+      "color": [
+        232,
+        32,
+        79
+      ],
       "repo": "storytold/pdfcraft"
     },
     {
       "id": "effectcraft",
       "name": "EffectCraft",
       "tagline": "Image effects and filters",
-      "color": [224, 54, 143],
+      "color": [
+        224,
+        54,
+        143
+      ],
       "repo": "storytold/effectcraft"
     },
     {
       "id": "designcraft",
       "name": "DesignCraft",
       "tagline": "Graphic design and layout",
-      "color": [123, 181, 28],
+      "color": [
+        123,
+        181,
+        28
+      ],
       "repo": "storytold/designcraft"
     },
     {
       "id": "figcraft",
       "name": "FigCraft",
       "tagline": "Diagramming and whiteboarding",
-      "color": [2, 218, 150],
+      "color": [
+        2,
+        218,
+        150
+      ],
       "repo": "storytold/figcraft"
     },
     {
       "id": "wordcraft",
       "name": "WordCraft",
       "tagline": "Writing and word processing",
-      "color": [63, 95, 224],
+      "color": [
+        63,
+        95,
+        224
+      ],
       "repo": "storytold/wordcraft"
     },
     {
       "id": "soundcraft",
       "name": "SoundCraft",
       "tagline": "Audio recording and editing",
-      "color": [31, 165, 201],
+      "color": [
+        31,
+        165,
+        201
+      ],
       "repo": "storytold/soundcraft"
     },
     {
       "id": "deckcraft",
       "name": "DeckCraft",
       "tagline": "Presentations and slide decks",
-      "color": [240, 122, 30],
+      "color": [
+        240,
+        122,
+        30
+      ],
       "repo": "storytold/deckcraft"
     },
     {
       "id": "cadcraft",
       "name": "CadCraft",
       "tagline": "2D and 3D CAD drawings",
-      "color": [62, 166, 232],
+      "color": [
+        62,
+        166,
+        232
+      ],
       "repo": "storytold/cadcraft"
     },
     {
       "id": "gridcraft",
       "name": "GridCraft",
       "tagline": "Spreadsheets and tables",
-      "color": [31, 157, 85],
+      "color": [
+        31,
+        157,
+        85
+      ],
       "repo": "storytold/gridcraft"
     },
     {
       "id": "materialcraft",
       "name": "MaterialCraft",
       "tagline": "Materials and textures for 3D work",
-      "color": [23, 138, 156],
+      "color": [
+        23,
+        138,
+        156
+      ],
       "repo": "storytold/materialcraft"
     },
     {
       "id": "texturecraft",
       "name": "TextureCraft",
       "tagline": "3D texture painting",
-      "color": [194, 103, 43],
+      "color": [
+        194,
+        103,
+        43
+      ],
       "repo": "storytold/texturecraft"
     },
     {
       "id": "anicraft",
       "name": "AniCraft",
       "tagline": "Frame-by-frame 2D animation",
-      "color": [223, 202, 0],
+      "color": [
+        223,
+        202,
+        0
+      ],
       "repo": "storytold/anicraft"
     }
   ],
@@ -121,7 +185,11 @@
       "id": "subcraft",
       "name": "SubCraft",
       "tagline": "3D texture painting on models",
-      "color": [255, 134, 26],
+      "color": [
+        255,
+        134,
+        26
+      ],
       "repo": "Aalzard/subcraft",
       "publisher": "Aalzard",
       "site": "https://github.com/Aalzard/subcraft",
@@ -132,7 +200,11 @@
       "id": "solidcraft",
       "name": "SolidCraft",
       "tagline": "Parametric 3D CAD",
-      "color": [70, 161, 251],
+      "color": [
+        70,
+        161,
+        251
+      ],
       "repo": "tangency-labs/solidcraft",
       "publisher": "Tangency Labs",
       "site": "https://solidcraft.io",
@@ -143,7 +215,11 @@
       "id": "bimcraft",
       "name": "BIMCraft",
       "tagline": "Building information modeling",
-      "color": [86, 157, 126],
+      "color": [
+        86,
+        157,
+        126
+      ],
       "repo": "IPedrax/BIMCraft",
       "publisher": "IPedrax",
       "site": "https://github.com/IPedrax/BIMCraft",
@@ -154,7 +230,11 @@
       "id": "capsulecraft",
       "name": "CapsuleCraft",
       "tagline": "Notes as plain .eml files",
-      "color": [26, 169, 251],
+      "color": [
+        26,
+        169,
+        251
+      ],
       "repo": "kostyk348/CapsuleCraft",
       "publisher": "kostyk348",
       "site": "https://github.com/kostyk348/CapsuleCraft",
@@ -165,7 +245,11 @@
       "id": "diagramcraft",
       "name": "DiagramCraft",
       "tagline": "Visio-style diagrams and stencils",
-      "color": [255, 201, 62],
+      "color": [
+        255,
+        201,
+        62
+      ],
       "repo": "baradhili/DiagramCraft",
       "publisher": "baradhili",
       "site": "https://github.com/baradhili/DiagramCraft",
@@ -176,7 +260,11 @@
       "id": "earthcraft",
       "name": "EarthCraft",
       "tagline": "3D globe explorer",
-      "color": [18, 216, 208],
+      "color": [
+        18,
+        216,
+        208
+      ],
       "repo": "therichronicles/EarthCraft",
       "publisher": "therichronicles",
       "site": "https://github.com/therichronicles/EarthCraft",
@@ -187,7 +275,11 @@
       "id": "humanmotioncraft",
       "name": "HumanMotionCraft",
       "tagline": "Humanoid pose and animation",
-      "color": [250, 123, 61],
+      "color": [
+        250,
+        123,
+        61
+      ],
       "repo": "YalKouassi/HumanMotionCraft",
       "publisher": "YalKouassi",
       "site": "https://github.com/YalKouassi/HumanMotionCraft",
@@ -198,7 +290,11 @@
       "id": "mapcraft",
       "name": "MapCraft",
       "tagline": "Brush-based level editor",
-      "color": [248, 144, 40],
+      "color": [
+        248,
+        144,
+        40
+      ],
       "repo": "bearlikelion/MapCraft",
       "publisher": "bearlikelion",
       "site": "https://mapcraft.site",
@@ -209,7 +305,11 @@
       "id": "notecraft",
       "name": "NoteCraft",
       "tagline": "Notebooks and notes on local files",
-      "color": [157, 40, 255],
+      "color": [
+        157,
+        40,
+        255
+      ],
       "repo": "AlienTechSoftware/notecraft",
       "publisher": "AlienTechSoftware",
       "site": "https://github.com/AlienTechSoftware/notecraft",
@@ -220,7 +320,11 @@
       "id": "paintcraft",
       "name": "PaintCraft",
       "tagline": "Painting and image editing",
-      "color": [255, 146, 25],
+      "color": [
+        255,
+        146,
+        25
+      ],
       "repo": "replicraft/PaintCraft",
       "publisher": "replicraft",
       "site": "https://github.com/replicraft/PaintCraft",
@@ -231,7 +335,11 @@
       "id": "picassosuite",
       "name": "PicassoSuite",
       "tagline": "Video editing on Resolve-style pages",
-      "color": [26, 175, 255],
+      "color": [
+        26,
+        175,
+        255
+      ],
       "repo": "fabox-os/Picasso-Suite",
       "publisher": "fabox",
       "site": "https://fabox-os.github.io/Picasso-Suite/",
@@ -242,7 +350,11 @@
       "id": "prowave",
       "name": "ProWave",
       "tagline": "Music production and DAW",
-      "color": [26, 230, 252],
+      "color": [
+        26,
+        230,
+        252
+      ],
       "repo": "fabox-os/Pro-Wave",
       "publisher": "fabox",
       "site": "https://fabox-os.github.io/Pro-Wave/",
@@ -253,7 +365,11 @@
       "id": "rustgis",
       "name": "RustGIS",
       "tagline": "Geospatial maps and analysis",
-      "color": [184, 74, 44],
+      "color": [
+        184,
+        74,
+        44
+      ],
       "repo": "opengeos/RustGIS",
       "publisher": "opengeos",
       "site": "https://github.com/opengeos/RustGIS",
@@ -264,7 +380,11 @@
       "id": "tracedraw",
       "name": "TraceDraw",
       "tagline": "Vector illustration and print",
-      "color": [83, 198, 255],
+      "color": [
+        83,
+        198,
+        255
+      ],
       "repo": "tracedraw/tracedraw",
       "publisher": "TraceDraw",
       "site": "https://github.com/tracedraw/tracedraw",
@@ -276,7 +396,11 @@
       "id": "transit",
       "name": "Transit",
       "tagline": "Digital audio workstation",
-      "color": [79, 186, 252],
+      "color": [
+        79,
+        186,
+        252
+      ],
       "repo": "transit-audio/transit",
       "publisher": "transit-audio",
       "site": "https://transit-audio.com/",
@@ -287,7 +411,11 @@
       "id": "coimanide",
       "name": "Coiman IDE",
       "tagline": "Code editor with language servers and Git",
-      "color": [47, 140, 255],
+      "color": [
+        47,
+        140,
+        255
+      ],
       "repo": "ManuelCoimbra/coiman-ide",
       "publisher": "ManuelCoimbra",
       "site": "https://github.com/ManuelCoimbra/coiman-ide",
@@ -298,7 +426,11 @@
       "id": "keydeck",
       "name": "Keydeck",
       "tagline": "Presentations: Keynote and PowerPoint files",
-      "color": [194, 48, 106],
+      "color": [
+        194,
+        48,
+        106
+      ],
       "repo": "bramble-apps/bramble-office",
       "publisher": "Bramble Apps",
       "site": "https://bramble-apps.github.io",
@@ -314,7 +446,11 @@
       "id": "values",
       "name": "Values",
       "tagline": "Spreadsheets: Numbers and Excel files",
-      "color": [142, 58, 138],
+      "color": [
+        142,
+        58,
+        138
+      ],
       "repo": "bramble-apps/bramble-office",
       "publisher": "Bramble Apps",
       "site": "https://bramble-apps.github.io",
@@ -330,7 +466,11 @@
       "id": "letters",
       "name": "Letters",
       "tagline": "Word processing and page layout",
-      "color": [90, 127, 60],
+      "color": [
+        90,
+        127,
+        60
+      ],
       "repo": "bramble-apps/bramble-office",
       "publisher": "Bramble Apps",
       "site": "https://bramble-apps.github.io",
@@ -346,7 +486,11 @@
       "id": "procraft",
       "name": "ProCraft",
       "tagline": "Digital painting and illustration with pressure-sensitive brushes, layers and animation",
-      "color": [255, 163, 55],
+      "color": [
+        255,
+        163,
+        55
+      ],
       "repo": "artcraft-android/procraft",
       "publisher": "Bearinmind",
       "site": null,
@@ -362,7 +506,11 @@
       "id": "capcraft",
       "name": "CapCraft",
       "tagline": "Mobile video editing with filters, effects, transitions and captions",
-      "color": [25, 25, 25],
+      "color": [
+        25,
+        25,
+        25
+      ],
       "repo": "artcraft-android/capcraft-android",
       "publisher": "Bearinmind",
       "site": null,
@@ -378,7 +526,11 @@
       "id": "concat",
       "name": "Concat",
       "tagline": "Local-first video editor, scriptable through JSON-RPC",
-      "color": [5, 104, 253],
+      "color": [
+        5,
+        104,
+        253
+      ],
       "repo": "jub0t/Concat",
       "publisher": "jub0t",
       "site": "https://concat.standalones.org",
@@ -389,6 +541,26 @@
       },
       "package": "app.concat.editor",
       "image": "concat.png"
+    },
+    {
+      "id": "shapecraft",
+      "name": "ShapeCraft",
+      "tagline": "Direct-modeling CAD for STEP, IGES, STL, OBJ and .shapr files",
+      "color": [
+        77,
+        133,
+        251
+      ],
+      "repo": "jackharvest/shapecraft",
+      "publisher": "jackharvest",
+      "site": "https://jackharvest.com/shapecraft/",
+      "bundle": null,
+      "release": {
+        "repo": "jackharvest/shapecraft",
+        "asset": "shapecraft-*-android-arm64.apk"
+      },
+      "package": "com.jackharvest.shapecraft",
+      "image": "shapecraft.png"
     }
   ]
 }

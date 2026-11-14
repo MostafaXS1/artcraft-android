@@ -221,8 +221,12 @@ impl Session {
         self.size
     }
 
-    /// Updates the local emulator. The remote pty keeps the size the session started with: a FIFO
-    /// has no window size to change, and Termux's `script` session is created once.
+    /// Updates the local emulator and the remote shell's pty.
+    ///
+    /// Termux's `script` creates the pty once, but the shim's `run.sh` runs a small watcher inside
+    /// that session which reads `<scratch>/size` and calls `stty`, so the remote shell and its
+    /// programs see the new size (and get SIGWINCH) instead of keeping the size the session
+    /// started with.
     pub fn resize(&mut self, size: Size) {
         if size == self.size || size.columns == 0 || size.lines == 0 {
             return;
@@ -230,6 +234,24 @@ impl Session {
         self.size = size;
         *self.shared_size.lock().unwrap_or_else(|error| error.into_inner()) = size;
         self.term.lock().resize(size);
+        if let Some(dir) = self.scratch_dir() {
+            let _ = std::fs::write(dir.join("size"), format!("{}x{}", size.columns, size.lines));
+        }
+    }
+
+    /// The shim's per-session scratch directory, found by the shim's pid (the token starts with
+    /// it). The size watcher in the remote session reads `<scratch>/size`.
+    fn scratch_dir(&self) -> Option<std::path::PathBuf> {
+        let public = std::env::var_os("COIMAN_TERMUX_PUBLIC")?;
+        let root = std::path::PathBuf::from(public).join("scratch");
+        let pid = self.pid?;
+        let prefix = format!("{pid}-");
+        for entry in std::fs::read_dir(root).ok()?.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                return Some(entry.path());
+            }
+        }
+        None
     }
 
     /// Everything reported since the last call.

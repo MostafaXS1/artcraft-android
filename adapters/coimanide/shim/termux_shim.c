@@ -401,6 +401,7 @@ int main(int argc, char **argv) {
     char kill_path[PATH_MAX_LEN];
     char alive_path[PATH_MAX_LEN];
     char script_path[PATH_MAX_LEN];
+    char size_path[PATH_MAX_LEN];
     char result_dir[PATH_MAX_LEN];
     char result_exit[PATH_MAX_LEN];
     char result_error[PATH_MAX_LEN];
@@ -414,6 +415,7 @@ int main(int argc, char **argv) {
     snprintf(kill_path, sizeof(kill_path), "%s/kill", scratch);
     snprintf(alive_path, sizeof(alive_path), "%s/alive", scratch);
     snprintf(script_path, sizeof(script_path), "%s/run.sh", scratch);
+    snprintf(size_path, sizeof(size_path), "%s/size", scratch);
     snprintf(result_dir, sizeof(result_dir), "%s/result", scratch);
     snprintf(result_exit, sizeof(result_exit), "%s/exit_code", result_dir);
     snprintf(result_error, sizeof(result_error), "%s/err", result_dir);
@@ -504,7 +506,7 @@ int main(int argc, char **argv) {
     fprintf(script, "      if [ -f ");
     shell_quote(script, in_done_path);
     fprintf(script, " ]; then break; fi\n");
-    fprintf(script, "      sleep 0.2\n");
+    fprintf(script, "      sleep 0.02\n");
     fprintf(script, "    done\n");
     fprintf(script, "    exec 3>&-\n");
     fprintf(script, "  ) &\n");
@@ -531,8 +533,26 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(tool, "__terminal__") == 0) {
-        char command[256];
-        snprintf(command, sizeof(command), "stty rows %d cols %d 2>/dev/null; exec bash -i", lines, columns);
+        /* The remote pty is created by `script` at a fixed size. A watcher inside the session
+         * reads the size the Rust side writes (the Android view can be resized, rotated or share
+         * the screen with the keyboard) and resizes the pty with stty, so the shell and its
+         * programs reflow and receive SIGWINCH. */
+        fprintf(script, "export COIMAN_SIZE_FILE=");
+        shell_quote(script, size_path);
+        fprintf(script, "\n");
+        char command[512];
+        snprintf(
+            command,
+            sizeof(command),
+            "stty rows %d cols %d 2>/dev/null; "
+            "(while :; do "
+            "if [ -f \"$COIMAN_SIZE_FILE\" ]; then "
+            "s=$(cat \"$COIMAN_SIZE_FILE\" 2>/dev/null); "
+            "case \"$s\" in *x*) stty -F /dev/tty rows \"${s#*x}\" cols \"${s%%x*}\" 2>/dev/null;; esac; "
+            "fi; sleep 0.1; done) & "
+            "exec bash -i",
+            lines,
+            columns);
         fprintf(script, "if command -v script >/dev/null 2>&1; then\n");
         fprintf(script, "  script -q -f -c ");
         shell_quote(script, command);

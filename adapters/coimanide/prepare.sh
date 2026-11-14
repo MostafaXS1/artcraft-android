@@ -598,8 +598,7 @@ else:
 # Cut/Copy/Paste/Delete. This editor is not a TextEdit, so it tells the bar about its own
 # selection: an empty range when nothing is selected, the selection otherwise.
 old_selection = """    Output {
-        hover,
-        ctrl_click: view.ctrl_click.take(),"""
+        hover,"""
 new_selection = """    // The Android text bar (Cut/Copy/Paste/Delete) looks for a TextEdit's selection; this editor
     // is not a TextEdit, so it tells the bar about the selection itself: the selection itself,
     // and where it is, so the bar sits next to the text instead of at the top of the screen.
@@ -621,8 +620,7 @@ new_selection = """    // The Android text bar (Cut/Copy/Paste/Delete) looks for
     });
 
     Output {
-        hover,
-        ctrl_click: view.ctrl_click.take(),"""
+        hover,"""
 if new_selection in s:
     print("editor_view.rs: the selection already reaches the text bar")
 elif old_selection in s:
@@ -831,43 +829,12 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 # The shim sources and patches are only inputs to this script; keep the staged launcher small.
 rm -rf "$DEST/shim" "$DEST/patches" "$DEST/vendor"
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
-cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
 
-# Coiman's text bar is the builder's, with one change: it sits next to the selected text instead
-# of at the top of the screen (Coiman's editor and terminal draw their own text, so the widget's
-# own rectangle is the whole area).
-cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/coiman_text_bar.rs"
-python3 - "$DEST/src/coiman_text_bar.rs" <<'PY'
-from pathlib import Path
-import sys
-
-p = Path(sys.argv[1])
-s = p.read_text()
-old = (
-    "    // Determine field geometry (prefer IME output rect, fallback to response rect)\n"
-    "    let field_rect = ctx\n"
-    "        .output(|o| o.ime.as_ref().map(|i| i.rect))\n"
-    "        .or_else(|| ctx.read_response(field_id).map(|r| r.rect));"
-)
-new = (
-    "    // Determine field geometry. Coiman's editor and its terminal draw their own text, so they\n"
-    "    // are not TextEdits: their own rectangle is the whole area, which would put the bar at the\n"
-    "    // top of the screen. They publish where the selection is (coiman_core::selection), and the\n"
-    "    // bar goes there: next to the text that is selected.\n"
-    "    let field_rect = coiman_core::selection::get()\n"
-    "        .map(|r| egui::Rect::from_min_max(egui::pos2(r[0], r[1]), egui::pos2(r[2], r[3])))\n"
-    "        .or_else(|| ctx.output(|o| o.ime.as_ref().map(|i| i.rect)))\n"
-    "        .or_else(|| ctx.read_response(field_id).map(|r| r.rect));"
-)
-if new in s:
-    print("coiman_text_bar.rs: already sits next to the selection")
-elif old in s:
-    p.write_text(s.replace(old, new, 1))
-    print("coiman_text_bar.rs: it sits next to the selection")
-else:
-    raise SystemExit("the text bar no longer finds the field geometry")
-PY
+# Coiman does not use the floating Cut/Copy/Paste/Delete bar in any case (not even with a
+# selection): its editor and terminal draw their own text, so the builder's text bar is disabled
+# here with the shared stub.
+cp -f "$ROOT/templates/android/mobile_text_bar_disabled.rs" "$DEST/src/coiman_text_bar.rs"
 
 # The Java Activity: the builder's SAF template plus the Termux broker.
 mkdir -p "$DEST/java/com/artcraft/coimanide"

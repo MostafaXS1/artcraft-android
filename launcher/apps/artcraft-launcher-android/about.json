@@ -643,6 +643,31 @@
       ],
       "shots": [],
       "platforms": "Windows, macOS, Linux, Android"
+    },
+    {
+      "id": "shapecraft",
+      "headline": "Direct-modeling CAD, open source and local-first.",
+      "about": "An open-source, local-first direct-modeling CAD app for macOS, Windows, Linux and Android. It opens STEP, IGES, STL, OBJ and .shapr files, with a Rust engine and a GPU renderer.",
+      "features": [
+        {
+          "title": "Direct modeling",
+          "text": "Push and pull faces, edges and vertices; build models directly, without a feature tree."
+        },
+        {
+          "title": "File formats",
+          "text": "Open STEP, IGES, STL, OBJ and .shapr files, and export for 3D printing and manufacturing."
+        },
+        {
+          "title": "Local-first",
+          "text": "Everything runs on your machine: no account and no upload."
+        },
+        {
+          "title": "Cross-platform",
+          "text": "The same app on macOS, Windows, Linux and Android."
+        }
+      ],
+      "shots": [],
+      "platforms": "Android, macOS, Windows, Linux"
     }
   ]
 }

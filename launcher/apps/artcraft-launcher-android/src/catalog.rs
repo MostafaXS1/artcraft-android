@@ -105,11 +105,12 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
     ("procraft", ReleaseSource { repo: "artcraft-android/procraft", asset_pattern: Some("procraft-*-android-arm64.apk") }),
     ("capcraft", ReleaseSource { repo: "artcraft-android/capcraft-android", asset_pattern: Some("capcraft-android-*.apk") }),
     ("concat", ReleaseSource { repo: "jub0t/Concat", asset_pattern: Some("Concat-*-android-arm64.apk") }),
+    ("shapecraft", ReleaseSource { repo: "jackharvest/shapecraft", asset_pattern: Some("shapecraft-*-android-arm64.apk") }),
 ];
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 38] = [
+pub static SUITE_ANDROID: [CraftApp; 39] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft"),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft"),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft"),
@@ -346,6 +347,16 @@ pub static SUITE_ANDROID: [CraftApp; 38] = [
         Some("https://concat.standalones.org"),
         None,
     ),
+    community(
+        "shapecraft",
+        "ShapeCraft",
+        "Direct-modeling CAD for STEP, IGES, STL, OBJ and .shapr files",
+        [77, 133, 251],
+        "jackharvest/shapecraft",
+        "jackharvest",
+        Some("https://jackharvest.com/shapecraft/"),
+        None,
+    ),
 ];
 
 /// An app by id, from the Android suite.
@@ -375,6 +386,7 @@ pub fn package_for(app_id: &str) -> String {
         "procraft" => "io.github.artcraftandroid.procraft".to_string(),
         "capcraft" => "io.github.artcraftandroid.capcraft".to_string(),
         "concat" => "app.concat.editor".to_string(),
+        "shapecraft" => "com.jackharvest.shapecraft".to_string(),
         _ => format!("com.artcraft.{app_id}"),
     }
 }

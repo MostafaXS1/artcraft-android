@@ -329,6 +329,19 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Windows, macOS, Linux, Android",
     },
+    AppDetails {
+        id: "shapecraft",
+        headline: "Direct-modeling CAD, open source and local-first.",
+        about: "An open-source, local-first direct-modeling CAD app for macOS, Windows, Linux and Android. It opens STEP, IGES, STL, OBJ and .shapr files, with a Rust engine and a GPU renderer.",
+        features: &[
+            Feature { title: "Direct modeling", text: "Push and pull faces, edges and vertices; build models directly, without a feature tree." },
+            Feature { title: "File formats", text: "Open STEP, IGES, STL, OBJ and .shapr files, and export for 3D printing and manufacturing." },
+            Feature { title: "Local-first", text: "Everything runs on your machine: no account and no upload." },
+            Feature { title: "Cross-platform", text: "The same app on macOS, Windows, Linux and Android." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

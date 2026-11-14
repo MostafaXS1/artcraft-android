@@ -324,6 +324,7 @@ pub fn app_icon_png(id: &str) -> Option<&'static [u8]> {
         "procraft" => include_bytes!("../../../assets/app-icons/procraft.png"),
         "capcraft" => include_bytes!("../../../assets/app-icons/capcraft.png"),
         "concat" => include_bytes!("../../../assets/app-icons/concat.png"),
+        "shapecraft" => include_bytes!("../../../assets/app-icons/shapecraft.png"),
         _ => return None,
     })
 }

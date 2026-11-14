@@ -7496,26 +7496,44 @@ cd "$ANDROID_DIR"
 # into the APK's own `versionName`) and fall back to the launcher crate's version for sources that do
 # not pin one at the workspace level.
 APP_VERSION="$(python3 - "$ROOT/$SRC" "$APP" <<'PY'
-import pathlib, sys, tomllib
+import pathlib, re, sys, tomllib
 
 root, app = pathlib.Path(sys.argv[1]), sys.argv[2]
-for path in (
-    root / "Cargo.toml",
-    root / "apps" / app / "Cargo.toml",
-    root / "apps" / (app + "-android") / "Cargo.toml",
-):
+normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
+app_key = normalize(app)
+
+def read_version(path):
     try:
         data = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError):
-        continue
+        return None
     version = data.get("workspace", {}).get("package", {}).get("version")
     if not version:
         version = data.get("package", {}).get("version")
-    if isinstance(version, str) and version:
+    return version if isinstance(version, str) and version else None
+
+# Prefer the source's own version: the workspace version, then the app's crate, then a crate
+# named like the app (coiman-ide for coimanide), and only then the generated launcher's port
+# version. This keeps APKs named after the upstream release they were built from.
+for path in (root / "Cargo.toml", root / "apps" / app / "Cargo.toml"):
+    version = read_version(path)
+    if version:
         print(version)
         break
 else:
-    print("0.0.0")
+    version = None
+    for path in sorted(root.glob("crates/*/Cargo.toml")):
+        try:
+            name = tomllib.loads(path.read_text()).get("package", {}).get("name", "")
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if name and (normalize(name) == app_key or normalize(name).startswith(app_key)):
+            version = read_version(path)
+            if version:
+                break
+    if not version:
+        version = read_version(root / "apps" / (app + "-android") / "Cargo.toml")
+    print(version or "0.0.0")
 PY
 )"
 
