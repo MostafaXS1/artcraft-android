@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- The system uninstaller refuses to act on an app's DELETE intent without this:
+         "Uid <n> does not have android.permission.REQUEST_DELETE_PACKAGES". -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Hardware features -->
+    <uses-feature android:name="android.hardware.vulkan.level" android:required="false" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:required="false" />
+    <uses-feature android:glEsVersion="0x00030002" android:required="true" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ArtCraftLauncher"
+        android:usesCleartextTraffic="false"
+        android:enableOnBackInvokedCallback="true"
+        android:debuggable="true">
+
+        <activity
+            android:name=".ArtCraftLauncherActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+            android:windowSoftInputMode="adjustResize"
+            android:hardwareAccelerated="true"
+            android:enableVrMode="false"
+            android:resizeableActivity="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Handle opening APK files -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" android:mimeType="application/vnd.android.package-archive" />
+                <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+        </activity>
+
+        <!-- GameActivity meta-data -->
+        <meta-data
+            android:name="android.app.lib_name"
+            android:value="artcraft_launcher_android" />
+        <meta-data
+            android:name="android.app.func_name"
+            android:value="android_main" />
+
+    </application>
+
+    <!-- Query installed apps (for detecting installed Craft apps). Generated from
+         app-catalog.json by generate-catalog.sh: every app's package plus "query_packages". -->
+    <!-- BEGIN GENERATED PACKAGE QUERIES -->
+    <queries>
+        <package android:name="app.bramble.keydeck" />
+        <package android:name="app.bramble.letters" />
+        <package android:name="app.bramble.values" />
+        <package android:name="app.concat.editor" />
+        <package android:name="com.artcraft.anicraft" />
+        <package android:name="com.artcraft.bimcraft" />
+        <package android:name="com.artcraft.cadcraft" />
+        <package android:name="com.artcraft.capsulecraft" />
+        <package android:name="com.artcraft.coimanide" />
+        <package android:name="com.artcraft.deckcraft" />
+        <package android:name="com.artcraft.designcraft" />
+        <package android:name="com.artcraft.diagramcraft" />
+        <package android:name="com.artcraft.earthcraft" />
+        <package android:name="com.artcraft.effectcraft" />
+        <package android:name="com.artcraft.figcraft" />
+        <package android:name="com.artcraft.filmcraft" />
+        <package android:name="com.artcraft.gridcraft" />
+        <package android:name="com.artcraft.humanmotioncraft" />
+        <package android:name="com.artcraft.lightcraft" />
+        <package android:name="com.artcraft.mapcraft" />
+        <package android:name="com.artcraft.materialcraft" />
+        <package android:name="com.artcraft.notecraft" />
+        <package android:name="com.artcraft.paintcraft" />
+        <package android:name="com.artcraft.pdfcraft" />
+        <package android:name="com.artcraft.photocraft" />
+        <package android:name="com.artcraft.picassosuite" />
+        <package android:name="com.artcraft.prowave" />
+        <package android:name="com.artcraft.rustgis" />
+        <package android:name="com.artcraft.solidcraft" />
+        <package android:name="com.artcraft.soundcraft" />
+        <package android:name="com.artcraft.subcraft" />
+        <package android:name="com.artcraft.texturecraft" />
+        <package android:name="com.artcraft.transit" />
+        <package android:name="com.artcraft.vectorcraft" />
+        <package android:name="com.artcraft.wordcraft" />
+        <package android:name="dev.tracedraw.app" />
+        <package android:name="io.github.artcraftandroid.capcraft" />
+        <package android:name="io.github.artcraftandroid.procraft" />
+    </queries>
+    <!-- END GENERATED PACKAGE QUERIES -->
+</manifest>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArtCraft Launcher</title>
+  <link data-trunk rel="rust" data-bin="artcraft-launcher-web" data-cargo-profile="wasm-release" data-wasm-opt="z" data-weak-refs />
+  <link data-trunk rel="icon" href="../../assets/app-icon/hicolor/64x64/apps/ai.storyteller.artcraft-launcher.png" />
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #121316; }
+    #launcher_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #launcher_loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: rgba(242, 241, 238, 0.6); font: 500 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.15em; text-transform: uppercase; pointer-events: none; }
+    @media (prefers-color-scheme: light) { html, body { background: #f2f1ee; } #launcher_loading { color: rgba(16, 16, 20, 0.62); } }
+  </style>
+</head>
+<body>
+  <canvas id="launcher_canvas"></canvas>
+  <div id="launcher_loading">Loading ArtCraft Launcher&hellip;</div>
+</body>
+</html>

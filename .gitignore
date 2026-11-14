@@ -68,3 +68,11 @@ output/*.apk
 *.temp
 .tmp/
 temp/
+
+# ArtCraft Launcher is tracked in-tree (it was briefly a gitlink, which broke CI).
+# Keep its build outputs out of the repository.
+launcher/**/build/
+launcher/**/.gradle/
+launcher/**/.cxx/
+launcher/**/local.properties
+launcher/**/jniLibs/

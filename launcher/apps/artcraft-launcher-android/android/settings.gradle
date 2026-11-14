@@ -1,0 +1,19 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = "https://github.com/rustls/rustls-platform-verifier/raw/maven-archive/android-release-support/maven/"
+        }
+    }
+}
+rootProject.name = 'artcraft-launcher-android'
+include ':app'

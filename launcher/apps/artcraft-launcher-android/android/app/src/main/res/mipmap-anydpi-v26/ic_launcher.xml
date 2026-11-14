@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon as Android 8+ shapes it (circle, squircle, rounded square): the ArtCraft
+     "A" mark, drawn at 58% of the 432 px (108 dp) layer so the whole figure stays inside the
+     launcher's 72 dp safe zone. mipmap-xxxhdpi/ic_launcher_foreground.png is rendered from
+     assets/app-icon/artcraft-launcher.svg by packaging/icons.sh. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

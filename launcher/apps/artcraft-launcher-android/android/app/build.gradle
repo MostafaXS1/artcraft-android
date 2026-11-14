@@ -1,0 +1,149 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android' version '2.0.0' apply false
+}
+
+// Helper to extract rustls-platform-verifier-android version from Cargo.lock
+abstract class RustlsVersion implements ValueSource<String, RustlsVersion.Params> {
+    interface Params extends ValueSourceParameters {
+        RegularFileProperty getLockFile()
+    }
+
+    static final String CRATE_NAME = "rustls-platform-verifier-android"
+
+    @Override
+    String obtain() {
+        def lockFile = parameters.lockFile.get().asFile
+        def lines = lockFile.readLines()
+        def idx = lines.findIndexOf { it.trim() == "name = \"$CRATE_NAME\"" }
+        def version = idx < 0 ? null : lines.drop(idx + 1)
+            .find { it.stripLeading().startsWith("version = ") }
+            ?.find(/"([^"]*)"/) { match, v -> v }
+        if (!version) throw new GradleException("$CRATE_NAME not found in $lockFile")
+        return version
+    }
+}
+
+def rustlsPlatformVerifierVersion = providers.of(RustlsVersion) { spec ->
+    spec.parameters.lockFile.set(layout.projectDirectory.file('../../../../Cargo.lock'))
+}
+
+configurations.configureEach { configuration ->
+    configuration.resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == "org.rustls" && details.requested.name == "rustls-platform-verifier") {
+            details.useVersion(rustlsPlatformVerifierVersion.get())
+            details.because("native component version must be identical to version of ${RustlsVersion.CRATE_NAME}")
+        }
+    }
+}
+
+// The legacy launcher icon comes from the Android render, copied at build time. packaging/icons.sh
+// draws the "A" with the margin an Android home screen expects; the adaptive foreground beside it
+// is committed under res/ because it is the layer Android 8+ actually shows.
+def iconRes = layout.buildDirectory.dir("generated/icon-res")
+def copyIcon = tasks.register('copyLauncherIcon', Copy) {
+    from(rootProject.file('../../../assets/app-icon/android/ic_launcher.png'))
+    into(iconRes.map { it.dir('mipmap-xxxhdpi') })
+    rename { 'ic_launcher.png' }
+}
+
+// The app version is the workspace's (Cargo.toml), plus the Android build number
+// (RELEASE_BUILD, from build.sh) for repeat releases of one version:
+// 0.14.0 build 3 is "0.14.0-3", released as android-v0.14.0-3 (the updater compares these).
+// versionCode must grow with every release Android should accept as an update: 0.14.0-3 → 14003.
+def versionSource = System.getenv('APP_VERSION') ?: (project.rootProject.ext.has('app_version') ? project.rootProject.ext.app_version : '0.14.0')
+def versionParts = versionSource.split('\\.')
+def major = versionParts[0] as int
+def minor = versionParts.size() > 1 ? versionParts[1] as int : 0
+def patch = versionParts.size() > 2 ? versionParts[2].split('-')[0] as int : 0
+def releaseBuild = (System.getenv('RELEASE_BUILD') ?: '0') as int
+def appVersionName = String.format("%d.%d.%d%s-android", major, minor, patch, releaseBuild > 0 ? "-" + releaseBuild : "") as String
+def computedVersionCode = major * 10000 + minor * 100 + patch * 10 + releaseBuild
+
+android {
+    namespace 'com.artcraft.launcher'
+    compileSdk 35
+    compileSdkVersion 35
+
+    defaultConfig {
+        applicationId 'com.artcraft.launcher'
+        minSdk 24
+        targetSdk 35
+        versionCode computedVersionCode
+        versionName appVersionName
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        // The Rust library is linked by GameActivity via android.app.lib_name
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // GameActivity calls into Java by name from native code: keep every class as is.
+            minifyEnabled false
+            // A prototype: signed with the debug key so it installs as is. Sign with your own
+            // key for distribution (see README.md).
+            signingConfig signingConfigs.debug
+            // ProGuard rules to keep rustls-platform-verifier Android component
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lintOptions {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    sourceSets {
+        main {
+            res.srcDirs += iconRes
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Store the library uncompressed and page-aligned: loaded straight from the APK.
+            useLegacyPackaging = false
+        }
+    }
+
+    // Build the icon before the merge resources task
+    tasks.named('preBuild') { dependsOn copyIcon }
+}
+
+dependencies {
+    // AndroidX pulls kotlin-stdlib 1.8 next to the old split -jdk7/-jdk8 artifacts; align them.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+    // The Java half of GameActivity; android-activity (Rust) provides the native glue, so no
+    // prefab. The version must match android-activity's (see its README).
+    implementation 'androidx.games:games-activity:4.4.0'
+    // Low-latency ink (Touch Input): the stroke being drawn goes to a front-buffered layer.
+    implementation 'androidx.graphics:graphics-core:1.0.2'
+    // rustls-platform-verifier Android component for TLS certificate verification
+    implementation 'org.rustls:rustls-platform-verifier'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+// Debug task to print version
+tasks.register('printVersion') {
+    doLast {
+        println "versionName = ${versionName}"
+        println "versionCode = ${computedVersionCode}"
+        println "versionSource = ${versionSource}"
+    }
+}

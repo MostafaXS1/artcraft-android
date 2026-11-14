@@ -1,0 +1,53 @@
+[package]
+name = "artcraft-launcher-android"
+description = "ArtCraft Launcher on Android (eframe on GameActivity, wgpu Vulkan with GLES fallback)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "artcraft_launcher_android"
+crate-type = ["cdylib", "rlib"]
+
+# The workspace forbids `unsafe`. android-activity finds the app's entry point by symbol name,
+# so `android_main` needs `#[unsafe(no_mangle)]`: like `photocraft-tablet`, this crate denies
+# `unsafe` and allows it on that one function only (`src/lib.rs`).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[features]
+# Enable to install from `cargo xtask local serve` (dev loopback mirror)
+local-mirror = ["artcraft-launcher-native/local-mirror"]
+
+[dependencies]
+artcraft-launcher-core = { workspace = true }
+artcraft-launcher-native = { workspace = true }
+log = { workspace = true }
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+serde = { workspace = true }
+serde_json = "1"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+jiff = { workspace = true, features = ["serde"] }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+
+# The UI and everything under it (winit, GameActivity, the JNI IME bridge) is Android-only: the
+# vendored winit in this workspace has no desktop backend, so keeping these target-gated lets the
+# crate's catalog and bridge tests run on the host.
+[target.'cfg(target_os = "android")'.dependencies]
+artcraft-launcher-ui-egui = { workspace = true }
+eframe = { workspace = true, default-features = false, features = ["default_fonts", "clipboard", "wgpu", "accesskit", "persistence", "android-game-activity"] }
+egui = { workspace = true }
+# The patched copy that carries the Android IME bridge (`vendor-egui-winit-0.37`).
+egui-winit = { workspace = true }
+android-activity = { version = "0.6", default-features = false, features = ["game-activity"] }
+jni = { version = "0.22", default-features = false }
+android_logger = "0.15"
+rustls-platform-verifier = { version = "0.7", features = ["jni"] }
+rustls-platform-verifier-android = { version = "0.2" }
