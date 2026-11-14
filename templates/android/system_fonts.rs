@@ -309,6 +309,18 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// fresh generation key. Generations share the same borrowed font bytes, and a key no family
 /// references is never rasterized, so this costs no measurable memory.
 pub fn install_system_fonts(ctx: &egui::Context) {
+    // With a mouse over the window, every hovered interactive widget must show the pointing
+    // hand; egui only sets the OS pointer icon when `visuals.interact_cursor` names one, and
+    // the apps' own themes never do. Set it once here, where the Android shell knows a pointer
+    // exists; an app theme switch resets it, and the `.is_none()` check puts it back.
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        if ctx.style_of(theme).visuals.interact_cursor.is_none() {
+            ctx.all_styles_mut(|style| {
+                style.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
+            });
+            break;
+        }
+    }
     // The user's own font folder can change while the app runs — a font added, or the app granted
     // "all files access" after it started — so the folders the apps' scanners read are kept in
     // step here (cheaply; the work happens only when something actually changed).

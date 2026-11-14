@@ -5225,6 +5225,13 @@ icon = "@mipmap/ic_launcher"
             "        }\n"
         )
 
+    # With a mouse over the window, every hovered interactive widget must show the pointing hand;
+    # egui only sets the OS pointer icon when `visuals.interact_cursor` names one, and the apps'
+    # own themes never do. `system_fonts::install_system_fonts` is the one hook every shell calls
+    # every frame (generated and adapter-owned alike), so the fix lives there; see
+    # `templates/android/system_fonts.rs`.
+    interact_cursor_logic = ""
+
     if has_eframe_app:
         inner_logic = "self.inner.logic(ctx, frame);"
         inner_ui = "self.inner.ui(ui, frame);"
@@ -5974,7 +5981,7 @@ impl eframe::App for AndroidShell {{
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {{
 {ctx_store}{intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
 {ime_hide_logic}        self.sync_bar_appearance(ctx);
-{quit_check}    }}
+{interact_cursor_logic}{quit_check}    }}
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {{
         system_fonts::install_system_fonts(ui.ctx());

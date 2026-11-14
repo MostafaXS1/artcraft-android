@@ -36,21 +36,20 @@ mod ty {
     pub const ALIAS: i32 = 1010;
     pub const COPY: i32 = 1011;
     pub const NO_DROP: i32 = 1012;
-    pub const NOT_ALLOWED: i32 = 1013;
-    pub const GRAB: i32 = 1016;
-    pub const GRABBING: i32 = 1017;
-    pub const ZOOM_IN: i32 = 1018;
-    pub const ZOOM_OUT: i32 = 1019;
     /// `TYPE_ALL_SCROLL`: the four-way move cross.
-    pub const ALL_SCROLL: i32 = 1015;
+    pub const ALL_SCROLL: i32 = 1013;
     /// `TYPE_HORIZONTAL_DOUBLE_ARROW` (`ew-resize`).
     pub const HORIZONTAL_DOUBLE_ARROW: i32 = 1014;
     /// `TYPE_VERTICAL_DOUBLE_ARROW` (`ns-resize`).
-    pub const VERTICAL_DOUBLE_ARROW: i32 = 1021;
-    /// `TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW` (`nwse-resize`).
-    pub const TOP_LEFT_DIAGONAL_DOUBLE_ARROW: i32 = 1022;
+    pub const VERTICAL_DOUBLE_ARROW: i32 = 1015;
     /// `TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW` (`nesw-resize`).
-    pub const TOP_RIGHT_DIAGONAL_DOUBLE_ARROW: i32 = 1023;
+    pub const TOP_RIGHT_DIAGONAL_DOUBLE_ARROW: i32 = 1016;
+    /// `TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW` (`nwse-resize`).
+    pub const TOP_LEFT_DIAGONAL_DOUBLE_ARROW: i32 = 1017;
+    pub const ZOOM_IN: i32 = 1018;
+    pub const ZOOM_OUT: i32 = 1019;
+    pub const GRAB: i32 = 1020;
+    pub const GRABBING: i32 = 1021;
 }
 
 /// The `android.view.PointerIcon` type for an [`egui::CursorIcon`].
@@ -74,7 +73,7 @@ pub fn pointer_icon_type(cursor: egui::CursorIcon) -> Option<i32> {
         C::Alias => ty::ALIAS,
         C::Copy => ty::COPY,
         C::NoDrop => ty::NO_DROP,
-        C::NotAllowed => ty::NOT_ALLOWED,
+        C::NotAllowed => ty::NO_DROP,
         C::Grab => ty::GRAB,
         C::Grabbing => ty::GRABBING,
         C::ZoomIn => ty::ZOOM_IN,

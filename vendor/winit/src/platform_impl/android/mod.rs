@@ -1152,6 +1152,16 @@ impl<T: 'static> EventLoop<T> {
                                 );
                             }
                         }
+                        // Let the view hierarchy see the hover too. `ViewRootImpl` owns the
+                        // Android pointer icon: it resolves the icon from the hovered view and
+                        // hands the type to the input manager. A native activity consumes every
+                        // input event in `android-activity`, so without this the hover never
+                        // reaches `ViewRootImpl`, its pointer-icon cache stays empty, and
+                        // `View.setPointerIcon` has nothing to refresh — which is why the
+                        // cursor never changed no matter what the app set. Passing the hover
+                        // through costs nothing: no view handles it, and the app has already
+                        // seen the same event here.
+                        input_status = InputStatus::Unhandled;
                     }
                     // Wheel scrolling.
                     //

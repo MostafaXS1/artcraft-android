@@ -1286,6 +1286,7 @@ public final class PhotoCraftActivity extends NativeActivity {
 
     public void setSurfacePointerIcon(final int pointerIconType) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return;
+        android.util.Log.i(TAG, "setSurfacePointerIcon: type=" + pointerIconType);
         runOnUiThread(() -> {
             try {
                 android.view.Window window = getWindow();
@@ -1294,24 +1295,19 @@ public final class PhotoCraftActivity extends NativeActivity {
                 if (decor == null) return;
                 android.view.PointerIcon icon =
                         android.view.PointerIcon.getSystemIcon(this, pointerIconType);
-                applyPointerIconRecursive(decor, icon);
+                // Set on the decor and content views (the parents of the SurfaceView).
+                // The SurfaceView's onResolvePointerIcon returns null (no icon set on it),
+                // so the parent (FrameLayout content) is asked and returns the icon.
+                // Setting it directly on the SurfaceView doesn't visually update the cursor.
+                decor.setPointerIcon(icon);
+                android.view.View content = decor.findViewById(android.R.id.content);
+                if (content != null) {
+                    content.setPointerIcon(icon);
+                }
             } catch (Throwable error) {
                 android.util.Log.w(TAG, "Could not set surface pointer icon", error);
             }
         });
-    }
-
-    private static void applyPointerIconRecursive(android.view.View root, android.view.PointerIcon icon) {
-        if (root == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
-            return;
-        }
-        root.setPointerIcon(icon);
-        if (root instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) root;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                applyPointerIconRecursive(group.getChildAt(i), icon);
-            }
-        }
     }
 
 }
