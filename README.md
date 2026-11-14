@@ -2,7 +2,7 @@
 
 **The full ArtCraft PC experience, now on Android.**
 
-[**Download the apps**](https://github.com/MostafaXS1/artcraft-android/releases/) · [ArtCraft website](https://getartcraft.com/) · [Explore the apps](https://getartcraft.com/apps)
+[**Get the launcher**](https://github.com/MostafaXS1/artcraft-android/releases/download/v0.6.0/Artcraft-launcher.apk) ·  [**Download the apps**](https://github.com/MostafaXS1/artcraft-android/releases/) · [ArtCraft website](https://getartcraft.com/)
 
 ![ArtCraft Android](artcraft-android-1.png)
 

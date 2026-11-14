@@ -555,7 +555,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|coimanide)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
