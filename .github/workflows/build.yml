@@ -301,25 +301,23 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 35
-          ndk-version: r27
-          emulator: false
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Configure Android SDK and NDK
         run: |
-          # Use pre-installed Android SDK and NDK on the runner (prefer NDK 27.x over NDK 30 preview)
-          NDK_27=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -name "27.*" -type d 2>/dev/null | sort -V | tail -n 1)
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          NDK_27=$(find "$SDK_ROOT/ndk" -maxdepth 1 -mindepth 1 -name "27.*" -type d 2>/dev/null | sort -V | tail -n 1)
           if [ -n "$NDK_27" ]; then
             echo "ANDROID_NDK_HOME=$NDK_27" >> $GITHUB_ENV
-            echo "NDK_HOME=$NDK_27" >> $GITHUB_ENV
-          elif [ -d "$ANDROID_HOME/ndk" ]; then
-            LATEST_NDK=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | grep -v "/30\." | sort -V | tail -n 1)
-            if [ -n "$LATEST_NDK" ]; then
-              echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
-              echo "NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
+          else
+            LATEST_NDK=$(find "$SDK_ROOT/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -n 1)
+            if [ -z "$LATEST_NDK" ]; then
+              echo "No Android NDK found under $SDK_ROOT/ndk" >&2
+              exit 1
             fi
+            echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
           fi
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
           echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android28" >> $GITHUB_ENV
           echo "ARTCRAFT_BUILD_TOOLS_VERSION=35.0.0" >> $GITHUB_ENV
 

@@ -125,7 +125,7 @@ Restart or refresh your MCP client and check that the `artcraft` server is conne
 
 ### ArtCraft Launcher
 
-The **ArtCraft Launcher** is an Android app that installs, updates, and launches all 35 ArtCraft applications (16 official + 19 community). It connects to the `MostafaXS1/artcraft-android` GitHub releases (plus each external app's own release feed), downloads APKs with SHA-256 verification, and manages them through a native Rust/egui interface.
+The **ArtCraft Launcher** is an Android app that installs, updates, and launches ArtCraft applications. It connects to many repos (not just this one), downloads APKs with SHA-256 verification, and manages them through a native Rust/egui interface.
 
 ### Launcher Features
 
