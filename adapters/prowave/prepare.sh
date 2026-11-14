@@ -8,6 +8,24 @@ SRC_ABS="$ROOT/$SRC"
 ADAPTER="$ROOT/adapters/prowave"
 DEST="$SRC_ABS/apps/$APP-android"
 
+# Upstream Pro-Wave ships a Cargo.lock with a malformed empty package block
+# (`[[package]]` followed by `]`), which Cargo refuses to parse. Drop those so the
+# lock can be read; Cargo fills in the missing entries on the next resolve.
+python3 - "$SRC_ABS/Cargo.lock" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+p = Path(sys.argv[1])
+if not p.is_file():
+    raise SystemExit(0)
+s = p.read_text()
+fixed, count = re.subn(r'\[\[package\]\]\n\]\n', '', s)
+if count:
+    p.write_text(fixed)
+    print(f"Cargo.lock: removed {count} malformed empty package block(s)")
+PY
+
 # Add storytold egui 0.37 fork patches
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
