@@ -383,24 +383,25 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# The button goes at the right end of the status bar: the bar's right-hand group is laid out
-# right to left, so the first widget in it is the one furthest right.
-anchor = """            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                if self.shown_image().is_some() {
-"""
-patched = """            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                // The soft keyboard is an Android thing; the desktop has no such button.
-                #[cfg(target_os = "android")]
-                crate::android_keyboard::button(ui);
-                if self.shown_image().is_some() {
-"""
 if "crate::android_keyboard::button(ui);" in s:
     print("workbench.rs: the keyboard button is already in the status bar")
-elif anchor in s:
-    p.write_text(s.replace(anchor, patched, 1))
-    print("workbench.rs: the keyboard button is in the status bar")
 else:
-    raise SystemExit("workbench.rs no longer has the status bar's right-hand group")
+    # The button goes at the right end of the status bar: the bar's right-hand group is laid
+    # out right to left, so the first widget in it is the one furthest right. Anchor on the
+    # status-bar function rather than an exact block, which upstream keeps changing.
+    start = s.find("pub(crate) fn status_bar(")
+    layout = "ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {"
+    idx = s.find(layout, start) if start >= 0 else -1
+    if idx < 0:
+        raise SystemExit("workbench.rs no longer has the status bar's right-hand group")
+    insert_at = idx + len(layout)
+    button = (
+        "\n                // The soft keyboard is an Android thing; the desktop has no such button.\n"
+        "                #[cfg(target_os = \"android\")]\n"
+        "                crate::android_keyboard::button(ui);\n"
+    )
+    p.write_text(s[:insert_at] + button + s[insert_at:])
+    print("workbench.rs: the keyboard button is in the status bar")
 PY
 
 # The command palette closes on a press outside its own area. On Android a tap arrives as a

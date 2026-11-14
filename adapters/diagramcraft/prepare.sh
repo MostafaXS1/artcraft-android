@@ -34,6 +34,24 @@ if "https://github.com/storytold/egui.git" not in s:
     p.write_text(s)
 PY
 
+# DiagramCraft v0.2.13 asks for rfd 0.18, which has no Android backend; the builder vendors
+# the Android-compatible rfd 0.17.2 and patches it in, so ask for that version too.
+python3 - "$SRC_ABS/crates/dc-ui/Cargo.toml" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = 'rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal"] }'
+new = 'rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }'
+if old in s:
+    p.write_text(s.replace(old, new))
+    print("Pinned dc-ui rfd to 0.17 (vendored Android backend)")
+elif 'version = "0.17"' in s:
+    print("dc-ui rfd already pinned to 0.17")
+else:
+    print("WARNING: dc-ui rfd dependency not in the expected form")
+PY
+
 # Patch dc-ui app.rs to handle Android (no std::process::Command on Android)
 python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
 from pathlib import Path
@@ -57,8 +75,8 @@ old = '''#[cfg(target_os = "linux")]
             cmd.arg(flag);
         }
         match cmd.arg(&address).spawn() {
-            Ok(_) => self.status = format!("opened {address}"),
-            Err(e) => self.status = format!("could not open {address}: {e}"),
+            Ok(_) => self.status = crate::i18n::strs().msg_opened_address(address.clone()),
+            Err(e) => self.status = crate::i18n::strs().msg_could_not_open_address_e(address, e.to_string()),
         }'''
 
 new = '''#[cfg(target_os = "linux")]
@@ -73,8 +91,9 @@ new = '''#[cfg(target_os = "linux")]
         let flag = "";
         #[cfg(target_os = "android")]
         {
-            // On Android, we can't use std::process::Command; hyperlink handling is a no-op.
-            self.status = format!("hyperlink {address} not opened (Android)");
+            // On Android there is no process to hand the link to; the app shell handles
+            // VIEW/SEND intents instead.
+            self.status = crate::i18n::strs().msg_could_not_open_address_e(address, "not supported on Android".to_string());
             return;
         }
         #[cfg(not(target_os = "android"))]
@@ -84,13 +103,13 @@ new = '''#[cfg(target_os = "linux")]
                 cmd.arg(flag);
             }
             match cmd.arg(&address).spawn() {
-                Ok(_) => self.status = format!("opened {address}"),
-                Err(e) => self.status = format!("could not open {address}: {e}"),
+                Ok(_) => self.status = crate::i18n::strs().msg_opened_address(address.clone()),
+                Err(e) => self.status = crate::i18n::strs().msg_could_not_open_address_e(address, e.to_string()),
             }
         }'''
 
 # Check if already patched
-if 'target_os = "android"' in s and 'hyperlink' in s and 'not opened (Android)' in s:
+if 'target_os = "android"' in s and 'not supported on Android' in s:
     print("dc-ui app.rs already patched for Android")
 elif old in s:
     s = s.replace(old, new)

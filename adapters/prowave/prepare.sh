@@ -49,6 +49,15 @@ if m:
         new_inner += ' "apps/prowave-android"'
         s = s[:m.start(1)] + new_inner + s[m.end(1):]
         p.write_text(s)
+        print("Added apps/prowave-android to the ProWave workspace members")
+else:
+    # The workspace has no explicit members list (its crates are reached through the
+    # launcher's path dependencies), so Cargo treats the launcher as outside the workspace
+    # and refuses to build it. Give it a members list that contains the launcher.
+    if '[workspace]' in s and 'apps/prowave-android' not in s:
+        s = s.replace('[workspace]\n', '[workspace]\nmembers = ["apps/prowave-android"]\n', 1)
+        p.write_text(s)
+        print("Added a workspace members list containing apps/prowave-android")
 PY
 
 # Disable accesskit on eframe in crates/prowave-app for Android native-activity compatibility
