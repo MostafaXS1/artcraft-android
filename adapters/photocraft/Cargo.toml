@@ -14,6 +14,8 @@ photocraft-io = { path = "../../crates/io" }
 photocraft-doc = { path = "../../crates/doc" }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-format = { path = "../../crates/format" }
+photocraft-automation = { path = "../../crates/automation" }
+tokio = { version = "1", features = ["rt", "sync", "io-util"] }
 eframe = { workspace = true, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { workspace = true }
@@ -59,6 +61,8 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "PhotoCraft"
+large_heap = true
+request_legacy_external_storage = true
 # NativeActivity integrates with Android's system input method framework; the builder
 # generates res/values/themes.xml with this style (AppCompat parent).
 theme = "@style/Theme.Artcraft"

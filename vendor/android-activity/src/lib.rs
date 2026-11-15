@@ -389,7 +389,7 @@ pub mod input;
 use input::KeyCharacterMap;
 
 mod config;
-pub use config::ConfigurationRef;
+pub use config::{ConfigurationRef, hardware_keyboard_connected};
 
 mod util;
 

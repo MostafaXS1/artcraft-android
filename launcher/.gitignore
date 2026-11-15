@@ -1,0 +1,11 @@
+*~
+plan/
+plans/
+/target
+target/
+/builds
+builds/
+/dist
+/temp
+/craft-fonts
+result

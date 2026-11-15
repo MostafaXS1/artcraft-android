@@ -27,6 +27,9 @@ use std::sync::Arc;
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mobile_text_bar;
+mod touch_gestures;
+mod mcp_http;
 
 // The SAF bridge, inlined so the adapter is self-contained (a custom adapter is copied verbatim and
 // does not receive templates/android/saf_bridge.rs).
@@ -52,9 +55,9 @@ static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 /// caches so they stay reachable over USB. This also ensures autosave and crash recovery files are
 /// stored under Android/data/com.artcraft.subcraft/files, where the user can access them via MTP.
 #[allow(unused_unsafe)]
-fn install_persist_env(app: &AndroidApp) {
+fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
     let Some(base) = app.external_data_path().or_else(|| app.internal_data_path()) else {
-        return;
+        return None;
     };
     let config = base.join("config");
     let cache = base.join("cache");
@@ -76,6 +79,7 @@ fn install_persist_env(app: &AndroidApp) {
     log::info!("settings directory: {}", config.display());
     log::info!("autosave directory: {}", autosave.display());
     log::info!("recovery directory: {}", recovery.display());
+    Some(config)
 }
 
 /// Ask the Activity whether the screen is dense enough (>600 dpi) to give the app its own UI scale
@@ -158,6 +162,14 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
     let mut kept: Vec<egui::Event> = Vec::with_capacity(raw.events.len());
     for mut event in raw.events.drain(..) {
         match &mut event {
+            egui::Event::ModifiersChanged(m) => {
+                state.shift = m.shift;
+                state.ctrl = m.ctrl;
+                state.alt = m.alt;
+                state.mac_cmd = m.mac_cmd;
+                state.command = m.command || m.ctrl;
+                kept.push(event);
+            }
             egui::Event::Key {
                 key,
                 physical_key,
@@ -174,15 +186,28 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    modifiers.shift |= state.shift;
+                    modifiers.ctrl |= state.ctrl;
+                    modifiers.alt |= state.alt;
+                    modifiers.command |= state.command;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::MouseWheel { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::Text(_) if state.ctrl || state.command || state.mac_cmd => {}
@@ -301,6 +326,7 @@ struct SubCraftAndroidApp {
     // has finished its own start-up, and goes negative (stop polling) if the host has no intent
     // bridge.
     intent_warmup: i64,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 impl SubCraftAndroidApp {
@@ -380,6 +406,8 @@ impl eframe::App for SubCraftAndroidApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         ensure_screen_rect(&self.app, ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
@@ -393,10 +421,12 @@ impl eframe::App for SubCraftAndroidApp {
         // SubCraft does all of its per-frame work (input, picker delivery, autosave) in `ui`, so
         // there is nothing to forward to `logic` — calling it would run the frame twice.
         self.inner.ui(ui, frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.inner.save(storage);
+        storage.flush();
     }
 
     // Built with `wgpu` only (no `glow`), so `on_exit` takes no GL context (eframe 0.36).
@@ -479,6 +509,15 @@ fn is_project(path: &Path) -> bool {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(android_app: AndroidApp) {
+    #[allow(unused_unsafe)]
+    unsafe {
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }
+    }
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
@@ -490,7 +529,7 @@ fn android_main(android_app: AndroidApp) {
     );
     egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
-    install_persist_env(&android_app);
+    let config_dir = install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
     let bridge = saf::Bridge::new(&android_app);
     // Ask once for broad storage access so the app's own file browsers can read files beyond the
@@ -502,19 +541,26 @@ fn android_main(android_app: AndroidApp) {
     let state = Arc::new(SafState::default());
     install_saf_launcher(bridge.clone_ref(), Arc::clone(&state));
 
+    subcraft_ui::register_gpu_baking();
+
     let options = subcraft_ui::LaunchOptions::default();
 
     let mut native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("SubCraft")
+            .with_decorations(false)
             .with_drag_and_drop(true),
         renderer: eframe::Renderer::Wgpu,
         android_app: Some(android_app.clone()),
+        persistence_path: config_dir.map(|c| c.join("app.ron")),
         ..Default::default()
     };
     // Vulkan first, GL as the fallback: some Android GPUs only expose one.
+    native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_ref();
     let result = eframe::run_native(
@@ -522,6 +568,11 @@ fn android_main(android_app: AndroidApp) {
         native,
         Box::new(move |cc| {
             let inner = subcraft_ui::SubcraftApp::new(cc, options);
+            let _mcp = mcp_http::start_mcp_service(
+                "SubCraft".to_string(),
+                "0.2.5".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
             Ok(Box::new(SubCraftAndroidApp {
                 inner,
                 app: app_bridge.android_app().clone(),
@@ -532,6 +583,7 @@ fn android_main(android_app: AndroidApp) {
                 modifiers: egui::Modifiers::default(),
                 intent_warmup: 2,
                 bridge: app_bridge.clone_ref(),
+                _mcp,
             }))
         }),
     );

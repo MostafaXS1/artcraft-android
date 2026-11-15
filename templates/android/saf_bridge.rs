@@ -510,6 +510,12 @@ mod saf {
     /// How often the staged directory is listed for new files sharing the tracked stem.
     const SCAN_INTERVAL: Duration = Duration::from_millis(200);
 
+    /// The stamp of a file that has only just been discovered. It differs from the stamp of any
+    /// file that exists (a missing file's stamp is `(0, 0)` too, but there is nothing to commit
+    /// then), so the first look at a newly discovered file counts as a change and it is
+    /// committed even when the app had already finished writing it.
+    const UNSEEN_STAMP: (u64, u64) = (0, 0);
+
     impl SaveMirror {
         /// Watch `path` (a staged save or open destination) for writes.
         pub fn track(&self, _id: u64, path: &str) {
@@ -534,7 +540,19 @@ mod saf {
             for tracked in entries.values_mut() {
                 if tracked.scanned.is_none_or(|at| at.elapsed() >= SCAN_INTERVAL) {
                     for candidate in family(&tracked.path) {
-                        tracked.stamps.entry(candidate.clone()).or_insert_with(|| file_stamp(&candidate));
+                        // A file that appears beside the staged path *after* the pick is the
+                        // app's own write: the app adds or replaces the extension after the
+                        // picker returned (GridCraft's "Book" becomes "Book.xlsx"), so it
+                        // writes a sibling of the staged path. Adopt such a file with a
+                        // baseline that differs from any real stamp, so the change is noticed
+                        // right here: the file may already be fully written, and recording its
+                        // current stamp would make it look unchanged and leave the chosen
+                        // document empty.
+                        //
+                        // A sibling that already existed when the pick happened is in `stamps`
+                        // from `track` and keeps its real stamp, so it is never pushed into the
+                        // new document.
+                        tracked.stamps.entry(candidate.clone()).or_insert(UNSEEN_STAMP);
                     }
                     tracked.scanned = Some(Instant::now());
                 }

@@ -37,6 +37,30 @@
 - [33. Operational Notes and Failure Modes](#33-operational-notes-and-failure-modes)
 - [34. Key Files Reference](#34-key-files-reference)
 - [35. Agent Guidelines](#35-agent-guidelines)
+- [36. Build Environment & Toolchain Deep Dive](#36-build-environment--toolchain-deep-dive)
+- [37. Cargo Workspace Patching Details](#37-cargo-workspace-patching-details)
+- [38. Android Manifest & Metadata Generation](#38-android-manifest--metadata-generation)
+- [39. SAF Bridge Implementation Details](#39-saf-bridge-implementation-details)
+- [40. IME Bridge & Soft Keyboard](#40-ime-bridge--soft-keyboard)
+- [41. System Fonts Integration](#41-system-fonts-integration)
+- [42. Persistence & Data Storage](#42-persistence--data-storage)
+- [43. Input Handling](#43-input-handling)
+- [44. Fullscreen, Edge-to-Edge, Theming](#44-fullscreen-edge-to-edge-theming)
+- [45. Update Checker](#45-update-checker)
+- [46. Icon Generation Details](#46-icon-generation-details)
+- [47. Printing Support](#47-printing-support)
+- [48. Debugging & Troubleshooting](#48-debugging--troubleshooting)
+- [49. Performance Considerations](#49-performance-considerations)
+- [50. Security & Permissions](#50-security--permissions)
+- [51. Version History & Changelog Notes](#51-version-history--changelog-notes)
+- [52. Contributing Guidelines](#52-contributing-guidelines)
+- [53. Appendix](#53-appendix)
+- [54. Model Context Protocol (MCP) Suite Architecture](#54-model-context-protocol-mcp-suite-architecture)
+- [55. Stylus & Digitizer Subsystem](#55-stylus--digitizer-subsystem)
+- [56. Gesture Engine & Touch Rejection](#56-gesture-engine--touch-rejection)
+- [57. Mobile Text Selection Context Bar](#57-mobile-text-selection-context-bar)
+- [58. Integrated Topbar Modifier Controls](#58-integrated-topbar-modifier-controls)
+- [59. Platform Hardening & Build Reliability](#59-platform-hardening--build-reliability)
 
 ## 1. Project Overview
 
@@ -56,8 +80,11 @@ From `lib/build-common.sh` and `README.md`:
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
+anicraft bimcraft capsulecraft diagramcraft earthcraft
+humanmotioncraft mapcraft notecraft paintcraft picassosuite
+prowave rustgis tracedraw transit
 ```
-Total: 17 apps. CI matrix builds all of them.
+Total: 28 apps. CI matrix builds all of them.
 
 ## 3. Repository Structure
 
@@ -536,7 +563,7 @@ pub enum PickAnswer {
 ```
 
 **SaveMirror:**
-Tracks staged save paths by ID, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (~200ms) to detect writes.
+Tracks staged save paths by ID, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (~200ms) to detect writes. A file that appears *beside* the staged path after the pick (the app adds or replaces the extension then: GridCraft's "Book" becomes "Book.xlsx") is the app's write and is committed as well — it is adopted with an "unseen" baseline, so it is committed even when the app had already finished writing it (otherwise the document the user chose stays 0 B). A sibling that already existed when the pick happened keeps its own stamp and is never pushed into the new document.
 
 **JSON Protocol:** Results passed as JSON strings over JNI queue.
 
@@ -899,6 +926,7 @@ Location: `files/media/`
 - Hover, buttons, wheel, trackpad
 - Mouse wheel turns in notches (no coasting)
 - Secondary click for context menus
+- **Release Event Fix (`primary_button_on_up`)**: In stock winit Android implementations, `primary_button_on_up` checked `if *primary_down && !(button_state & BUTTON_PRIMARY != 0)`. On many Android mice/touchpads, `MotionEvent.getButtonState()` during `ACTION_UP` still contains `BUTTON_PRIMARY` (identifying the button that triggered the action), causing `primary_still_held` to evaluate as `true`. This suppressed the `Released` event, permanently leaving `*primary_down = true`, which dropped all subsequent clicks across the entire application. The vendored winit in `vendor/winit/src/platform_impl/android/device_kind.rs` clears `*primary_down = false` and emits `Released` whenever an `ACTION_UP` occurs, guaranteeing reliable click delivery.
 
 ### 24.2 Trackpad
 - Smooth scrolling with coasting
@@ -1078,16 +1106,20 @@ Located in `vendor/` with Android-specific patches:
 
 ### 31.2 Configuration
 - **Concurrency:** Cancels in-progress runs for same ref
-- **Matrix:** Builds all 14 apps in parallel
+- **Matrix:** Builds all 28 apps in parallel
 - **Runner:** Ubuntu (GitHub Actions)
-- **Timeout:** Reasonable per-job limits
+- **Timeout:** 35 minutes per-job limit
 
-### 31.3 Toolchain
+### 31.3 Toolchain & Robustness Constraints
 - Python 3.12
 - Java 21 (linked to /opt/jdk/temurin-21)
 - Rust stable with `aarch64-linux-android` target
 - cargo-ndk from prebuilt binary
 - sccache for Rust compilation caching
+- **NDK 27 Preference**: Runners with pre-installed NDK 30 preview break bindgen during clang header parsing (`Unversioned target triples are not supported!`). CI explicitly prefers stable NDK 27 (`27.*`) and exports `BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28"`.
+- **Git LFS Smudge Avoidance**: `GIT_LFS_SKIP_SMUDGE=1` is exported globally to prevent clone failures when upstream repos have broken LFS pointers (e.g. NoteCraft's 404 on `Large Desktop.one`).
+- **Toolchain Hijack Prevention**: Upstream `rust-toolchain` and `rust-toolchain.toml` files are stripped immediately after checkout so `rustup` does not switch toolchains to versions lacking the Android target.
+- **Source Branch Strategy**: Repositories with irregular non-version tags (such as `earthcraft` matching ancient `versions`) or whose Android support is actively authored against upstream `main` (`earthcraft`, `prowave`, `transit`, `rustgis`, `mapcraft`, `anicraft`) automatically build against `main` when `BUILD_SOURCE=stable`.
 
 ### 31.4 Caching
 - sccache (GHA backend)
@@ -1602,6 +1634,23 @@ See `adapters/photocraft/src/lib.rs` for full implementation:
 - Zero-copy NIO staging
 - Crash recovery on startup
 
+### 42.4 Scratch Storage and Sandbox TMPDIR Setup
+On Android, the Rust standard library `std::env::temp_dir()` defaults to `/data/local/tmp` if the `TMPDIR` environment variable is unset. Non-rooted Android applications running in their sandbox lack read/write permissions to `/data/local/tmp`, triggering `Permission denied (os error 13)` whenever an engine allocates temporary files or spills memory to disk (e.g. PhotoCraft raster tile spilling: `"could not create a scratch file in /data/local/tmp: Permission denied (os error 13); spilling is paused"`).
+
+**System-Wide Solution**:
+All 18 custom adapters and the generated launcher templates in `lib/build-common.sh` set `TMPDIR` at the very start of `android_main` before initializing any engine services or preferences:
+```rust
+#[allow(unused_unsafe)]
+unsafe {
+    if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+        let tmp = path.join("tmp");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::env::set_var("TMPDIR", &tmp);
+    }
+}
+```
+This guarantees that `std::env::temp_dir()`, `tempfile::tempfile()`, and PhotoCraft's `(system temp)` scratch disk resolution always point to the application's private, writable sandbox storage.
+
 ## 43. Input Handling
 
 ### 43.1 Modifier Key Fix
@@ -1922,4 +1971,182 @@ adb uninstall com.artcraft.<app>
 - [Releases](https://github.com/MostafaXS1/artcraft-android/releases)
 - [ArtCraft Website](https://getartcraft.com/)
 - [Storytold GitHub](https://github.com/storytold)
+
+## 54. Model Context Protocol (MCP) Suite Architecture
+
+ArtCraft Android applications expose an embedded, zero-configuration Model Context Protocol (MCP) server over HTTP and Server-Sent Events (SSE) bound to loopback (`127.0.0.1`) and LAN interfaces. This allows local or remote AI agents to automate document creation, layer manipulation, parametric CAD modeling, BIM scene construction, audio editing, and video generation directly on device.
+
+### 54.1 Dual Operating Modes
+
+The suite employs two distinct MCP operational architectures depending on whether an application is an interactive visual canvas or a batch automation engine:
+
+1. **Live UI Control Architecture (Interactive Apps)**:
+   - **Apps**: PhotoCraft, CADCraft, BIMCraft, SoundCraft, SolidCraft, DiagramCraft, PaintCraft, NoteCraft, VectorCraft, PicassoSuite, AniCraft, EarthCraft, MapCraft, ProWave, RustGIS, TraceDraw, Transit.
+   - **Mechanism**: Tool execution cannot run on a detached headless engine session because the user expects to see layers, paths, walls, windows, and waveforms updated on the active screen.
+   - **Dispatch Pipeline**:
+     - The MCP HTTP server receives JSON-RPC 2.0 `tools/call`.
+     - In PhotoCraft: Requests route over a local TCP loopback bridge to the app's internal command listener, which applies commands to the active document and requests an egui repaint.
+     - In CADCraft, BIMCraft, SoundCraft, etc.: The MCP server packages the request into a `ControlRequest` and enqueues it into `CONTROL_TX` or `CONTROL_QUEUE`.
+     - On each frame of the `egui` render loop: `with_control` drains pending requests, executes the tool closure against `&mut self.inner`, and sends the JSON result across a oneshot channel back to the MCP HTTP thread.
+     - `ctx.request_repaint()` is triggered immediately, refreshing the GPU canvas.
+
+2. **Headless Engine Mode (Batch / Render Engines)**:
+   - **Apps**: FilmCraft, MaterialCraft, TextureCraft, PDFCraft.
+   - **Mechanism**: Uses the official `rmcp` SDK or engine automation handlers with an isolated headless session (`Headless::default_session()`, `Filesystem::TrustedLocal`, `FilmcraftMcp::headless()`).
+   - Requests execute asynchronously without requiring an active window or eframe rendering context.
+
+### 54.2 Protocol & HTTP SSE Endpoint Specification
+- **Endpoints**:
+  - `POST /`: JSON-RPC 2.0 tool execution (`tools/list`, `tools/call`, `resources/list`, `initialize`).
+  - `GET /sse`: Server-Sent Events stream for asynchronous progress and notifications.
+  - `POST /message`: Message transport companion for SSE sessions.
+  - `GET /status`: Diagnostic endpoint reporting server state, package name, version, and tool count.
+- **Service Advertising**:
+  On startup, the app logs:
+  `MCP HTTP service started on http://127.0.0.1:27880/ (LAN: http://<IP>:27880/)`
+  allowing discovery via logcat or adb port forwarding.
+
+## 55. Stylus & Digitizer Subsystem
+
+ArtCraft Android provides hardware-accelerated, high-fidelity active and passive stylus input across all 28 applications, matching desktop drawing tablet precision and latency.
+
+### 55.1 Unbuffered Touch & Digitizer Sampling
+- **Latency Elimination**: Standard Android view pipelines buffer and batch touch events to match display VSYNC (16ms or 8ms frame boundaries), introducing perceptible stroke drag during rapid drawing or sketching.
+- **Java Layer Dispatch**: In `SafActivity.java`, `__CLASS__.java`, and custom adapter activities (`adapters/*/java/com/artcraft/*/*.java`), unbuffered dispatch is explicitly enabled during window attachment:
+  ```java
+  public void setupStylusDispatch() {
+      View decor = getWindow().getDecorView();
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          decor.requestUnbufferedDispatch(
+              MotionEvent.TOOL_TYPE_STYLUS | MotionEvent.TOOL_TYPE_ERASER
+          );
+      }
+  }
+  ```
+- This forces the Linux kernel and `InputReader` to bypass intermediate window manager batching and deliver raw digitizer coordinates directly to the native `android_main` event loop as soon as digitizer hardware reports them.
+
+### 55.2 Samsung S-Pen & Vendor Action Code Normalization
+- **Proprietary Action Codes**: Samsung S-Pen devices frequently emit vendor-specific action codes (e.g. `211` for pen down, `212` for pen up, `213` for pen hover move, `214` for pen move with button depressed) that standard Android NDK `AMOTION_EVENT_ACTION` enums do not map, leading standard GameActivity/winit apps to drop stylus strokes.
+- **Winit Translation**: In `vendor/winit/src/platform_impl/android/mod.rs`, incoming motion events are intercepted and normalized:
+  ```rust
+  let normalized_action = match raw_action {
+      211 => AMOTION_EVENT_ACTION_DOWN,
+      212 => AMOTION_EVENT_ACTION_UP,
+      213 | 214 => AMOTION_EVENT_ACTION_MOVE,
+      other => other,
+  };
+  ```
+
+### 55.3 Barrel Button & Secondary Action Mapping
+- **Stylus Button Right-Click**: When the barrel button on an active pen (Apple Pencil double-tap on supported bridges, Samsung S-Pen button, or universal USI stylus side button) is pressed (`BUTTON_STYLUS_PRIMARY = 0x20` or `BUTTON_SECONDARY = 0x40`), `winit` synthesizes a right-click mouse input event (`MouseButton::Right`):
+  ```rust
+  let is_barrel_pressed = (button_state & (AMOTION_EVENT_BUTTON_STYLUS_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY)) != 0;
+  if is_barrel_pressed {
+      // Synthesize right-click down for tool context menus, eraser switching, or canvas panning
+  }
+  ```
+- This gives mobile and tablet users instant access to contextual menus, secondary brush tools, and pan/zoom toggles without needing to hunt for desktop-style menu bars.
+
+### 55.4 Palm Rejection & Tool Identity
+- **Active Palm Suppression**: Resting a palm on the tablet screen while sketching with a stylus commonly generates stray touch events. The vendored winit implementation maintains a sliding timestamp (`LAST_STYLUS_MS`). When an active stylus event is processed:
+  1. Any finger touch (`TOOL_TYPE_FINGER`) occurring within 500ms of active stylus input is discarded at the NDK event queue level.
+  2. Stylus touch IDs are marked with bit 32 set (`(pointer_id as u64) | (1 << 32)`), ensuring downstream UI frameworks immediately identify the pointer as a precision instrument rather than a capacitive finger contact.
+
+---
+
+## 56. Gesture Engine & Touch Rejection
+
+### 56.1 Multi-Finger Tap Gesture Synthesis (Undo / Redo)
+To match modern touch-first digital art workflows, ArtCraft apps support multi-finger tap gestures for instantaneous undo and redo:
+- **Two-Finger Tap -> Undo (`Ctrl + Z`)**:
+  - Detected when exactly two fingers contact the screen, remain stationary within a small tolerance (24 logical pixels), and release within 350 milliseconds without initiating a pinch or scroll.
+  - Synthesizes `VirtualKeyCode::LControl` + `VirtualKeyCode::Z` key press and release events directly into the window event stream.
+- **Three-Finger Tap -> Redo (`Ctrl + Shift + Z`)**:
+  - Detected when exactly three fingers tap simultaneously within 350 milliseconds.
+  - Synthesizes `VirtualKeyCode::LControl` + `VirtualKeyCode::LShift` + `VirtualKeyCode::Z`.
+- **Global App Coverage**: Because this gesture recognizer operates inside the vendored `winit` platform implementation, it functions consistently across all 28 applications without requiring per-app canvas modifications.
+
+### 56.2 Pinch-to-Zoom Brush Dab Rejection
+- **The Problem**: In desktop egui apps running on touchscreen Android devices, a multi-touch pinch-to-zoom gesture typically begins with one finger touching the screen slightly before the second finger (e.g. 10–30ms difference). Standard event dispatchers immediately fire a `PointerButton::Primary` down event for the first touch, causing painting and drawing apps (PhotoCraft, VectorCraft, DesignCraft, PaintCraft, etc.) to paint unwanted dots, dabs, or brush strokes right where the user began zooming.
+- **The Solution (`PendingPointerDown`)**:
+  - Implemented in `vendor/egui-winit/src/lib.rs` and `vendor/egui-winit-0.36/src/lib.rs`.
+  - Precision stylus input (`TOOL_TYPE_STYLUS` / bit 32 set) dispatches immediately with zero delay.
+  - Capacitive finger touches (`TOOL_TYPE_FINGER`) enter a pending state:
+    ```rust
+    struct PendingPointerDown {
+        touch_id: u64,
+        location: winit::dpi::PhysicalPosition<f64>,
+    }
+    ```
+  - **Movement Threshold**: The pointer down event is held until the finger moves beyond `POINTER_DOWN_SLOP_PX` (20 physical pixels). The press is then anchored at the touch-down point, so a drag still starts on the widget the finger went down on.
+  - **Cancellation on Multi-Touch**: If a second finger touches the screen, or if a pinch/zoom gesture is detected, the pending pointer down event is aborted cleanly. The canvas never receives a button-down event, preventing accidental brush strokes during zoom and pan operations.
+  - **Atomic UI Click Synthesis**: If the finger is lifted without having moved (a regular single-finger tap on a UI button, checkbox, or text field), both pointer-down and pointer-up events are emitted atomically on release, ensuring crisp, responsive UI interaction.
+
+### 56.3 Hold-to-Right-Click vs. Left-Click
+- **The Problem**: egui turns a pointer press plus its release into a *click* whenever the press is younger than `InputOptions::max_click_duration` (0.8 s by default). The hold-to-right-click fired after 500 ms, so its left-button release was still inside that window: the long press activated the widget underneath the finger **and** opened the context menu. A long press could therefore paint a dot, press a ribbon button, or start a drag as well.
+- **The Solution**: a finger's primary press is **deferred** until the gesture is known to be something else, so a hold never has a left press to cancel:
+  - The finger **moves** past the slop → a drag: the press is sent, anchored at the touch-down point, and the hold is dropped.
+  - The finger **lifts** → a tap: press and release are emitted atomically (see 56.2).
+  - The finger **stays still** for `HoldToRightClick::HOLD_DURATION_MS` (500 ms) → a right-click: the pending press is dropped and only the secondary press/release is sent, so nothing under the finger is activated.
+- A stylus still presses right away, so its hold only fires once that press is older than egui's click window (`hold_may_fire`), keeping the release from registering as a click there too.
+
+---
+
+## 57. Mobile Text Selection Context Bar
+
+Desktop text editing widgets in `egui::TextEdit` assume the presence of a hardware keyboard or a right-click mouse for clipboard interactions. On Android, users require an immediate floating context bar above or below focused text selections.
+
+### 57.1 Module Architecture (`templates/android/mobile_text_bar.rs`)
+- **Inspection**: On each frame of the application UI loop, `mobile_text_bar::show_text_bar(ctx)` queries `ctx.memory(|m| m.focus())` to determine if a text editing widget holds keyboard focus.
+- **Selection State**: Retrieves `egui::text_edit::CCursorRange` via `TextEdit::load_state(ctx, focused_id)`.
+- **Dynamic Action Visibility**:
+  - **Select all**: Selects the full range `[0, text.len()]`.
+  - **Cut**: Copies selection to system clipboard via `ctx.copy_text(...)` and removes selected characters (only visible when a selection range is active).
+  - **Copy**: Copies selection to system clipboard (only visible when text is selected).
+  - **Paste**: Reads clipboard text from `ctx.input(|i| i.clipboard_text())` and inserts at the cursor position.
+  - **Delete**: Clears selected characters immediately (dynamically hidden when no text is selected; appears only when text is actively highlighted).
+- **Native UI Styling**: The context bar is rendered via `egui::Area` at `Order::Tooltip` using the app's native `egui::Visuals` (matching active window frames, corner rounding, drop shadows, and typography).
+- **Focus Preservation**: Button clicks within the context bar explicitly restore and preserve widget focus on the parent `TextEdit`, preventing Android's virtual keyboard from dismissing unexpectedly.
+
+---
+
+## 58. Integrated Topbar Modifier Controls
+
+Desktop creative tools rely heavily on keyboard modifier keys (`Shift` for aspect-ratio locking and multi-selection, `Ctrl` for duplication and grid snapping, `Alt` for eyedropper sampling and alternate tool modes).
+
+### 58.1 Native Topbar Integration vs. Screen Overlays
+Rather than employing floating button overlays that obscure canvas artwork, ArtCraft integrates toggleable modifier buttons directly into the primary application topbar or ribbon header next to native menus:
+- **Target Applications**:
+  1. `photocraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  2. `vectorcraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  3. `designcraft`: Top menu bar (`crates/ui-egui/src/menus/bar.rs`)
+  4. `wordcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+  5. `gridcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+  6. `deckcraft`: Ribbon header bar (`crates/ui-egui/src/ribbon.rs`)
+
+### 58.2 Shared Implementation (`templates/android/topbar_modifiers.rs`)
+- **Visual Design**: Renders compact, high-contrast toggle buttons with standard Unicode modifier glyphs:
+  - `⇧ Shift`
+  - `⌃ Ctrl`
+  - `⌥ Alt`
+- **Toggle State Persistence**: Modifiers can be latched on or off with a tap. When active, buttons display an accented highlight fill.
+- **Event Injection (`apply_to_raw_input`)**: Prior to passing `egui::RawInput` to the application UI framework, active modifier flags are OR-ed into `raw_input.modifiers`, allowing native tool logic, canvas shortcuts, and transform handles to respond exactly as if physical keys were held down.
+- **Automated Build Integration (`lib/topbar_modifiers.sh`)**: Automatically invoked during launcher generation and adapter preparation to safely insert modifier UI calls into the upstream topbar render hierarchy.
+
+---
+
+## 59. Platform Hardening & Build Reliability
+
+### 59.1 Upstream Git LFS Smudge Bypass
+- **The Issue**: Certain upstream repositories (notably NoteCraft) introduce binary test fixtures tracked under Git LFS whose remote storage pointers may become unavailable (returning HTTP 404 during clone), aborting CI checkout pipelines with fatal git exit code 128.
+- **The Mitigation**: `export GIT_LFS_SKIP_SMUDGE=1` is enforced in `lib/build-common.sh` and `.github/workflows/build.yml`. This allows the repository to clone cleanly without failing on orphaned third-party binary fixtures while preserving all application source and build assets.
+
+### 59.2 Non-Rooted Scratch Disk & Tile Cache Configuration
+- **The Issue**: Desktop image engines (such as GEGL or custom tile managers) default scratch file allocation to `/data/local/tmp` on POSIX systems. On standard Android devices without root privileges, application sandboxes are strictly prohibited from writing to `/data/local/tmp`, triggering:
+  `could not create a scratch file in /data/local/tmp: Permission denied (os error 13); spilling is paused (tiles stay in memory)`
+- **The Mitigation**: The Android build harness configures `TMPDIR`, `TEMP`, and `GEGL_SWAP_DIR` environment variables to point exclusively to the application's private internal cache directory (`context.getCacheDir().getAbsolutePath()`, e.g. `/data/data/<package>/cache`), ensuring compliant, high-speed tile spilling without permission violations.
+
+### 59.3 AniCraft Brand Identity Refresh
+- **Upstream Asset Sync**: AniCraft upstream introduced an updated official engraved rabbit mascot icon across high-resolution tile formats.
+- **Asset Pipeline**: Master vector and raster assets (`adapters/anicraft/assets/app-icon/`) are processed via `lib/app_icons.py` to generate full-bleed adaptive vector layers (`res/mipmap-*/ic_launcher.png`, `ic_launcher_foreground.xml`) and legacy mipmaps, ensuring consistent presentation across modern Android launcher grids.
 

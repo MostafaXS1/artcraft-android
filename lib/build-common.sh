@@ -4,6 +4,7 @@ set -Eeuo pipefail
 MODE="${1:-}"
 shift || true
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export GIT_LFS_SKIP_SMUDGE=1
 cd "$ROOT"
 
 usage() {
@@ -23,6 +24,7 @@ Options:
   -appname=<name>     Override the display name (default: app's built-in title)
   -packagename=<pkg>  Override the Android package (default: com.artcraft.<app>)
   -appicon=<path>     Use a custom launcher icon PNG (default: app's own icon)
+  --no-buttons        Build without virtual Shift/Ctrl/Alt and Cut/Copy/Paste/Delete buttons
   --noupdate          Skip checking for and downloading newer source
   -h, --help          Show this help
 
@@ -30,6 +32,8 @@ App names:
   photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
+  notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide
 
 Examples:
   bash build.sh -photocraft
@@ -56,11 +60,17 @@ fi
 APPNAME=""
 PACKAGENAME=""
 APPICON=""
+NO_BUTTONS="${NO_BUTTONS:-false}"
 BUILD_SOURCE="${BUILD_SOURCE:-stable}"
 UPDATE_SOURCE="${UPDATE_SOURCE:-true}"
 RAW_APP=""
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
+        --no-buttons|-no-buttons)
+            NO_BUTTONS="true"
+            export ARTCRAFT_NO_BUTTONS="1"
+            shift
+            ;;
         --noupdate|-noupdate)
             UPDATE_SOURCE="false"
             shift
@@ -145,14 +155,28 @@ case "$APP" in
     solidcraft) TITLE="SolidCraft" ;;
     materialcraft) TITLE="MaterialCraft" ;;
     texturecraft) TITLE="TextureCraft" ;;
+    notecraft) TITLE="NoteCraft" ;;
+    diagramcraft) TITLE="DiagramCraft" ;;
+    paintcraft) TITLE="PaintCraft" ;;
+    bimcraft) TITLE="BIMCraft" ;;
+    tracedraw) TITLE="TraceDraw" ;;
+    picassosuite) TITLE="PicassoSuite" ;;
+    capsulecraft) TITLE="CapsuleCraft" ;;
+    humanmotioncraft) TITLE="HumanMotionCraft" ;;
+    rustgis) TITLE="RustGIS" ;;
+    earthcraft) TITLE="EarthCraft" ;;
+    mapcraft) TITLE="MapCraft" ;;
+    prowave) TITLE="ProWave" ;;
+    transit) TITLE="Transit" ;;
+    anicraft) TITLE="AniCraft" ;;
+    coimanide) TITLE="Coiman IDE" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
 
 SRC="source/$APP"
 REPO="https://github.com/storytold/$APP.git"
-# SubCraft and SolidCraft are not part of the `storytold` craft family: they are community apps
-# that happen to be built on the same egui/eframe stack, so they live at different origins.
+# SubCraft, SolidCraft and the newly added apps are community apps that live at different origins.
 APP_ORIGIN="https://github.com/storytold/$APP"
 if [[ "$APP" == "subcraft" ]]; then
     REPO="https://github.com/Aalzard/subcraft.git"
@@ -160,12 +184,57 @@ if [[ "$APP" == "subcraft" ]]; then
 elif [[ "$APP" == "solidcraft" ]]; then
     REPO="https://github.com/tangency-labs/solidcraft.git"
     APP_ORIGIN="https://github.com/tangency-labs/solidcraft"
+elif [[ "$APP" == "notecraft" ]]; then
+    REPO="https://github.com/AlienTechSoftware/notecraft.git"
+    APP_ORIGIN="https://github.com/AlienTechSoftware/notecraft"
+elif [[ "$APP" == "diagramcraft" ]]; then
+    REPO="https://github.com/baradhili/DiagramCraft.git"
+    APP_ORIGIN="https://github.com/baradhili/DiagramCraft"
+elif [[ "$APP" == "paintcraft" ]]; then
+    REPO="https://github.com/replicraft/PaintCraft.git"
+    APP_ORIGIN="https://github.com/replicraft/PaintCraft"
+elif [[ "$APP" == "bimcraft" ]]; then
+    REPO="https://github.com/IPedrax/BIMCraft.git"
+    APP_ORIGIN="https://github.com/IPedrax/BIMCraft"
+elif [[ "$APP" == "tracedraw" ]]; then
+    REPO="https://github.com/tracedraw/tracedraw.git"
+    APP_ORIGIN="https://github.com/tracedraw/tracedraw"
+elif [[ "$APP" == "picassosuite" ]]; then
+    REPO="https://github.com/fabox-os/Picasso-Suite.git"
+    APP_ORIGIN="https://github.com/fabox-os/Picasso-Suite"
+elif [[ "$APP" == "capsulecraft" ]]; then
+    REPO="https://github.com/kostyk348/CapsuleCraft.git"
+    APP_ORIGIN="https://github.com/kostyk348/CapsuleCraft"
+elif [[ "$APP" == "humanmotioncraft" ]]; then
+    REPO="https://github.com/YalKouassi/HumanMotionCraft.git"
+    APP_ORIGIN="https://github.com/YalKouassi/HumanMotionCraft"
+elif [[ "$APP" == "rustgis" ]]; then
+    REPO="https://github.com/opengeos/RustGIS.git"
+    APP_ORIGIN="https://github.com/opengeos/RustGIS"
+elif [[ "$APP" == "earthcraft" ]]; then
+    REPO="https://github.com/therichronicles/EarthCraft.git"
+    APP_ORIGIN="https://github.com/therichronicles/EarthCraft"
+elif [[ "$APP" == "mapcraft" ]]; then
+    REPO="https://github.com/bearlikelion/MapCraft.git"
+    APP_ORIGIN="https://github.com/bearlikelion/MapCraft"
+elif [[ "$APP" == "prowave" ]]; then
+    REPO="https://github.com/fabox-os/Pro-Wave.git"
+    APP_ORIGIN="https://github.com/fabox-os/Pro-Wave"
+elif [[ "$APP" == "transit" ]]; then
+    REPO="https://github.com/transit-audio/transit.git"
+    APP_ORIGIN="https://github.com/transit-audio/transit"
+elif [[ "$APP" == "anicraft" ]]; then
+    REPO="https://github.com/storytold/AniCraft.git"
+    APP_ORIGIN="https://github.com/storytold/AniCraft"
+elif [[ "$APP" == "coimanide" ]]; then
+    REPO="https://github.com/ManuelCoimbra/coiman-ide.git"
+    APP_ORIGIN="https://github.com/ManuelCoimbra/coiman-ide"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
 # release of this repository on launch and offers the download when GitHub has a newer one
 # (see templates/android/UpdateCheck.java). Bump it when a release is published.
-BUILDER_VERSION="0.5.0"
+BUILDER_VERSION="0.6.0"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 
@@ -215,7 +284,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -237,6 +306,7 @@ if ! cargo ndk --help >/dev/null 2>&1; then
     cargo install cargo-ndk --locked || fail "Could not install cargo-ndk. Install it manually with: cargo install cargo-ndk --locked"
 fi
 cargo ndk -V >/dev/null 2>&1 || fail "cargo-ndk is required but not working. Install it with: cargo install cargo-ndk --locked"
+export PERL5LIB="$ROOT/lib/perl5:${PERL5LIB:-}"
 
 # Gradle 8.11.1 with AGP 8.7.3 (see lib/android_project.py) cannot run on the newest JDKs —
 # Java 25 dies in the Groovy build scripts with "Unsupported class file major version 69" —
@@ -476,6 +546,21 @@ export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-2}"
 export CARGO_PROFILE_RELEASE_STRIP="${CARGO_PROFILE_RELEASE_STRIP:-true}"
 export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-false}"
 
+# Avoid downloading large LFS assets that may be missing upstream (e.g. NoteCraft's 404 Large Desktop.one).
+export GIT_LFS_SKIP_SMUDGE=1
+git config --global core.quotePath false 2>/dev/null || true
+# Ensure bindgen and clang use versioned target triples on NDK 27+ / 30+.
+export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+
+# Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
+# or whose Android integrations require upstream main:
+case "$APP" in
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|coimanide)
+        if [[ "$BUILD_SOURCE" == "stable" ]]; then
+            BUILD_SOURCE="main"
+        fi
+        ;;
+esac
 say 3 "Fetching official source for $TITLE..."
 
 # A checkout is only usable when every tracked file of the workspace is actually on disk.
@@ -492,7 +577,7 @@ source_tree_is_complete() {
     local dir="$1" missing
     [[ -d "$dir/.git" ]] || return 1
     git -C "$dir" rev-parse --verify HEAD >/dev/null 2>&1 || return 1
-    missing="$(git -C "$dir" ls-tree -r --name-only HEAD -- crates apps 2>/dev/null | while IFS= read -r f; do
+    missing="$(git -c core.quotePath=false -C "$dir" ls-tree -r --name-only HEAD -- crates apps 2>/dev/null | while IFS= read -r f; do
         [[ -e "$dir/$f" ]] || printf '%s\n' "$f"
     done | head -5)"
     [[ -z "$missing" ]]
@@ -544,7 +629,7 @@ if [[ -e "$SRC" ]]; then
 
         if [[ "$IS_OUTDATED" == "true" ]]; then
             echo "Current source (${CURRENT_TAG:-${CURRENT_COMMIT:0:7}}) is outdated compared to upstream ($LATEST_REF). Updating..."
-            git -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -C "$SRC" fetch origin >/dev/null 2>&1
+            git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch origin >/dev/null 2>&1
             if git -C "$SRC" checkout -f "$LATEST_REF" >/dev/null 2>&1; then
                 rm -rf "$SRC/apps/$APP-android"
                 echo "Successfully updated $TITLE source to $LATEST_REF ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true))."
@@ -594,7 +679,7 @@ else
         CLONE_ARGS+=(--branch "$TARGET_REF")
     fi
 
-    if ! git clone "${CLONE_ARGS[@]}" "$REPO" "$SRC_TMP"; then
+    if ! git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= clone "${CLONE_ARGS[@]}" "$REPO" "$SRC_TMP"; then
         rm -rf "$SRC_TMP"
         fail "Cloning $REPO (ref: ${TARGET_REF:-default}) failed. Check the network connection and the free disk space, then run the build again."
     fi
@@ -604,6 +689,9 @@ else
     fi
     mv "$SRC_TMP" "$SRC"
 fi
+
+# Remove pinned upstream toolchains that might lack Android targets in CI runners
+rm -f "$SRC/rust-toolchain" "$SRC/rust-toolchain.toml"
 
 # Upstream `main` is normally green, but a regression can sit there for a while (the upstream
 # preset-loader fix landed broken on 2026-10-17 and took its CI red). Each fix-up below is
@@ -701,6 +789,14 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/window_ui.rs (swap_fields pattern)")
 
+    # Ensure system_font_dirs discovers Android system fonts, shared storage Fonts folder,
+    # and app-private fonts folders.
+    if fix(
+        "crates/fonts/src/fontdb/names.rs",
+        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy"].map(Into::into));',
+        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy", "/system/fonts", "/product/fonts", "/storage/emulated/0/Fonts", "/sdcard/Fonts"].map(Into::into));\n        if let Some(base) = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from) {\n            dirs.push(base.join("fonts"));\n        }\n        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from) {\n            dirs.push(cfg.join("wordcraft/fonts"));\n            dirs.push(cfg.join("fonts"));\n        }',
+    ):
+        fixed.append("crates/fonts/src/fontdb/names.rs (system and user font directories)")
 elif app == "lightcraft":
     # Interactive slider / curve performance on Android:
     # 1. Whole-frame drafts on high-DPI Android screens rendered at full 2560px canvas resolution,
@@ -860,7 +956,6 @@ elif app == "filmcraft":
         'filmcraft-scopes = { workspace = true }\nfilmcraft-codecs = { workspace = true }\n',
     ):
         fixed.append("crates/ui-egui/Cargo.toml (filmcraft-codecs dependency)")
-
     # 1a. Allow unsafe code in crates/platform/Cargo.toml for NEON SIMD optimizations.
     if fix(
         "crates/platform/Cargo.toml",
@@ -2251,7 +2346,7 @@ elif app == "filmcraft":
         '        if !self.can_surface_render() {\n'
         '            return false;\n'
         '        }\n'
-        '        #[cfg(target_os = "android")]\n'
+        #[cfg(target_os = "android")]\n'
         '        {\n'
         '            let src_w = self.src_w.max(self.w);\n'
         '            let src_h = self.src_h.max(self.h);\n'
@@ -2895,6 +2990,45 @@ elif app == "filmcraft":
         '        let key = FrameKey { target: Target::Item(item), frame, size: width, revision: rev, draft };\n',
     ):
         fixed.append("crates/ui-egui/src/app/textures.rs (enable draft mode for thumbnails on Android)")
+elif app == "pdfcraft":
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        "            printer_source: None,\n",
+        "            printer_source: None,\n            print_handler: None,\n",
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (print_handler)")
+    if fix(
+        "crates/ui-egui/src/lib.rs",
+        "    pub printer_source: Option<PrinterSource>,\n",
+        "    pub printer_source: Option<PrinterSource>,\n    pub print_handler: Option<std::sync::Arc<dyn Fn(&str, &[u8]) -> Result<String, String> + Send + Sync>>,\n",
+    ):
+        fixed.append("crates/ui-egui/src/lib.rs (print_handler)")
+    if fix(
+        "crates/ui-egui/src/workflows/print_ui.rs",
+        "        let ctx = self.ctx.clone();\n        std::thread::spawn(move || {\n",
+        "        let ctx = self.ctx.clone();\n        let handler = self.print_handler.clone();\n        std::thread::spawn(move || {\n",
+    ):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (handler closure)")
+    old_print = """            // The receiver may be gone (the app quit): nothing to report to then.
+            let result = spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                let _ = tx.send(JobNews::Sent(sent, sheets));
+                repaint();
+            });
+            let _ = tx.send(JobNews::Done(result.map_err(|e| e.to_string())));"""
+    new_print = """            let result = if let Some(handler) = handler {
+                let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title };
+                handler(&name, &bytes)
+            } else {
+                // The receiver may be gone (the app quit): nothing to report to then.
+                spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                    let _ = tx.send(JobNews::Sent(sent, sheets));
+                    repaint();
+                }).map_err(|e| e.to_string())
+            };
+            let _ = tx.send(JobNews::Done(result));"""
+    if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print, new_print):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer)")
+
 
 if fixed:
     print(f"  Repaired upstream compile errors still present in {title}: {', '.join(fixed)}")
@@ -2911,17 +3045,30 @@ bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
 # source at build time; only SubCraft is touched.
 bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 
+# Topbar modifiers (Shift, Ctrl, Alt toggle buttons integrated into topbar/ribbon for 6 apps).
+bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
+
 say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
+    if [[ -d "$SRC/apps/$APP-android/src" ]]; then
+        text_bar_src="$ROOT/templates/android/mobile_text_bar.rs"
+        if [[ "$NO_BUTTONS" == "true" ]]; then
+            text_bar_src="$ROOT/templates/android/mobile_text_bar_disabled.rs"
+        fi
+        [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+        [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
+    fi
 else
-    python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" <<'PY'
+    python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" "$NO_BUTTONS" <<'PY'
 from pathlib import Path
 import re, shutil, sys, tomllib
 
-root, src_s, app, title, target_sdk, appname, packagename, appicon = sys.argv[1:]
+root, src_s, app, title, target_sdk, appname, packagename, appicon, no_buttons_str = sys.argv[1:10]
 root, src = Path(root), Path(src_s)
+no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
+text_bar_file = "mobile_text_bar_disabled.rs" if no_buttons else "mobile_text_bar.rs"
 # Shared file-association table (Android open/share intent filters), also used by the adapter
 # prepare scripts so every launcher advertises the same associations.
 sys.path.insert(0, str(root / "lib"))
@@ -2932,7 +3079,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "71"
+GENERATOR_VERSION = "81"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2947,6 +3094,10 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     # device's own fonts in (see templates/android/system_fonts.rs). Kept here rather than inside
     # each adapter so the one copy stays in step with the generator.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", android_dir / "src" / "system_fonts.rs")
+    if not (custom / "src" / "mcp_http.rs").is_file():
+        shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
+    shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
+    shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2982,8 +3133,9 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs",):
-                src_shared = root / "templates" / "android" / shared
+            for shared in ("system_fonts.rs", "mobile_text_bar.rs", "touch_gestures.rs"):
+                real_shared = text_bar_file if shared == "mobile_text_bar.rs" else shared
+                src_shared = root / "templates" / "android" / real_shared
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
@@ -3708,9 +3860,21 @@ fn saf_pick_open(bridge: &saf::Bridge, state: &SafState) -> Option<String> {
 /// Save dialog: the staged app-private destination, watched so the app's own write is mirrored to
 /// the chosen SAF document on the next frames (GridCraft's file API is path-based). `None` on
 /// cancel.
+///
+/// GridCraft's Save As hands over the bare title of a new workbook ("Book1") and adds the
+/// ".xlsx" itself, but only after the picker has returned. Android would then create the
+/// document without an extension, and the app would write "Book1.xlsx" beside the staged
+/// copy: the document the user chose kept its bare name and stayed empty, because the write
+/// went to a different file. Give the picker the name the app is going to write, so the
+/// staged path is the path the app writes.
 fn saf_pick_save(bridge: &saf::Bridge, state: &SafState, name: &str) -> Option<String> {
     let id = saf_next_id(state);
-    match bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT) {
+    let name = if !name.is_empty() && std::path::Path::new(name).extension().is_none() {
+        format!("{name}.xlsx")
+    } else {
+        name.to_owned()
+    };
+    match bridge.pick_blocking(id, Some(&name), saf::PICK_TIMEOUT) {
         Ok(saf::PickAnswer::Paths(paths)) => {
             let path = paths.into_iter().next();
             if let Some(path) = &path {
@@ -3890,6 +4054,8 @@ fn saf_poll(bridge: &saf::Bridge, state: &SafState, _inbox: &SafInbox) {
     "wordcraft": {
         "activity": "WordCraftActivity",
         "imports": "use std::sync::atomic::{AtomicU64, Ordering};\nuse std::sync::Arc;",
+        "post_construct": """    load_wordcraft_user_fonts(&android_app);
+""",
         "state": '''
 pub type SafInbox = wordcraft_ui_egui::Inbox;
 
@@ -3897,6 +4063,81 @@ pub type SafInbox = wordcraft_ui_egui::Inbox;
 pub struct SafState {
     next_id: AtomicU64,
     mirror: saf::SaveMirror,
+}
+
+static LAST_LOADED_FONT_STATE: std::sync::Mutex<Option<Vec<(std::path::PathBuf, u64, u64)>>> = std::sync::Mutex::new(None);
+
+pub fn load_wordcraft_user_fonts(app: &AndroidApp) {
+    let mut candidate_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    // 1. Shared storage fonts folders
+    for shared in ["/storage/emulated/0/Fonts", "/sdcard/Fonts"] {
+        let p = std::path::PathBuf::from(shared);
+        if p.is_dir() && !candidate_dirs.contains(&p) {
+            candidate_dirs.push(p);
+        }
+    }
+
+    // 2. App-private external data fonts folder (/storage/emulated/0/Android/data/com.artcraft.wordcraft/files/fonts)
+    if let Some(base) = app_data_dir(app) {
+        let p = base.join("fonts");
+        let _ = std::fs::create_dir_all(&p);
+        if !candidate_dirs.contains(&p) {
+            candidate_dirs.push(p);
+        }
+    }
+
+    // 3. Settings dir fonts folder (e.g. config/wordcraft/fonts)
+    let settings_font_dir = wordcraft_control_key::settings_dir().map(|d| d.join("fonts"));
+    if let Some(ref dir) = settings_font_dir {
+        let _ = std::fs::create_dir_all(dir);
+        if !candidate_dirs.contains(dir) {
+            candidate_dirs.push(dir.clone());
+        }
+    }
+
+    // Fingerprint candidate folders to avoid redundant reloads
+    let current_state: Vec<(std::path::PathBuf, u64, u64)> = candidate_dirs
+        .iter()
+        .map(|d| {
+            let entries = std::fs::read_dir(d).map(|rd| rd.flatten().count() as u64).unwrap_or(0);
+            let modified = std::fs::metadata(d)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|s| s.as_nanos() as u64)
+                .unwrap_or(0);
+            (d.clone(), entries, modified)
+        })
+        .collect();
+
+    {
+        let mut guard = LAST_LOADED_FONT_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.as_ref() == Some(&current_state) {
+            return;
+        }
+        *guard = Some(current_state);
+    }
+
+    let db = wordcraft_fonts::FontDb::global();
+    for dir in &candidate_dirs {
+        if dir.is_dir() {
+            let (loaded, skipped) = db.load_user_fonts(dir);
+            if !loaded.is_empty() || !skipped.is_empty() {
+                log::info!("WordCraft user fonts: {} loaded, {} skipped from {}", loaded.len(), skipped.len(), dir.display());
+            }
+        }
+    }
+
+    // Direct user_font_dir to the persistent writable folder so font.add saves there
+    if let Some(ref dir) = settings_font_dir {
+        db.load_user_fonts(dir);
+    } else if let Some(base) = app_data_dir(app) {
+        db.load_user_fonts(&base.join("fonts"));
+    }
+
+    let _ = db.load_system_fonts();
+    wordcraft_engine::packs::use_font_store(true);
 }
 
 /// Show WordCraft's native file dialog without blocking the frame loop (#94, #511). WordCraft has
@@ -4012,6 +4253,7 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             let _ = tx.send(receipt);
             rx
         })),
+        templates_dir: wordcraft_control_key::settings_dir().map(|d| d.join("Templates")),
         inbox: Some(inbox),
         ..Services::default()
     }
@@ -4397,6 +4639,19 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
         "poll": RFD_SAF_POLL,
         "setup": RFD_SAF_SETUP,
         "construct_expr": "PdfCraftApp::new()",
+        "post_construct": """    let print_bridge = saf_bridge.clone_ref();
+    inner.printer_source = Some(std::sync::Arc::new(|| vec![
+        pdfcraft_engine::print::spool::Printer {
+            name: "Android print system".to_owned(),
+            default: true,
+            two_sided: None,
+            description: "System print spooler".to_owned(),
+        }
+    ]));
+    inner.print_handler = Some(std::sync::Arc::new(move |title: &str, bytes: &[u8]| {
+        print_bridge.print_document(title, bytes)
+    }));
+""",
     },
     # ---- figcraft: a Services trait (not a struct) injected as Box<dyn Services>. ----
     # figcraft's Services::pick_open/pick_save/pick_folder return DialogFuture (async futures),
@@ -5035,6 +5290,12 @@ PERSIST_ON_EXIT = '''
     }
 '''
 
+PERSIST_ON_EXIT_GLOW = '''
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.persist_now();
+    }
+'''
+
 # Prune the staged working copies under `media/` (see SafActivity.newStageFile) once the app no
 # longer refers to them. The copy is a cache of a document whose original lives at its SAF
 # location, so deleting it loses nothing while keeping `Android/data/<pkg>/files` small — which is
@@ -5169,7 +5430,22 @@ fn persist_background(inner: &mut {app_type}) {{
     persist_methods = PERSIST_METHODS
     persist_logic = "        self.persist_tick();\n"
     persist_hook = PERSIST_HOOK
-    persist_on_exit = PERSIST_ON_EXIT
+    if app == "wordcraft":
+        persist_hook += """        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(true))) {
+            load_wordcraft_user_fonts(&self.app);
+        }
+"""
+    lock_path = Path("Cargo.lock")
+    eframe_has_glow = False
+    if lock_path.is_file():
+        lock_text = lock_path.read_text(errors="replace")
+        m = re.search(r'\[\[package\]\]\s+name = "eframe".*?dependencies = \[(.*?)\]', lock_text, re.DOTALL)
+        if m and '"glow"' in m.group(1):
+            eframe_has_glow = True
+    if app == "pdfcraft":
+        eframe_has_glow = True
+
+    persist_on_exit = PERSIST_ON_EXIT_GLOW if eframe_has_glow else PERSIST_ON_EXIT
     persist_env_call = "    install_persist_env(&android_app);\n"
 else:
     persist_support = ""
@@ -5194,6 +5470,54 @@ else:
     staged_new_init = ""
     staged_methods = ""
     staged_logic = ""
+control_tx_def = ""
+control_init = ""
+ctx_store = ""
+if app in ("cadcraft", "wordcraft", "deckcraft", "designcraft", "lightcraft", "soundcraft"):
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
+        let _ = CONTROL_TX.set(control_tx);
+        inner = inner.with_control(control_rx);
+"""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+"""
+elif app == "gridcraft":
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
+        let _ = CONTROL_TX.set(control_tx);
+        inner.control_rx = Some(control_rx);
+"""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+"""
+elif app == "figcraft":
+    control_tx_def = f"""pub static CONTROL_QUEUE: std::sync::Mutex<Vec<{ui_ident}::ControlRequest>> = std::sync::Mutex::new(Vec::new());
+pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
+
+"""
+    control_init = ""
+    ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
+            if g.is_none() {
+                *g = Some(ctx.clone());
+            }
+        }
+        if let Ok(mut q) = crate::CONTROL_QUEUE.lock() {
+            self.inner.control_queue.extend(q.drain(..));
+        }
+"""
 # A type that does not implement `eframe::App` is an inner app state; its desktop `main.rs` wraps it
 # in a tiny struct that forwards `logic`/`ui`. Emit the same wrapper here.
 has_eframe_app = bool(re.search(r"impl\s+eframe::App\s+for\s+" + re.escape(app_type) + r"\b", ui_text))
@@ -5287,6 +5611,7 @@ try:
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
     # FilmCraft hardware encoding, GPU export compositing, and memory trimming on Android require platform, gpu, export, render, project, time, codecs, and frame crates.
+    wordcraft_dep = 'wordcraft-fonts = { workspace = true }\nwordcraft-control-key = { workspace = true }\n' if app == "wordcraft" else ''
     platform_dep = (
         'filmcraft-platform = { path = "../../crates/platform" }\n'
         'filmcraft-gpu = { path = "../../crates/gpu" }\n'
@@ -5299,6 +5624,35 @@ try:
         if app == "filmcraft"
         else ''
     )
+    mcp_crates = {
+        "solidcraft": "solidcraft-mcp",
+        "cadcraft": "cadcraft-mcp",
+        "wordcraft": "wordcraft-mcp",
+        "figcraft": "figcraft-mcp",
+        "gridcraft": "gridcraft-mcp",
+        "deckcraft": "deckcraft-mcp",
+        "designcraft": "designcraft-mcp",
+        "lightcraft": "lightcraft-mcp",
+    }
+    automation_crates = {
+        "pdfcraft": "pdfcraft-automation",
+        "soundcraft": "soundcraft-automation",
+        "effectcraft": "effectcraft-automation",
+        "materialcraft": "materialcraft-automation",
+        "texturecraft": "texturecraft-automation",
+        "filmcraft": "filmcraft-automation",
+    }
+    mcp_dep = ""
+    if app in mcp_crates:
+        mcp_dep = f'{mcp_crates[app]} = {{ path = "../../crates/mcp" }}\n'
+    elif app in automation_crates:
+        mcp_dep = f'{automation_crates[app]} = {{ path = "../../crates/automation" }}\n'
+    if app in ("materialcraft", "texturecraft", "filmcraft"):
+        mcp_dep += 'tokio = { version = "1", features = ["rt", "sync", "io-util"] }\n'
+    if app in ("materialcraft", "texturecraft"):
+        mcp_dep += 'rmcp = { workspace = true }\n'
+    if saf or _persist or app in mcp_crates or app in automation_crates:
+        serde_dep = 'serde_json = { workspace = true }\n'
     java_sources = 'java_sources = "java"\n' if saf else ''
     config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
     # Android open/share associations for the app's document types (the MAIN/LAUNCHER entry is always
@@ -5372,7 +5726,7 @@ egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
-{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{platform_dep}
+{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}{platform_dep}{mcp_dep}
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", default-features = false, features = ["native-activity"] }}
 # Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
@@ -5440,6 +5794,9 @@ icon = "@mipmap/ic_launcher"
     # Pull in the shared Android system-font module (written next to our rust source below) so the
     # launcher can fall back to the device's own fonts for scripts the app's fonts do not cover.
     imports.append("mod system_fonts;")
+    imports.append("mod mcp_http;")
+    imports.append("mod mobile_text_bar;")
+    imports.append("mod touch_gestures;")
     # The custom IME bridge is removed: reference Android apps use egui's native IME via
     # android-activity + eframe, without an EditText bridge. The custom bridge conflicts with
     # egui's IMEOutput handling and breaks input.
@@ -5451,6 +5808,8 @@ icon = "@mipmap/ic_launcher"
         imports.append("use " + ui_ident + "::{" + ", ".join([app_type] + services_syms) + "};")
     else:
         imports.append(f"use {ui_ident}::{app_type};")
+    if app in ("cadcraft", "wordcraft", "deckcraft", "designcraft", "gridcraft", "lightcraft", "soundcraft"):
+        imports.append(f"use {ui_ident}::ControlRequest;")
     use_block = "\n".join(imports)
     saf_block = ""
     if saf:
@@ -5475,6 +5834,13 @@ icon = "@mipmap/ic_launcher"
             "            self.app.hide_soft_input(false);\n"
             "        }\n"
         )
+
+    # With a mouse over the window, every hovered interactive widget must show the pointing hand;
+    # egui only sets the OS pointer icon when `visuals.interact_cursor` names one, and the apps'
+    # own themes never do. `system_fonts::install_system_fonts` is the one hook every shell calls
+    # every frame (generated and adapter-owned alike), so the fix lives there; see
+    # `templates/android/system_fonts.rs`.
+    interact_cursor_logic = ""
 
     if has_eframe_app:
         inner_logic = "self.inner.logic(ctx, frame);"
@@ -5700,6 +6066,14 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
     let mut kept: Vec<egui::Event> = Vec::with_capacity(raw.events.len());
     for mut event in raw.events.drain(..) {
         match &mut event {
+            egui::Event::ModifiersChanged(m) => {
+                state.shift = m.shift;
+                state.ctrl = m.ctrl;
+                state.alt = m.alt;
+                state.mac_cmd = m.mac_cmd;
+                state.command = m.command || m.ctrl;
+                kept.push(event);
+            }
             egui::Event::Key { key, physical_key, pressed, modifiers, .. } => {
                 let tracked = physical_key.unwrap_or(*key);
                 match tracked {
@@ -5710,15 +6084,28 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    modifiers.shift |= state.shift;
+                    modifiers.ctrl |= state.ctrl;
+                    modifiers.alt |= state.alt;
+                    modifiers.command |= state.command;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::MouseWheel { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::Text(_) if state.ctrl || state.command || state.mac_cmd => {}
@@ -6010,6 +6397,17 @@ fn install_cadcraft_io() {
         intent_field = ""
         intent_init = ""
 
+    topbar_modifier_hook = ""
+    if app in ("designcraft", "wordcraft", "gridcraft", "deckcraft"):
+        # The Shift/Ctrl/Alt buttons stand in for the soft keyboard: with a hardware keyboard
+        # attached they are in the way, so the launcher tells the app's top bar about it.
+        topbar_modifier_hook = (
+            f"        {ui_ident}::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);\n"
+            f"        {ui_ident}::topbar_modifiers::set_hardware_keyboard_connected(\n"
+            f"            android_activity::hardware_keyboard_connected(),\n"
+            f"        );\n"
+        )
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -6069,7 +6467,7 @@ impl InputProbe {{
 /// cleared when the shell is dropped, which happens before the native thread returns.
 static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-struct AndroidShell {{
+{control_tx_def}struct AndroidShell {{
     inner: {app_type},
     app: AndroidApp,
     modifiers: egui::Modifiers,
@@ -6078,12 +6476,22 @@ struct AndroidShell {{
     bars_theme: Option<bool>,
     back_pending: bool,
     closing: bool,
-    close_asked: bool,{saf_fields}{intent_field}{persist_fields}{staged_fields}
+    close_asked: bool,
+    _mcp: Option<mcp_http::Endpoint>,{saf_fields}{intent_field}{persist_fields}{staged_fields}
 }}
 
 impl AndroidShell {{
     fn new(mut inner: {app_type}, app: AndroidApp{saf_new_params}) -> Self {{
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+{control_init}        let _mcp = mcp_http::start_mcp_service(
+            "{title}".to_string(),
+            "{app_version}".to_string(),
+            std::sync::Arc::new(|| ALIVE.load(std::sync::atomic::Ordering::Relaxed)),
+        );
+        let app_clip = app.clone();
+        mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
+        let app_clip_set = app.clone();
+        mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
+        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
@@ -6190,13 +6598,14 @@ impl Drop for AndroidShell {{
 
 impl eframe::App for AndroidShell {{
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {{
-{intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
+{ctx_store}{intent_logic}{saf_logic_poll}{persist_logic}{staged_logic}        {inner_logic}
 {ime_hide_logic}        self.sync_bar_appearance(ctx);
-{quit_check}    }}
+{interact_cursor_logic}{quit_check}    }}
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {{
         system_fonts::install_system_fonts(ui.ctx());
         {inner_ui}
+        mobile_text_bar::show_text_bar(ui.ctx());
         if self.back_pending {{
             self.back_pending = false;
             // A back press was mapped onto Escape. If the app consumed that Escape (a dialog
@@ -6215,10 +6624,12 @@ impl eframe::App for AndroidShell {{
     }}
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {{
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         self.probe.observe(raw);
         self.refresh_fullscreen(raw);
         apply_android_modifiers(&mut self.modifiers, raw);
-        self.map_android_back(raw);
+{topbar_modifier_hook}        self.map_android_back(raw);
         self.handle_clipboard_shortcuts(raw);
 {focus_loss_hook}{persist_hook}        {inner_hook}
     }}
@@ -6288,7 +6699,12 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // A panic's backtrace, to see where the Vulkan surface is created.
     #[allow(unused_unsafe)]
     unsafe {{
-        {{std::env::set_var("RUST_BACKTRACE", "1");}}
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {{
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }}
     }}
     // Route Rust `log` records to logcat; without this a failed picker/save was invisible.
     android_logger::init_once(
@@ -6335,8 +6751,11 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // Vulkan first with a GLES fallback for devices without a usable Vulkan driver, and the
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
             let supported = adapter.limits();
             let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {{
@@ -6378,7 +6797,12 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // A panic's backtrace, to see where the Vulkan surface is created.
     #[allow(unused_unsafe)]
     unsafe {{
-        {{std::env::set_var("RUST_BACKTRACE", "1");}}
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {{
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }}
     }}
     // Route Rust `log` records to logcat; without this a failed picker/save was invisible.
     android_logger::init_once(
@@ -6421,8 +6845,11 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // Vulkan first with a GLES fallback for devices without a usable Vulkan driver, and the
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
             let supported = adapter.limits();
             let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {{
@@ -6459,6 +6886,531 @@ fn android_main(android_app: android_activity::AndroidApp) {{
 
     # The shared Android system-font module, referenced by `mod system_fonts;` in the entry above.
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
+    shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
+    shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
+    mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
+    suites = {
+        "solidcraft": """
+struct SuiteMcpServer(solidcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let session = solidcraft_engine::Session::default();
+    let backend = Box::new(solidcraft_mcp::Headless::new(session));
+    Box::new(SuiteMcpServer(solidcraft_mcp::Server::new(backend)))
+});
+""",
+        "cadcraft": """
+struct UiControlBackend;
+impl cadcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("CadApp UI not initialized".to_string());
+        };
+        let (req, pending) = cadcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = pending.wait(std::time::Duration::from_secs(30));
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "CADCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(cadcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(cadcraft_mcp::Server::new(backend)))
+});
+""",
+        "wordcraft": """
+struct UiControlBackend;
+impl wordcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("WordCraft UI not initialized".to_string());
+        };
+        let (req, rx) = wordcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "WordCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(wordcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(wordcraft_mcp::Server::new(backend)))
+});
+""",
+        "figcraft": """
+struct UiControlBackend;
+impl figcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        let req = figcraft_ui_egui::ControlRequest {
+            id: serde_json::json!(1),
+            method: method.to_string(),
+            params,
+            reply,
+            state: Default::default(),
+        };
+        if let Ok(mut q) = crate::CONTROL_QUEUE.lock() {
+            q.push(req);
+        } else {
+            return Err("FigCraft UI queue lock failed".to_string());
+        }
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        res.result
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "FigCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(figcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(figcraft_mcp::Server::new(backend)))
+});
+""",
+        "gridcraft": """
+struct UiControlBackend;
+impl gridcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("GridCraft UI not initialized".to_string());
+        };
+        let (req, rx) = gridcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "GridCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(gridcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(gridcraft_mcp::Server::new(backend)))
+});
+""",
+        "deckcraft": """
+struct UiControlBackend;
+impl deckcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("DeckCraft UI not initialized".to_string());
+        };
+        let (req, rx) = deckcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "DeckCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(deckcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(deckcraft_mcp::Server::new(backend)))
+});
+""",
+        "designcraft": """
+struct UiControlBackend;
+impl designcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("DesignCraft UI not initialized".to_string());
+        };
+        let (req, rx) = designcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "DesignCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(designcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(designcraft_mcp::Server::new(backend)))
+});
+""",
+        "lightcraft": """
+struct UiControlBackend;
+impl lightcraft_mcp::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("LightCraft UI not initialized".to_string());
+        };
+        let (req, rx) = lightcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "LightCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(lightcraft_mcp::Server);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = Box::new(UiControlBackend);
+    Box::new(SuiteMcpServer(lightcraft_mcp::Server::new(backend)))
+});
+""",
+        "pdfcraft": """
+struct SuiteMcpServer(pdfcraft_automation::mcp::McpServer);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let auto = pdfcraft_automation::Automation::new();
+    Box::new(SuiteMcpServer(pdfcraft_automation::mcp::McpServer::new(auto)))
+});
+""",
+        "soundcraft": """
+struct UiControlBackend;
+impl soundcraft_automation::Backend for UiControlBackend {
+    fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(tx) = crate::CONTROL_TX.get() else {
+            return Err("SoundCraft UI not initialized".to_string());
+        };
+        let (req, rx) = soundcraft_ui_egui::ControlRequest::new(method, params);
+        tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
+        if let Ok(g) = crate::EGUI_CTX.lock() {
+            if let Some(ctx) = g.as_ref() {
+                ctx.request_repaint();
+            }
+        }
+        let res = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e| format!("UI timeout: {e}"))?;
+        if let Some(ok) = res.get("ok").and_then(|v| v.as_bool()) {
+            if ok {
+                Ok(res.get("result").cloned().unwrap_or(res))
+            } else {
+                let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("command failed");
+                Err(err.to_string())
+            }
+        } else if let Some(err) = res.get("error").and_then(|v| v.as_str()) {
+            Err(err.to_string())
+        } else {
+            Ok(res)
+        }
+    }
+    fn has_ui(&self) -> bool { true }
+    fn describe(&self) -> String { "SoundCraft Android Live UI".to_string() }
+}
+struct SuiteMcpServer(soundcraft_automation::mcp::Server<UiControlBackend>);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let msg: serde_json::Value = serde_json::from_str(line).ok()?;
+        let res = self.0.handle(&msg)?;
+        serde_json::to_string(&res).ok()
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let backend = UiControlBackend;
+    Box::new(SuiteMcpServer(soundcraft_automation::mcp::Server { backend }))
+});
+""",
+        "effectcraft": """
+struct SuiteMcpServer(effectcraft_automation::McpServer);
+unsafe impl Send for SuiteMcpServer {}
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        self.0.handle_line(line)
+    }
+}
+let make: MakeServer = Arc::new(move || {
+    let session = effectcraft_engine::Session::new();
+    let backend = effectcraft_automation::Backend::headless(session);
+    Box::new(SuiteMcpServer(effectcraft_automation::McpServer::new(backend)))
+});
+""",
+        "filmcraft": """
+use filmcraft_automation::FilmcraftMcp;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = filmcraft_engine::Session::default();
+        let mcp = FilmcraftMcp::headless(session);
+        rt.spawn(async move {
+            let _ = mcp.serve_io(server_in, server_out).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+""",
+        "materialcraft": """
+use materialcraft_automation::MaterialCraftMcp;
+use rmcp::ServiceExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = materialcraft_automation::Headless::default_session();
+        let headless = materialcraft_automation::Headless::new(session, materialcraft_automation::Filesystem::TrustedLocal);
+        let mcp = MaterialCraftMcp::headless(headless);
+        rt.spawn(async move {
+            let _ = mcp.serve((server_in, server_out)).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+""",
+        "texturecraft": """
+use texturecraft_automation::TexturecraftMcp;
+use rmcp::ServiceExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+
+struct SuiteMcpServer {
+    rt: tokio::runtime::Runtime,
+    client_in: tokio::io::DuplexStream,
+    lines: tokio::io::Lines<TokioBufReader<tokio::io::DuplexStream>>,
+}
+
+impl SuiteMcpServer {
+    fn new() -> Option<Self> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let (client_in, server_in) = tokio::io::duplex(65536);
+        let (server_out, client_out) = tokio::io::duplex(65536);
+        let lines = TokioBufReader::new(client_out).lines();
+        let session = texturecraft_automation::Headless::default_session().ok()?;
+        let headless = texturecraft_automation::Headless::new(session, texturecraft_automation::Filesystem::TrustedLocal);
+        let mcp = TexturecraftMcp::headless(headless);
+        rt.spawn(async move {
+            let _ = mcp.serve((server_in, server_out)).await;
+        });
+        Some(Self { rt, client_in, lines })
+    }
+}
+
+impl McpServer for SuiteMcpServer {
+    fn handle_line(&mut self, line: &str) -> Option<String> {
+        let input = format!("{line}\\n");
+        self.rt.block_on(async {
+            self.client_in.write_all(input.as_bytes()).await.ok()?;
+            self.client_in.flush().await.ok()?;
+            self.lines.next_line().await.ok()?
+        })
+    }
+}
+
+let make: MakeServer = Arc::new(move || {
+    SuiteMcpServer::new().map(|s| Box::new(s) as Box<dyn McpServer>).unwrap_or_else(|| {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    })
+});
+"""
+    }
+    default_make = '''    let make: MakeServer = Arc::new(move || {
+        Box::new(DefaultMcpServer::new(app_name.clone(), app_version.clone()))
+    });'''
+    if app in suites:
+        mcp_code = mcp_code.replace(default_make, suites[app].strip())
+    (staging_dir / "src" / "mcp_http.rs").write_text(mcp_code)
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
 
     # Audio output on Android: the apps get their audio backend from the platform layer (cpal), and
@@ -6521,6 +7473,7 @@ if [[ -d "$ANDROID_DIR/java" ]]; then
     cp "$ROOT/templates/android/ArtCraftIme.java" "$IME_DIR/ArtCraftIme.java"
 fi
 
+
 [[ -f "$ANDROID_DIR/Cargo.toml" && -f "$ANDROID_DIR/src/lib.rs" ]] || fail "Android wrapper is incomplete at $ANDROID_DIR. See the build log and adapters/README.md."
 
 # WordCraft's soft-keyboard Backspace-at-the-start-of-a-paragraph fix is applied by its own
@@ -6539,11 +7492,19 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
 rm -rf "$SRC/vendor/egui-winit"
-if [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
+elif [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses storytold egui fork (prepare.sh vendors it at vendor/egui/crates/egui-winit)
+    # Do not copy builder's egui-winit - the fork's egui-winit has clipboard_image() and correct process_viewport_commands()
+    echo "Skipping builder egui-winit copy for $APP (uses storytold fork)"
 else
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
+if [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft prepare.sh handles all egui/egui-winit/egui-wgpu patching
+    echo "Skipping egui patching for $APP (handled by prepare.sh)"
+else
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -6571,31 +7532,36 @@ if "https://github.com/storytold/egui.git" in s:
 tomllib.loads(s)
 p.write_text(s)
 PY
+fi
 
 # Some apps call `rfd` directly from a crate that ends up in the launcher's dependency graph
 # (PDFCraft does, in ~18 files), and rfd 0.17 ships no Android backend, so it fails to compile for
 # `aarch64-linux-android`. Vendor the builder's Android-compatible copy (a stub backend that
 # resolves dialogs to "cancelled") and patch it into the workspace so the launcher builds. Real
 # open/save on Android needs a platform adapter (see adapters/README.md).
-if grep -rqE '\brfd::' "$SRC"/crates/*/src 2>/dev/null || grep -qE '^\s*rfd\s*=' "$SRC/Cargo.toml" 2>/dev/null; then
+if grep -rqE '\brfd::' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null || grep -qE '^\s*rfd\s*=' "$SRC/Cargo.toml" 2>/dev/null || grep -rqE '\brfd\b' "$ROOT/adapters/$APP" 2>/dev/null; then
     echo "Vendoring an Android-compatible rfd for $TITLE (native file dialogs become no-ops)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/rfd"
     cp -a "$ROOT/vendor/rfd" "$SRC/vendor/rfd"
     python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 entry = 'rfd = { path = "vendor/rfd" }'
-import re
-s = re.sub(r'^\s*rfd\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*rfd\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
 PY
 fi
 
@@ -6604,12 +7570,69 @@ fi
 # cannot compile for `aarch64-linux-android`. Vendor the builder's Android-compatible stub (a
 # no-op clipboard) and patch it in. If crates use `arboard = { workspace = true }`, we must
 # replace the workspace dependency; otherwise we add it via `[patch.crates-io]`.
-if grep -rqE '\barboard\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null; then
+if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null; then
     echo "Vendoring an Android-compatible arboard for $TITLE (clipboard access becomes a no-op)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/arboard"
     cp -a "$ROOT/vendor/arboard" "$SRC/vendor/arboard"
     python3 "$ROOT/fix_arboard.py" "$SRC/Cargo.toml" "$SRC"
+fi
+
+# midir on Android needs a platform adapter or dummy backend. Vendor the builder's Android-compatible
+# midir stub (with dummy MIDI backend) and patch it into the workspace when midir is in dependencies.
+if [[ -d "$ROOT/vendor/midir" ]] && (grep -rqE '\bmidir\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null || grep -qE '^\s*midir\s*=' "$SRC/Cargo.toml" 2>/dev/null); then
+    echo "Vendoring an Android-compatible midir for $TITLE (dummy MIDI backend)..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/midir"
+    cp -a "$ROOT/vendor/midir" "$SRC/vendor/midir"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'midir = { path = "vendor/midir" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*midir\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
+fi
+
+# rustls-platform-verifier on Android delegates to Kotlin `org.rustls.platformverifier.CertificateVerifier`.
+# In native Activity APKs, this Kotlin class is missing and JNI is uninitialized, breaking all TLS connections.
+# Vendor the builder's WebPKI-backed rustls-platform-verifier (Mozilla root certs directly in Rust) and patch it in.
+if [[ -d "$ROOT/vendor/rustls-platform-verifier" ]] && (grep -rqE '\brustls-platform-verifier\b' "$SRC/Cargo.lock" "$SRC"/Cargo.toml 2>/dev/null); then
+    echo "Vendoring an Android-compatible rustls-platform-verifier for $TITLE (WebPKI Mozilla root certs)..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/rustls-platform-verifier"
+    cp -a "$ROOT/vendor/rustls-platform-verifier" "$SRC/vendor/rustls-platform-verifier"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'rustls-platform-verifier = { path = "vendor/rustls-platform-verifier" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*rustls-platform-verifier\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
 fi
 
 # winit's stock Android backend only translates touch actions: `handle_input_event` maps
@@ -6823,18 +7846,33 @@ if not winit_rs.is_file():
     sys.exit(0)
 text = winit_rs.read_text()
 if "dropping the lost surface" not in text:
+    # SolidCraft's recreate_surface doesn't have Android handling
+    # The original code creates the surface then uses old_state afterwards
+    # We need to: extract fields, check Android, drop old_state, create surface, use extracted fields
     recreate_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
             return Ok(());
         };
 
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+        let surface = self.instance.create_surface(Arc::clone(window))?;
+        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
+        // recreate the streak asked for is done by this one.
+        let mut retry = old_state.retry;
+        retry.recreated();
+        self.install_surface(
+            surface,
+            viewport_id,
+            old_state.requested.0,
+            old_state.requested.1,
+            old_state.resizing,
+            retry,
+        );
+        Ok(())"""
 
     recreate_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
             return Ok(());
         };
 
         let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
-        drop(old_state);
 
         if cfg!(target_os = "android") {
             log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
@@ -6843,57 +7881,41 @@ if "dropping the lost surface" not in text:
 
         self.instance.poll_all(true);
 
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
-
-    lost_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };
-
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
-
-    lost_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };
-
-        let (width, height, resizing) = (old_state.width, old_state.height, old_state.resizing);
         drop(old_state);
 
-        if cfg!(target_os = "android") {
-            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
-            return Ok(());
-        }
-
-        self.instance.poll_all(true);
-
-        let surface = self.instance.create_surface(Arc::clone(window))?;"""
+        let surface = self.instance.create_surface(Arc::clone(window))?;
+        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
+        // recreate the streak asked for is done by this one.
+        retry.recreated();
+        self.install_surface(
+            surface,
+            viewport_id,
+            requested.0,
+            requested.1,
+            resizing,
+            retry,
+        );
+        Ok(())"""
 
     if "fn recreate_surface" in text and recreate_target in text:
         text = text.replace(recreate_target, recreate_replacement)
-        pre, post = text.split("drop(old_state);", 1)
-        post = post.replace("old_state.requested.0", "requested.0")
-        post = post.replace("old_state.requested.1", "requested.1")
-        post = post.replace("old_state.resizing", "resizing")
-        post = post.replace("let mut retry = old_state.retry;", "")
-        text = pre + "drop(old_state);" + post
         winit_rs.write_text(text)
         print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
-    elif lost_target in text:
-        text = text.replace(lost_target, lost_replacement)
-        pre, post = text.split("drop(old_state);", 1)
-        post = post.replace("old_state.width", "width")
-        post = post.replace("old_state.height", "height")
-        post = post.replace("old_state.resizing", "resizing")
-        text = pre + "drop(old_state);" + post
-        winit_rs.write_text(text)
-        print("  Patched existing vendored egui-wgpu on_surface_lost for Android surface handling")
 PY
-elif [[ "$APP" == "subcraft" || "$APP" == "solidcraft" ]]; then
+elif [[ "$APP" == "solidcraft" ]]; then
+    # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
+    # Do not copy builder's egui-wgpu - keep SolidCraft's original
+    echo "Skipping builder egui-wgpu copy for SolidCraft (uses its own vendor/egui-wgpu with custom APIs)"
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
 fi
+
+# Skip egui-wgpu patching for SolidCraft - prepare.sh handles it
+if [[ "$APP" != "solidcraft" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -6917,6 +7939,7 @@ if "https://github.com/storytold/egui.git" in s:
 tomllib.loads(s)
 p.write_text(s)
 PY
+fi
 
 # Every launcher uses the builder's vendored android-activity: the native-activity backend now
 # carries three builder patches the crates.io copy lacks. (1) The sync-picker ANR fix: while a
@@ -6944,6 +7967,34 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
+
+# sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
+# Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).
+if grep -rqE '\bsys_locale\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null || grep -qE '^\s*sys-locale\s*=' "$SRC/Cargo.toml" 2>/dev/null; then
+    echo "Vendoring an Android SELinux-safe sys-locale for $TITLE..."
+    mkdir -p "$SRC/vendor"
+    rm -rf "$SRC/vendor/sys-locale"
+    cp -a "$ROOT/vendor/sys-locale" "$SRC/vendor/sys-locale"
+    python3 - "$SRC/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys, tomllib
+p = Path(sys.argv[1])
+s = p.read_text()
+entry = 'sys-locale = { path = "vendor/sys-locale" }'
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*sys-locale\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
+else:
+    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
+tomllib.loads(s)
+p.write_text(s)
+PY
+fi
 
 # A `target/` directory left behind by running cargo inside a vendored crate must never be
 # copied into the app tree: it is hundreds of megabytes and cargo ignores nested target dirs
@@ -7126,6 +8177,30 @@ if [[ -f "$CRAFT_FONTS_DIR/fonts/manifest.txt" ]]; then
     echo "  -> embedding the craft-fonts faces ($(grep -cve '^#' -e '^$' "$CRAFT_FONTS_DIR/fonts/manifest.txt") of them)"
 fi
 
+# The shared craft-i18n translations (https://github.com/storytold/craft-i18n) are embedded
+# at compile time by apps like WordCraft and PdfCraft via CRAFT_I18N_DIR.
+CRAFT_I18N_DIR="$ROOT/source/craft-i18n"
+if [[ -d "$CRAFT_I18N_DIR/locales" ]]; then
+    echo "Reusing the craft-i18n checkout in $CRAFT_I18N_DIR"
+elif [[ -e "$CRAFT_I18N_DIR" ]]; then
+    if [[ -d "$CRAFT_I18N_DIR" && -z "$(ls -A "$CRAFT_I18N_DIR" 2>/dev/null)" ]]; then
+        rmdir "$CRAFT_I18N_DIR" 2>/dev/null || true
+    fi
+    if [[ -e "$CRAFT_I18N_DIR" ]]; then
+        echo "The craft-i18n checkout at $CRAFT_I18N_DIR has no locales/; leaving it alone." >&2
+    fi
+fi
+if [[ ! -e "$CRAFT_I18N_DIR" ]]; then
+    echo "Fetching craft-i18n (the shared translations the apps embed)..."
+    git clone --depth 1 https://github.com/storytold/craft-i18n.git "$CRAFT_I18N_DIR" || {
+        echo "Could not fetch craft-i18n; the apps will build without the shared translations." >&2
+    }
+fi
+if [[ -d "$CRAFT_I18N_DIR/locales" ]]; then
+    export CRAFT_I18N_DIR
+    echo "  -> embedding the craft-i18n catalogs"
+fi
+
 if [[ "$APP" == "pdfcraft" ]]; then
     MODELS_DIR="$ROOT/$SRC/assets/models"
     if [[ ! -f "$MODELS_DIR/text-detection.onnx" || ! -f "$MODELS_DIR/text-recognition.onnx" ]]; then
@@ -7147,10 +8222,14 @@ python3 "$ROOT/lib/android_project.py" "$ROOT" "$ANDROID_DIR" "$APP" "$APP_VERSI
 # shellcheck source=/dev/null
 source "$ANDROID_DIR/.artcraft-gradle.properties"
 
-if [[ "$APP" == "filmcraft" ]]; then
-    echo "  -> pre-fetching Cargo dependencies and patching wgpu for Adreno Vulkan swapchain support"
-    cargo fetch --manifest-path "$ANDROID_DIR/Cargo.toml" || true
-    python3 - <<'PY'
+# SolidCraft uses storytold egui fork - prepare.sh handles all egui patches
+# No additional patching needed here
+
+echo "  -> pre-fetching Cargo dependencies"
+cargo fetch --manifest-path "$ANDROID_DIR/Cargo.toml" || true
+
+echo "  -> patching wgpu for Adreno Vulkan swapchain support across the suite"
+python3 - <<'WGPUPY'
 from pathlib import Path
 import os, stat
 
@@ -7178,7 +8257,7 @@ for base in search_dirs:
                 p.write_text(txt.replace(old, new))
                 print(f"  -> patched wgpu-hal swapchain latency in {p.name}")
         except Exception as e:
-            print(f"  -> note: wgpu-hal patch ({p.name}): {e}")
+            pass
 
     # 2. Patch wgpu-core clamp panic guard
     for p in base.glob("**/wgpu-core-*/src/device/resource.rs"):
@@ -7203,7 +8282,7 @@ for base in search_dirs:
                 p.write_text(txt.replace(old, new))
                 print(f"  -> patched wgpu-core clamp guard in {p.name}")
         except Exception as e:
-            print(f"  -> note: wgpu-core patch ({p.name}): {e}")
+            pass
 
     # 3. Patch wgpu-hal to enable VK_ANDROID_external_memory_android_hardware_buffer
     for p in base.glob("**/wgpu-hal-*/src/vulkan/adapter.rs"):
@@ -7213,34 +8292,76 @@ for base in search_dirs:
             old = "if self.supports_extension(ext::external_memory_dma_buf::NAME) {"
             if old in txt and "VK_ANDROID_external_memory_android_hardware_buffer" not in txt:
                 new = (
-                    "const ANDROID_HWB_EXT: &std::ffi::CStr = c\"VK_ANDROID_external_memory_android_hardware_buffer\";\n"
-                    "        if self.supports_extension(ANDROID_HWB_EXT) {\n"
-                    "            extensions.push(ANDROID_HWB_EXT);\n"
-                    "        }\n"
-                    "        if self.supports_extension(ext::external_memory_dma_buf::NAME) {"
+                    'const ANDROID_HWB_EXT: &std::ffi::CStr = c"VK_ANDROID_external_memory_android_hardware_buffer";\n'
+                    '        if self.supports_extension(ANDROID_HWB_EXT) {\n'
+                    '            extensions.push(ANDROID_HWB_EXT);\n'
+                    '        }\n'
+                    '        if self.supports_extension(ext::external_memory_dma_buf::NAME) {'
                 )
                 p.write_text(txt.replace(old, new, 1))
                 print(f"  -> patched wgpu-hal android_hardware_buffer extension in {p.name}")
         except Exception as e:
-            print(f"  -> note: wgpu-hal adapter patch ({p.name}): {e}")
-PY
-fi
+            pass
+WGPUPY
 
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
-if [[ "$MODE" == "release" ]]; then
-    if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
-        :
+
+# For SolidCraft, cargo-ndk must run from the workspace root
+# because it uses path dependencies (../../crates/engine) that
+# don't resolve when cargo-ndk runs from the android app subdirectory.
+if [[ "$APP" == "solidcraft" ]]; then
+    NDK_PACKAGE="solidcraft-android"
+    NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
+    if [[ "$MODE" == "release" ]]; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     else
-        status=$?
-        fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     fi
 else
-    if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
-        :
+    # Standard build from android app directory for other apps
+    if [[ "$MODE" == "release" ]]; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
     else
-        status=$?
-        fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
+            :
+        else
+            status=$?
+            fail "Debug native build failed (exit $status). Log: $ROOT/$LOG"
+        fi
+    fi
+fi
+
+# If any built .so in jniLibs needs libc++_shared.so, bundle it from the NDK toolchain.
+#
+# The check reads the whole output instead of grepping for the first match: `grep -q` exits at the
+# first hit, readelf then dies of SIGPIPE, and with `set -o pipefail` that made the pipeline fail
+# (exit 141) — so the C++ runtime was left out of the APK whenever readelf had more output
+# pending, and the app died at launch with "library libc++_shared.so not found".
+NEEDS_LIBCXX="$(find "$ANDROID_DIR/jniLibs" -name "*.so" -exec readelf -d {} + 2>/dev/null | grep 'Shared library: \[libc++_shared\.so\]' || true)"
+if [[ -n "$NEEDS_LIBCXX" ]]; then
+    echo "  -> bundling libc++_shared.so from NDK..."
+    LIBCXX="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+    if [[ -f "$LIBCXX" ]]; then
+        mkdir -p "$ANDROID_DIR/jniLibs/arm64-v8a"
+        cp -f "$LIBCXX" "$ANDROID_DIR/jniLibs/arm64-v8a/libc++_shared.so"
+    else
+        echo "  -> WARNING: the NDK has no libc++_shared.so; the app will not start" >&2
     fi
 fi
 
@@ -7262,19 +8383,20 @@ else
 fi
 
 echo "  -> packaging and signing with Gradle ($GRADLE_TASK)"
-if (
-    cd "$ANDROID_DIR/android" &&
+(
+    cd "$ANDROID_DIR/android" && \
     JAVA_HOME="$GRADLE_JDK" \
     ARTCRAFT_KEYSTORE="$ROOT/$KEY" \
     ARTCRAFT_KEYSTORE_PASSWORD="$KEY_PASSWORD" \
     ARTCRAFT_KEY_ALIAS="artcraftbuilder" \
     ARTCRAFT_KEY_PASSWORD="$KEY_PASSWORD" \
     ./gradlew --console=plain "$GRADLE_TASK"
-) 2>&1 | tee -a "$ROOT/$LOG"; then
+) 2>&1 | tee -a "$ROOT/$LOG"
+gradle_status="${PIPESTATUS[0]}"
+if [[ "$gradle_status" -eq 0 ]]; then
     :
 else
-    status=$?
-    fail "Gradle $GRADLE_TASK failed (exit $status). Log: $ROOT/$LOG"
+    fail "Gradle $GRADLE_TASK failed (exit $gradle_status). Log: $ROOT/$LOG"
 fi
 
 # A single-module root project writes build/outputs/apk/<variant>/<rootProject.name>-<variant>.apk;

@@ -309,6 +309,18 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// fresh generation key. Generations share the same borrowed font bytes, and a key no family
 /// references is never rasterized, so this costs no measurable memory.
 pub fn install_system_fonts(ctx: &egui::Context) {
+    // With a mouse over the window, every hovered interactive widget must show the pointing
+    // hand; egui only sets the OS pointer icon when `visuals.interact_cursor` names one, and
+    // the apps' own themes never do. Set it once here, where the Android shell knows a pointer
+    // exists; an app theme switch resets it, and the `.is_none()` check puts it back.
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        if ctx.style_of(theme).visuals.interact_cursor.is_none() {
+            ctx.all_styles_mut(|style| {
+                style.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
+            });
+            break;
+        }
+    }
     // The user's own font folder can change while the app runs — a font added, or the app granted
     // "all files access" after it started — so the folders the apps' scanners read are kept in
     // step here (cheaply; the work happens only when something actually changed).
@@ -747,7 +759,52 @@ fn font_face_count(bytes: &[u8]) -> u32 {
 /// scanners found no system face for Arabic, Hebrew, CJK and the other non-Latin scripts (blank
 /// boxes). Fonts are not user data, so this environment stays in the internal private directory even
 /// though the settings, working copies and exports live on external storage.
+#[cfg(target_os = "android")]
+fn install_locale_env(app: &android_activity::AndroidApp) {
+    use jni::{JavaVM, jni_sig, jni_str, objects::{JObject, JString}};
+    let vm_ptr = app.vm_as_ptr();
+    if vm_ptr.is_null() {
+        return;
+    }
+    let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut _) };
+    let _ = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let default_loc_raw = env.call_static_method(
+            jni_str!("java/util/Locale"),
+            jni_str!("getDefault"),
+            jni_sig!("()Ljava/util/Locale;"),
+            &[],
+        )?.l()?;
+        if !default_loc_raw.is_null() {
+            let default_loc = unsafe { env.as_cast_raw::<JObject>(&default_loc_raw)? };
+            let tag_obj_raw = env.call_method(
+                &*default_loc,
+                jni_str!("toLanguageTag"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?.l()?;
+            if !tag_obj_raw.is_null() {
+                let jstr = JString::cast_local(env, tag_obj_raw)?;
+                let tag: String = jstr.try_to_string(env)?;
+                if !tag.is_empty() && tag != "und" {
+                    log::info!("Android: system locale is {tag}");
+                    #[allow(unused_unsafe)]
+                    unsafe {
+                        std::env::set_var("LANG", &tag);
+                        std::env::set_var("LC_ALL", &tag);
+                        std::env::set_var("LANGUAGE", &tag);
+                    }
+                }
+            }
+        }
+        Ok(())
+    });
+}
+
+#[cfg(not(target_os = "android"))]
+fn install_locale_env(_app: &android_activity::AndroidApp) {}
+
 pub fn install_font_env(app: &android_activity::AndroidApp) {
+    install_locale_env(app);
     let Some(base) = app.internal_data_path() else { return };
     let home = base.join("home");
     let _ = std::fs::create_dir_all(home.join(".local/share"));

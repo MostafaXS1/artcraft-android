@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-13T00:00:00Z",
+  "query_packages": [],
+  "official_apps": [
+    {
+      "id": "photocraft",
+      "name": "PhotoCraft",
+      "tagline": "Image editing",
+      "color": [47, 123, 245],
+      "repo": "storytold/photocraft"
+    },
+    {
+      "id": "vectorcraft",
+      "name": "VectorCraft",
+      "tagline": "Vector illustration",
+      "color": [232, 87, 63],
+      "repo": "storytold/vectorcraft"
+    },
+    {
+      "id": "filmcraft",
+      "name": "FilmCraft",
+      "tagline": "Video editing, color and sound",
+      "color": [139, 92, 246],
+      "repo": "storytold/filmcraft"
+    },
+    {
+      "id": "lightcraft",
+      "name": "LightCraft",
+      "tagline": "Photo library and raw development",
+      "color": [242, 165, 22],
+      "repo": "storytold/lightcraft"
+    },
+    {
+      "id": "pdfcraft",
+      "name": "PdfCraft",
+      "tagline": "Reading, organizing and protecting PDFs",
+      "color": [232, 32, 79],
+      "repo": "storytold/pdfcraft"
+    },
+    {
+      "id": "effectcraft",
+      "name": "EffectCraft",
+      "tagline": "Image effects and filters",
+      "color": [224, 54, 143],
+      "repo": "storytold/effectcraft"
+    },
+    {
+      "id": "designcraft",
+      "name": "DesignCraft",
+      "tagline": "Graphic design and layout",
+      "color": [123, 181, 28],
+      "repo": "storytold/designcraft"
+    },
+    {
+      "id": "figcraft",
+      "name": "FigCraft",
+      "tagline": "Diagramming and whiteboarding",
+      "color": [2, 218, 150],
+      "repo": "storytold/figcraft"
+    },
+    {
+      "id": "wordcraft",
+      "name": "WordCraft",
+      "tagline": "Writing and word processing",
+      "color": [63, 95, 224],
+      "repo": "storytold/wordcraft"
+    },
+    {
+      "id": "soundcraft",
+      "name": "SoundCraft",
+      "tagline": "Audio recording and editing",
+      "color": [31, 165, 201],
+      "repo": "storytold/soundcraft"
+    },
+    {
+      "id": "deckcraft",
+      "name": "DeckCraft",
+      "tagline": "Presentations and slide decks",
+      "color": [240, 122, 30],
+      "repo": "storytold/deckcraft"
+    },
+    {
+      "id": "cadcraft",
+      "name": "CadCraft",
+      "tagline": "2D and 3D CAD drawings",
+      "color": [62, 166, 232],
+      "repo": "storytold/cadcraft"
+    },
+    {
+      "id": "gridcraft",
+      "name": "GridCraft",
+      "tagline": "Spreadsheets and tables",
+      "color": [31, 157, 85],
+      "repo": "storytold/gridcraft"
+    },
+    {
+      "id": "materialcraft",
+      "name": "MaterialCraft",
+      "tagline": "Materials and textures for 3D work",
+      "color": [23, 138, 156],
+      "repo": "storytold/materialcraft"
+    },
+    {
+      "id": "texturecraft",
+      "name": "TextureCraft",
+      "tagline": "3D texture painting",
+      "color": [194, 103, 43],
+      "repo": "storytold/texturecraft"
+    },
+    {
+      "id": "anicraft",
+      "name": "AniCraft",
+      "tagline": "Frame-by-frame 2D animation",
+      "color": [223, 202, 0],
+      "repo": "storytold/anicraft"
+    }
+  ],
+  "community_apps": [
+    {
+      "id": "subcraft",
+      "name": "SubCraft",
+      "tagline": "3D texture painting on models",
+      "color": [255, 134, 26],
+      "repo": "Aalzard/subcraft",
+      "publisher": "Aalzard",
+      "site": "https://github.com/Aalzard/subcraft",
+      "bundle": null,
+      "image": "subcraft.png"
+    },
+    {
+      "id": "solidcraft",
+      "name": "SolidCraft",
+      "tagline": "Parametric 3D CAD",
+      "color": [70, 161, 251],
+      "repo": "tangency-labs/solidcraft",
+      "publisher": "Tangency Labs",
+      "site": "https://solidcraft.io",
+      "bundle": "io.tangencylabs.solidcraft",
+      "image": "solidcraft.png"
+    },
+    {
+      "id": "bimcraft",
+      "name": "BIMCraft",
+      "tagline": "Building information modeling",
+      "color": [86, 157, 126],
+      "repo": "IPedrax/BIMCraft",
+      "publisher": "IPedrax",
+      "site": "https://github.com/IPedrax/BIMCraft",
+      "bundle": null,
+      "image": "bimcraft.png"
+    },
+    {
+      "id": "capsulecraft",
+      "name": "CapsuleCraft",
+      "tagline": "Notes as plain .eml files",
+      "color": [26, 169, 251],
+      "repo": "kostyk348/CapsuleCraft",
+      "publisher": "kostyk348",
+      "site": "https://github.com/kostyk348/CapsuleCraft",
+      "bundle": null,
+      "image": "capsulecraft.png"
+    },
+    {
+      "id": "diagramcraft",
+      "name": "DiagramCraft",
+      "tagline": "Visio-style diagrams and stencils",
+      "color": [255, 201, 62],
+      "repo": "baradhili/DiagramCraft",
+      "publisher": "baradhili",
+      "site": "https://github.com/baradhili/DiagramCraft",
+      "bundle": null,
+      "image": "diagramcraft.png"
+    },
+    {
+      "id": "earthcraft",
+      "name": "EarthCraft",
+      "tagline": "3D globe explorer",
+      "color": [18, 216, 208],
+      "repo": "therichronicles/EarthCraft",
+      "publisher": "therichronicles",
+      "site": "https://github.com/therichronicles/EarthCraft",
+      "bundle": null,
+      "image": "earthcraft.png"
+    },
+    {
+      "id": "humanmotioncraft",
+      "name": "HumanMotionCraft",
+      "tagline": "Humanoid pose and animation",
+      "color": [250, 123, 61],
+      "repo": "YalKouassi/HumanMotionCraft",
+      "publisher": "YalKouassi",
+      "site": "https://github.com/YalKouassi/HumanMotionCraft",
+      "bundle": null,
+      "image": "humanmotioncraft.png"
+    },
+    {
+      "id": "mapcraft",
+      "name": "MapCraft",
+      "tagline": "Brush-based level editor",
+      "color": [248, 144, 40],
+      "repo": "bearlikelion/MapCraft",
+      "publisher": "bearlikelion",
+      "site": "https://mapcraft.site",
+      "bundle": null,
+      "image": "mapcraft.png"
+    },
+    {
+      "id": "notecraft",
+      "name": "NoteCraft",
+      "tagline": "Notebooks and notes on local files",
+      "color": [157, 40, 255],
+      "repo": "AlienTechSoftware/notecraft",
+      "publisher": "AlienTechSoftware",
+      "site": "https://github.com/AlienTechSoftware/notecraft",
+      "bundle": null,
+      "image": "notecraft.png"
+    },
+    {
+      "id": "paintcraft",
+      "name": "PaintCraft",
+      "tagline": "Painting and image editing",
+      "color": [255, 146, 25],
+      "repo": "replicraft/PaintCraft",
+      "publisher": "replicraft",
+      "site": "https://github.com/replicraft/PaintCraft",
+      "bundle": null,
+      "image": "paintcraft.png"
+    },
+    {
+      "id": "picassosuite",
+      "name": "PicassoSuite",
+      "tagline": "Video editing on Resolve-style pages",
+      "color": [26, 175, 255],
+      "repo": "fabox-os/Picasso-Suite",
+      "publisher": "fabox",
+      "site": "https://fabox-os.github.io/Picasso-Suite/",
+      "bundle": null,
+      "image": "picassosuite.png"
+    },
+    {
+      "id": "prowave",
+      "name": "ProWave",
+      "tagline": "Music production and DAW",
+      "color": [26, 230, 252],
+      "repo": "fabox-os/Pro-Wave",
+      "publisher": "fabox",
+      "site": "https://fabox-os.github.io/Pro-Wave/",
+      "bundle": null,
+      "image": "prowave.png"
+    },
+    {
+      "id": "rustgis",
+      "name": "RustGIS",
+      "tagline": "Geospatial maps and analysis",
+      "color": [184, 74, 44],
+      "repo": "opengeos/RustGIS",
+      "publisher": "opengeos",
+      "site": "https://github.com/opengeos/RustGIS",
+      "bundle": null,
+      "image": "rustgis.png"
+    },
+    {
+      "id": "tracedraw",
+      "name": "TraceDraw",
+      "tagline": "Vector illustration and print",
+      "color": [83, 198, 255],
+      "repo": "tracedraw/tracedraw",
+      "publisher": "TraceDraw",
+      "site": "https://github.com/tracedraw/tracedraw",
+      "bundle": null,
+      "package": "dev.tracedraw.app",
+      "image": "tracedraw.png"
+    },
+    {
+      "id": "transit",
+      "name": "Transit",
+      "tagline": "Digital audio workstation",
+      "color": [79, 186, 252],
+      "repo": "transit-audio/transit",
+      "publisher": "transit-audio",
+      "site": "https://transit-audio.com/",
+      "bundle": null,
+      "image": "transit.png"
+    },
+    {
+      "id": "coimanide",
+      "name": "Coiman IDE",
+      "tagline": "Code editor with language servers and Git",
+      "color": [47, 140, 255],
+      "repo": "ManuelCoimbra/coiman-ide",
+      "publisher": "ManuelCoimbra",
+      "site": "https://github.com/ManuelCoimbra/coiman-ide",
+      "bundle": null,
+      "image": "coimanide.png"
+    },
+    {
+      "id": "keydeck",
+      "name": "Keydeck",
+      "tagline": "Presentations: Keynote and PowerPoint files",
+      "color": [194, 48, 106],
+      "repo": "bramble-apps/bramble-office",
+      "publisher": "Bramble Apps",
+      "site": "https://bramble-apps.github.io",
+      "bundle": null,
+      "release": {
+        "repo": "bramble-apps/bramble-office",
+        "asset": "Keydeck*apk"
+      },
+      "package": "app.bramble.keydeck",
+      "image": "keydeck.png"
+    },
+    {
+      "id": "values",
+      "name": "Values",
+      "tagline": "Spreadsheets: Numbers and Excel files",
+      "color": [142, 58, 138],
+      "repo": "bramble-apps/bramble-office",
+      "publisher": "Bramble Apps",
+      "site": "https://bramble-apps.github.io",
+      "bundle": null,
+      "release": {
+        "repo": "bramble-apps/bramble-office",
+        "asset": "Values*apk"
+      },
+      "package": "app.bramble.values",
+      "image": "values.png"
+    },
+    {
+      "id": "letters",
+      "name": "Letters",
+      "tagline": "Word processing and page layout",
+      "color": [90, 127, 60],
+      "repo": "bramble-apps/bramble-office",
+      "publisher": "Bramble Apps",
+      "site": "https://bramble-apps.github.io",
+      "bundle": null,
+      "release": {
+        "repo": "bramble-apps/bramble-office",
+        "asset": "Letters*apk"
+      },
+      "package": "app.bramble.letters",
+      "image": "letters.png"
+    },
+    {
+      "id": "procraft",
+      "name": "ProCraft",
+      "tagline": "Digital painting and illustration with pressure-sensitive brushes, layers and animation",
+      "color": [255, 163, 55],
+      "repo": "artcraft-android/procraft",
+      "publisher": "Bearinmind",
+      "site": null,
+      "bundle": null,
+      "release": {
+        "repo": "artcraft-android/procraft",
+        "asset": "procraft-*-android-arm64.apk"
+      },
+      "package": "io.github.artcraftandroid.procraft",
+      "image": "procraft.png"
+    },
+    {
+      "id": "capcraft",
+      "name": "CapCraft",
+      "tagline": "Mobile video editing with filters, effects, transitions and captions",
+      "color": [25, 25, 25],
+      "repo": "artcraft-android/capcraft-android",
+      "publisher": "Bearinmind",
+      "site": null,
+      "bundle": null,
+      "release": {
+        "repo": "artcraft-android/capcraft-android",
+        "asset": "capcraft-android-*.apk"
+      },
+      "package": "io.github.artcraftandroid.capcraft",
+      "image": "capcraft.png"
+    },
+    {
+      "id": "concat",
+      "name": "Concat",
+      "tagline": "Local-first video editor, scriptable through JSON-RPC",
+      "color": [5, 104, 253],
+      "repo": "jub0t/Concat",
+      "publisher": "jub0t",
+      "site": "https://concat.standalones.org",
+      "bundle": null,
+      "release": {
+        "repo": "jub0t/Concat",
+        "asset": "Concat-*-android-arm64.apk"
+      },
+      "package": "app.concat.editor",
+      "image": "concat.png"
+    }
+  ]
+}

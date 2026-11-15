@@ -392,3 +392,8 @@ priority = -1
 
 [lints.rustdoc]
 all = "warn"
+
+
+[patch.crates-io]
+winit = { path = "../winit" }
+android-activity = { path = "../android-activity" }

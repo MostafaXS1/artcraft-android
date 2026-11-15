@@ -478,3 +478,7 @@ features = [
     "Win32_UI_TextServices",
     "Win32_UI_WindowsAndMessaging",
 ]
+
+
+[patch.crates-io]
+android-activity = { path = "../android-activity" }

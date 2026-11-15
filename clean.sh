@@ -19,8 +19,12 @@ rm -rf output/
 # Build logs
 rm -rf logs/
 
-# Signing key and password (generated on first build)
-rm -rf keys/
+# Signing key and password are preserved to maintain stable signing certificates
+# and preserve the Android App UID between versions (preventing reinstall requirement).
+# Pass --clean-keys if you explicitly wish to discard the persistent keystore.
+if [[ "${1:-}" == "--clean-keys" ]]; then
+    rm -rf keys/
+fi
 
 # Stale backups
 rm -rf backups/

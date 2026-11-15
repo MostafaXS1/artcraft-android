@@ -1,9 +1,10 @@
 # Build artifacts
 build
 build/
+**/target/
 output/
 logs/
-keys/
+# keys/ is deliberately tracked to preserve signing identity and Android App UID across updates
 .cargo-home/
 
 # Source checkouts (cloned during build)
@@ -31,6 +32,50 @@ Thumbs.db
 
 # Local reversible snapshots (not part of the project)
 .backups/
-
 # Logs
 *.log
+
+keys/*.jks
+keys/.keystore-password
+
+# ArtCraft Launcher (Android) build artifacts
+artcraft-android-launcher/launcher/target/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/build/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/.gradle/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/.cxx/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/gradle.properties
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/local.properties
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/android/app/src/main/jniLibs/
+
+# Gradle wrapper and cache
+**/gradle/wrapper/dists/
+**/.gradle/
+
+# Cargo vendor patches (generated)
+artcraft-android-launcher/launcher/vendor-egui-winit-*/
+artcraft-android-launcher/launcher/apps/artcraft-launcher-android/target/
+
+# Launcher output (built APKs)
+output/Artcraft-launcher.apk
+output/*.apk
+
+# IDE and editor files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+temp/
+
+# ArtCraft Launcher is tracked in-tree (it was briefly a gitlink, which broke CI).
+# Keep its build outputs out of the repository.
+launcher/**/build/
+launcher/**/.gradle/
+launcher/**/.cxx/
+launcher/**/local.properties
+launcher/**/jniLibs/

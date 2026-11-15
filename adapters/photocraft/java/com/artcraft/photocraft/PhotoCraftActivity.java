@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
@@ -70,6 +71,7 @@ public final class PhotoCraftActivity extends NativeActivity {
     private static final int REQ_OPEN = 0x5043;
     private static final int REQ_SAVE = 0x5044;
     private static final int REQ_PERMISSIONS = 0x5045;
+    private static final int REQ_FOLDER = 0x5046;
     private static final String PREFS = "photocraft_saf_uri_map";
     private final ConcurrentLinkedQueue<String> results = new ConcurrentLinkedQueue<>();
     private final Map<Integer, Long> requestIds = new HashMap<>();
@@ -614,14 +616,46 @@ public final class PhotoCraftActivity extends NativeActivity {
         }
     }
 
+    private static final int SAMSUNG_PEN_DOWN = 211;
+    private boolean sideButtonHeld = false;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e == null) return super.dispatchTouchEvent(e);
+        int samsung = e.getActionMasked() - SAMSUNG_PEN_DOWN;
+        sideButtonHeld = samsung >= 0 && samsung <= 3;
+        if (sideButtonHeld) {
+            int[] standard = {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL};
+            e.setAction(standard[samsung] | (e.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK));
+        }
+
+        int action = e.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            int i = e.getActionIndex();
+            int tool = e.getToolType(i);
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(e);
+                }
+            }
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        if (event != null && (
-            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
-        )) {
-            return super.dispatchGenericMotionEvent(event);
+        if (event != null) {
+            int tool = event.getToolType(event.getActionIndex());
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(event);
+                }
+            }
+            if (event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)) {
+                return super.dispatchGenericMotionEvent(event);
+            }
         }
         return super.dispatchGenericMotionEvent(event);
     }
@@ -861,17 +895,92 @@ public final class PhotoCraftActivity extends NativeActivity {
         });
     }
 
+    public void pcRequestFolder(long id) {
+        runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                        if (!docsDir.exists()) docsDir.mkdirs();
+                        Uri docsTreeUri = DocumentsContract.buildTreeDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Documents"
+                        );
+                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not set initial tree URI for folder picker", e);
+                    }
+                }
+                requestIds.put(REQ_FOLDER, id);
+                startActivityForResult(intent, REQ_FOLDER);
+            } catch (Exception e) {
+                enqueueError(id, "folder", e.toString());
+            }
+        });
+    }
+
+    private String treeToPath(Uri tree) {
+        try {
+            String documentId = DocumentsContract.getTreeDocumentId(tree);
+            if (documentId == null) return null;
+            int colon = documentId.indexOf(':');
+            if (colon < 0) return null;
+            String volume = documentId.substring(0, colon);
+            String relative = documentId.substring(colon + 1);
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                base = new File("/storage/" + volume);
+                if (!base.exists()) {
+                    File[] externalDirs = getExternalFilesDirs(null);
+                    if (externalDirs != null) {
+                        for (File f : externalDirs) {
+                            if (f != null && f.getAbsolutePath().contains(volume)) {
+                                int idx = f.getAbsolutePath().indexOf(volume);
+                                base = new File(f.getAbsolutePath().substring(0, idx + volume.length()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return relative.isEmpty() ? base.getAbsolutePath() : new File(base, relative).getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_OPEN && requestCode != REQ_SAVE) return;
+        if (requestCode != REQ_OPEN && requestCode != REQ_SAVE && requestCode != REQ_FOLDER) return;
         Long boxedId = requestIds.remove(requestCode);
         if (boxedId == null) return;
         final long id = boxedId;
-        final String kind = requestCode == REQ_OPEN ? "open" : "save";
+        final String kind = requestCode == REQ_OPEN ? "open" : requestCode == REQ_SAVE ? "save" : "folder";
         if (resultCode != RESULT_OK || data == null) {
             suggestedNames.remove(id);
             enqueueCancel(id, kind);
+            return;
+        }
+        if (requestCode == REQ_FOLDER) {
+            Uri tree = data.getData();
+            String path = tree == null ? null : treeToPath(tree);
+            if (path == null) {
+                enqueueError(id, kind, "Only folders on device storage can be opened");
+                return;
+            }
+            persistPermission(tree, data);
+            try {
+                JSONObject result = base(id, kind, "ok");
+                result.put("path", path);
+                results.offer(result.toString());
+            } catch (Exception e) {
+                enqueueError(id, kind, e.toString());
+            }
             return;
         }
         if (requestCode == REQ_SAVE) {
@@ -881,6 +990,7 @@ public final class PhotoCraftActivity extends NativeActivity {
             try {
                 String name = displayName(uri);
                 if (name == null || name.trim().isEmpty()) name = suggestedNames.getOrDefault(id, "Untitled.pcraft");
+                name = keepSuggestedExtension(name, suggestedNames.get(id));
                 File stage = newStageFile(name, uri);
                 rememberUri(stage, uri);
                 enqueueSave(id, stage.getAbsolutePath());
@@ -926,22 +1036,66 @@ public final class PhotoCraftActivity extends NativeActivity {
     public String pcCommitIfMapped(String path) {
         try {
             String uriText = getSharedPreferences(PREFS, MODE_PRIVATE).getString("uri:" + path, null);
+            if (uriText == null) uriText = uriForSibling(path);
             if (uriText == null) return "NONE";
             Uri uri = Uri.parse(uriText);
-            OutputStream out = getContentResolver().openOutputStream(uri, "wt");
-            if (out == null) out = getContentResolver().openOutputStream(uri, "w");
+            File srcFile = new File(path);
+            if (!srcFile.exists()) {
+                return "ERROR: Staged file does not exist: " + path;
+            }
+            // Use binary "w" mode to avoid text translation / truncation causing 0B files
+            OutputStream out = getContentResolver().openOutputStream(uri, "w");
+            if (out == null) out = getContentResolver().openOutputStream(uri, "wt");
             if (out == null) return "ERROR: Android document provider did not open an output stream";
-            try (InputStream in = new FileInputStream(new File(path)); OutputStream target = out) {
+            try (InputStream in = new FileInputStream(srcFile); OutputStream target = out) {
                 byte[] buffer = new byte[64 * 1024];
                 int count;
-                while ((count = in.read(buffer)) != -1) target.write(buffer, 0, count);
+                long total = 0;
+                while ((count = in.read(buffer)) != -1) {
+                    target.write(buffer, 0, count);
+                    total += count;
+                }
                 target.flush();
+                Log.i(TAG, "Committed " + total + " bytes from " + path + " to " + uri);
             }
             return "OK";
         } catch (Exception e) {
             Log.e(TAG, "Could not write a selected document", e);
             return "ERROR: Could not write the selected document: " + e.getMessage();
         }
+    }
+
+    private static String stagedStem(String path) {
+        File file = new File(path);
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        File parent = file.getParentFile();
+        return parent == null ? stem : new File(parent, stem).getAbsolutePath();
+    }
+
+    private String uriForSibling(String path) {
+        String stem = stagedStem(path);
+        try {
+            for (Map.Entry<String, ?> entry : getSharedPreferences(PREFS, MODE_PRIVATE).getAll().entrySet()) {
+                if (!entry.getKey().startsWith("uri:") || !(entry.getValue() instanceof String uriText)) continue;
+                String staged = entry.getKey().substring("uri:".length());
+                if (stagedStem(staged).equals(stem)) return uriText;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look up a staged document", e);
+        }
+        return null;
+    }
+
+    private static String keepSuggestedExtension(String name, String suggested) {
+        if (name == null || suggested == null) return name;
+        int dot = name.lastIndexOf('.');
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (dot > slash + 1 && dot < name.length() - 1) return name;
+        int suggestedDot = suggested.lastIndexOf('.');
+        if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
+        return name + suggested.substring(suggestedDot);
     }
 
     /**
@@ -1004,7 +1158,7 @@ public final class PhotoCraftActivity extends NativeActivity {
     }
 
     private void rememberUri(File path, Uri uri) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).commit();
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
@@ -1129,4 +1283,31 @@ public final class PhotoCraftActivity extends NativeActivity {
         if (lower.endsWith(".svg")) return "image/svg+xml";
         return "application/octet-stream";
     }
+
+    public void setSurfacePointerIcon(final int pointerIconType) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return;
+        android.util.Log.i(TAG, "setSurfacePointerIcon: type=" + pointerIconType);
+        runOnUiThread(() -> {
+            try {
+                android.view.Window window = getWindow();
+                if (window == null) return;
+                android.view.View decor = window.getDecorView();
+                if (decor == null) return;
+                android.view.PointerIcon icon =
+                        android.view.PointerIcon.getSystemIcon(this, pointerIconType);
+                // Set on the decor and content views (the parents of the SurfaceView).
+                // The SurfaceView's onResolvePointerIcon returns null (no icon set on it),
+                // so the parent (FrameLayout content) is asked and returns the icon.
+                // Setting it directly on the SurfaceView doesn't visually update the cursor.
+                decor.setPointerIcon(icon);
+                android.view.View content = decor.findViewById(android.R.id.content);
+                if (content != null) {
+                    content.setPointerIcon(icon);
+                }
+            } catch (Throwable error) {
+                android.util.Log.w(TAG, "Could not set surface pointer icon", error);
+            }
+        });
+    }
+
 }

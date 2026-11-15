@@ -7,11 +7,118 @@
   - **SolidCraft** (`tangency-labs/solidcraft`): Parametric 3D CAD application in pure Rust with support for `.sc`, `.solidcraft`, `.step`, `.stp`, `.stl`, `.3mf`, `.dxf`, and `.obj` formats.
   - **MaterialCraft** (`storytold/materialcraft`): Node-based procedural PBR material designer with support for `.mcraft`, `.materialcraft`, `.sbs`, and `.mcmat` formats.
   - **TextureCraft** (`storytold/texturecraft`): 3D texture painting application with support for `.tcraft`, `.texturecraft`, `.spp`, and 3D mesh formats (`.obj`, `.gltf`, `.glb`, `.fbx`).
+- Added an Android build target for **Coiman IDE** (`ManuelCoimbra/coiman-ide`), a desktop
+  eframe/egui IDE, together with the custom adapter in `adapters/coimanide/`:
+  - The adapter turns the binary crate into a library (`crates/coiman-ide/src/lib.rs` with the
+    same modules and core re-exports as `main.rs`, plus `open_file`/`open_folder`), switches
+    eframe to wgpu and the native Activity, compiles the desktop pty out on Android, replaces
+    the `trash` crate (which has no Android platform) with a stub that deletes permanently, and
+    points the egui stack at the builder's egui fork (the Android clipboard, IME and touch
+    handling every other app uses). All of it happens at build time in `prepare.sh`; the upstream
+    checkout is never edited.
+  - **A Termux bridge**: Coiman's Git panel, its Run button, its tests and its terminal run
+    programs that only exist inside Termux, and Android gives an app no way to run another app's
+    binaries. `quiet_command` (every tool Coiman runs) and `which` (its "is this installed?"
+    probe) are routed to a small native shim (`shim/termux_shim.c`, bundled twice as
+    `libcoiman_termux_shim.so` and `libcoiman_termux_shell.so`), the shim writes a request, and
+    the Activity's `TermuxBroker` forwards it to Termux's official `RUN_COMMAND` service
+    (`com.termux/com.termux.app.RunCommandService`). The shim relays stdin, stdout, stderr and
+    the exit code, so the caller sees an ordinary child process.
+  - Everything the two apps exchange lives in `/sdcard/Documents/CoimanTermux`: Termux cannot
+    read an app's own external files directory, so shared storage is the only place both can
+    write. Shared storage has no named pipes (`mkfifo` is refused there), so the stdin bridge is
+    a regular file that the script feeds into a FIFO it creates inside Termux's own temporary
+    directory.
+  - The app asks for Termux's `RUN_COMMAND` permission at runtime (Termux declares it as a
+    runtime permission), declares `<queries><package android:name="com.termux"/></queries>` so
+    Android 11+ can resolve the service, and asks the user to install Termux with a dialog like
+    the builder's update window (**Download** opens its F-Droid page, **Ignore once** and
+    **Always ignore**).
+  - The 23 VS Code themes the builder's user has (without Breeze Dark and Breeze Light) are
+    bundled with the app: Coiman can read VS Code color themes already, so they are packed as
+    assets, unpacked by the Activity and copied into Coiman's config folder, where its theme
+    picker lists them.
+  - Registered in `lib/build-common.sh` (title, repository, SAF launcher, the usage list) and
+    documented in `adapters/README.md`.
+  - A **keyboard button in the bottom bar** for Coiman IDE: at the right end of the status bar,
+    a keyboard icon followed by the mode the app is in. Tapping it opens a menu with the three
+    modes — **On** (the keyboard stays up and comes back when it is dismissed), **Off** (the app
+    never opens the keyboard by itself) and **Auto** (the keyboard follows the text: it opens
+    for the editor, the terminal and the real text fields, and goes away when none of them is
+    focused) — plus "Show now" and "Hide now". The mode is kept in Coiman's own settings folder,
+    so it survives a restart. The button replaces the back-button toggle, which handed the back
+    button back to the app.
+- Added file associations and intent filters for source code and configuration documents
+  (Rust, Python, C/C++, Java, Go, shell, TOML, YAML, HTML, CSS, SQL, …) for Coiman IDE in
+  `lib/file_associations.py`.
+- Added `<queries>` support to the manifest generator in `lib/android_project.py`, so an app can
+  declare the packages it talks to (Termux's `RUN_COMMAND` service for Coiman IDE). Apps without
+  the metadata are unaffected: their manifests are unchanged.
 - Added file associations and intent filters for 3D CAD, model, and procedural texture formats in `lib/file_associations.py`.
 - Added `solidcraft`, `materialcraft`, and `texturecraft` to GitHub Actions CI build matrix (`.github/workflows/build.yml`).
+- Added `coimanide` to the GitHub Actions CI build matrix (`.github/workflows/build.yml`): Coiman
+  IDE is built by CI like every other target.
 - Registered build targets and SAF launcher recipes in `lib/build-common.sh`.
 
 ### Fixed
+- **Three Android builds that CI could not build** — each was a change in the upstream project
+  the builder follows, and each is now taken from upstream at build time instead of being frozen
+  in the adapter:
+  - **PhotoCraft**: the adapter shipped a frozen copy of upstream's `control_server.rs`, and
+    upstream v0.23 replaced `security::authentication_reply` with the `ServerHandshake` state
+    machine, so the build stopped with `error[E0432]: unresolved import
+    photocraft_automation::security::authentication_reply`. The file is now taken from the
+    upstream checkout on every build; only the desktop's `eprintln!` becomes the Android logger
+    and the test module (which needs the desktop's test dependencies) is dropped.
+  - **ProWave**: upstream's `main` gave `prowave-app` the default features `x11` and
+    `accessibility`, and `accessibility` pulls `eframe/accesskit`, which eframe refuses with the
+    `android-native-activity` backend the Android build uses ("`accesskit` feature is only
+    available with `android-game-activity`"). The Android launcher now asks for the crate without
+    its default features. Upstream also added fields to its `App` struct (`shot`, `shot_exit`),
+    which broke the adapter's hand-written constructor ("missing fields `shot` and `shot_exit` in
+    initializer of `App`"); the constructor is now built from upstream's own `App { ... }` literal,
+    so a new field no longer breaks the Android build.
+  - **CapsuleCraft**: `prepare.sh` writes the root workspace manifest (upstream ships none), and
+    it left out `exclude = ["vendor"]`. The vendored egui fork is a nested workspace of its own,
+    so cargo took its crates as members of the outer one, and the fork's `egui-winit` then
+    inherited a `rust-version` the outer manifest does not define ("error inheriting
+    `rust-version` from workspace root manifest's `workspace.package.rust-version`"). The
+    manifest now excludes the vendored fork and declares the `rust-version` the fork asks for.
+    A pristine checkout also needs the fork's `android_activity` and `ime` modules, which the
+    adapter now writes and declares itself, and every egui crate now resolves to the vendored
+    fork instead of compiling two different `egui` crates (eframe from the git fork, egui-winit
+    from the path copy), which failed with mismatched `egui::Context` types.
+- **Coiman IDE on Android** — the first Android build of Coiman had a handful of platform
+  problems, all fixed in the adapter and in build-time patches of the upstream sources:
+  - A tap in the editor did nothing: on Android a tap is a press *and* a release in the same
+    frame, and egui clears "the button is down on this widget" on the release, so the editor's
+    "the cursor goes where the pointer went down" test was never true. The editor now also
+    accepts `clicked()`, which survives the same-frame release.
+  - The soft keyboard could not follow Coiman's text. The editor and the terminal draw their own
+    text, so neither is a `TextEdit`; both now publish an IME output while they have focus, so
+    the keyboard opens and closes with them, and a tap in either asks for it back after it was
+    dismissed. The **keyboard button in the bottom bar** chooses the policy: **Auto** follows
+    the text, **On** keeps the keyboard up, **Off** never opens it. The search popups (real text
+    fields) work the same way, and a popup still closes on the back button.
+  - The keyboard covered the terminal: Android 15 and later keep the window edge to edge and do
+    not resize it for the keyboard. The Activity caches the keyboard's inset on the UI thread
+    and wakes the shell when it changes; the shell shortens egui's screen by it, so the whole
+    layout — the editor above, the terminal panel at the bottom — moves above the keyboard.
+  - The Cut/Copy/Paste/Delete bar never appeared, and appeared at the top of the screen. The
+    editor and the terminal publish their selection now (into egui's own `TextEditState`, which
+    is what the bar looks for, and into `coiman_core::selection`, which is where the bar goes).
+  - Coiman's command palette closed itself the instant it opened: it closes on a press outside
+    its own area, and the press that opened it (a tap on "Rename…" in a menu) is outside that
+    area. The palette now ignores the press that opened it, so renaming and the new-file field
+    work with a tap.
+  - The Enter key acted twice in the terminal: Android's IME bridge sends Enter as a key event
+    *and* as `Text("\n")`, and the terminal wrote both.
+  - The title bar kept an empty strip at the right where the desktop caption buttons (minimize,
+    maximize, close) would be; that space goes back to the bar.
+  - Every Termux shell started with `setlocale: LC_ALL: cannot change locale (en-GB)`: the shim
+    forwarded the app's locale, which Termux does not have. The locale is not forwarded any more.
+  - A project folder in shared storage belongs to the editor app, not to Termux, so git refused
+    to work in it ("dubious ownership"). The shim now runs git with `safe.directory=*`.
 - **CI build times & memory bottlenecks (SolidCraft, LightCraft, and 3D CAD kernels)**:
   1. *Link-Time Optimization (LTO) bypass*: Replaced `CARGO_PROFILE_RELEASE_LTO: "thin"` with `"off"` across CI and local build defaults, eliminating the 8–12 minute LLVM cross-module linking bottleneck on 2-vCPU / low-RAM environments.
   2. *Compiler cache expansion*: Increased `SCCACHE_CACHE_SIZE` from 2 GB to 5 GB in `.github/workflows/build.yml` to prevent LRU eviction of massive CAD dependency trees, bringing warm-cache builds down to 4–6 minutes.
@@ -33,6 +140,11 @@
 - **GENERATOR_VERSION bumped to 70** — Forces regeneration of all launcher activities and manifests to include the IME input view and bridges.
 - **SubCraft launch crash on low-memory devices** — The viewport's first-frame placeholder rect (10,000×10,000 points) was passed to the render target without clamping, requesting a texture that exceeded `max_texture_dimension_2d` and 2.4 GB of VRAM, triggering the Android OOM killer. Patched `lib/subcraft.sh` to apply the viewport clamp at the new `physical_size` call site, capped `RenderTarget::new` to 4096 px, and added a safe fallback in `ensure_screen_rect` (adapters/subcraft) when the native window is not yet available.
 - **SubCraft viewport size clamping skipped by pattern mismatch** — Upstream changed the viewport sizing from manual rounding to `physical_size()`, so the builder's patch no longer matched. `lib/subcraft.sh` now matches both the old and new signatures.
+
+### Changed
+- All 32 build targets were rebuilt one after the other in alphabetical order (`anicraft` …
+  `wordcraft`, Coiman IDE included) and all of them build; the new Coiman IDE adapter and the
+  shared `<queries>` support are the only changes to the builder's own files.
 
 ## v39 — 2026-11-03
 

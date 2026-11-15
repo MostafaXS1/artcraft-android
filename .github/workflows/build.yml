@@ -24,6 +24,11 @@ on:
         options:
           - stable
           - main
+      release_build:
+        description: 'Android release build number (for repeat releases of same version)'
+        required: false
+        default: '0'
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,10 +47,12 @@ jobs:
       RUSTC_WRAPPER: "sccache"
       SCCACHE_DIR: "/home/runner/.cache/sccache"
       SCCACHE_CACHE_SIZE: "5G"
+      GIT_LFS_SKIP_SMUDGE: "1"
     strategy:
       fail-fast: false
       matrix:
         app:
+          - subcraft
           - photocraft
           - vectorcraft
           - filmcraft
@@ -59,12 +66,35 @@ jobs:
           - deckcraft
           - cadcraft
           - gridcraft
-          - subcraft
           - solidcraft
           - materialcraft
           - texturecraft
+          - notecraft
+          - diagramcraft
+          - paintcraft
+          - bimcraft
+          - tracedraw
+          - picassosuite
+          - capsulecraft
+          - humanmotioncraft
+          - rustgis
+          - earthcraft
+          - mapcraft
+          - prowave
+          - transit
+          - anicraft
+          - coimanide
 
     steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/ndk/25.*
+          sudo rm -rf /usr/local/lib/android/sdk/ndk/26.*
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -152,17 +182,19 @@ jobs:
 
       - name: Configure Android SDK and NDK
         run: |
-          # Use pre-installed Android SDK and NDK on the runner
-          if [ -d "$ANDROID_HOME/ndk/27.2.12479018" ]; then
-            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
-            echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+          # Use pre-installed Android SDK and NDK on the runner (prefer NDK 27.x over NDK 30 preview)
+          NDK_27=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -name "27.*" -type d 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$NDK_27" ]; then
+            echo "ANDROID_NDK_HOME=$NDK_27" >> $GITHUB_ENV
+            echo "NDK_HOME=$NDK_27" >> $GITHUB_ENV
           elif [ -d "$ANDROID_HOME/ndk" ]; then
-            LATEST_NDK=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+            LATEST_NDK=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d | grep -v "/30\." | sort -V | tail -n 1)
             if [ -n "$LATEST_NDK" ]; then
               echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
               echo "NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
             fi
           fi
+          echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android28" >> $GITHUB_ENV
           echo "ARTCRAFT_BUILD_TOOLS_VERSION=35.0.0" >> $GITHUB_ENV
 
       - name: Build ${{ matrix.app }} APK
@@ -240,9 +272,99 @@ jobs:
             logs/*.zip
           if-no-files-found: ignore
 
+  build-launcher:
+    name: Build ArtCraft Launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Configure Android SDK and NDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          NDK_27=$(find "$SDK_ROOT/ndk" -maxdepth 1 -mindepth 1 -name "27.*" -type d 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$NDK_27" ]; then
+            echo "ANDROID_NDK_HOME=$NDK_27" >> $GITHUB_ENV
+          else
+            LATEST_NDK=$(find "$SDK_ROOT/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -n 1)
+            if [ -z "$LATEST_NDK" ]; then
+              echo "No Android NDK found under $SDK_ROOT/ndk" >&2
+              exit 1
+            fi
+            echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
+          echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android28" >> $GITHUB_ENV
+          echo "ARTCRAFT_BUILD_TOOLS_VERSION=35.0.0" >> $GITHUB_ENV
+
+      - name: Build Android Launcher
+        working-directory: ./launcher/apps/artcraft-launcher-android
+        env:
+          PROFILE: ${{ github.event.inputs.mode || 'release' }}
+          RELEASE_BUILD: ${{ github.event.inputs.release_build || '0' }}
+        run: |
+          ./build.sh
+
+      - name: Copy APK to output folder
+        run: |
+          VERSION=$(grep '^version' ./launcher/Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          RELEASE_BUILD="${{ github.event.inputs.release_build || '0' }}"
+          if [[ "$RELEASE_BUILD" -gt 0 ]]; then
+            APK_VERSION="${VERSION}-${RELEASE_BUILD}"
+          else
+            APK_VERSION="${VERSION}"
+          fi
+          BUILT_APK="./launcher/target/android/artcraft-launcher-${APK_VERSION}-arm64-v8a.apk"
+          mkdir -p ./output
+          cp "$BUILT_APK" ./output/Artcraft-launcher.apk
+          echo "APK_VERSION=${APK_VERSION}" >> $GITHUB_ENV
+
+      - name: Upload Launcher APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artcraft-launcher-apk
+          path: ./output/Artcraft-launcher.apk
+          retention-days: 30
+
   bundle:
     name: Bundle All APKs
-    needs: build
+    needs: [build, build-launcher]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -286,11 +408,20 @@ jobs:
           name: artcraft-all-apks
           path: all-apks/*.apk
 
-      - name: Create Release on Tag Push
+      - name: Create Release on Tag Push (v* tags)
         if: startsWith(github.ref, 'refs/tags/v') && steps.check_apks.outputs.has_apks == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: all-apks/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Create Release on Tag Push (android-v* tags)
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: all-apks/Artcraft-launcher.apk
           draft: false
           prerelease: false
           generate_release_notes: true

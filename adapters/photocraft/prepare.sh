@@ -14,17 +14,51 @@ if [[ -e "$DEST" && ! -f "$DEST/.artcraft-android-builder-generated" ]]; then
   exit 1
 fi
 if [[ -d "$DEST" ]]; then
-  stamp="$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$ROOT/backups"
-  cp -a "$DEST" "$ROOT/backups/photocraft-android.before-saf-adapter.$stamp"
   rm -rf -- "$DEST"
 fi
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
+# The Android launcher runs the same control server as the desktop app, so it needs the same
+# file. Upstream v0.13's `control_server.rs` is the source of truth: it is copied here and
+# adapted for Android (the desktop's `eprintln!` becomes the Android logger, and the test module
+# is dropped because it needs the desktop's test dependencies). Copying it per build — rather than
+# freezing one version in the adapter — keeps it in step with the upstream release being built:
+# upstream v0.23 replaced `security::authentication_reply` with the `ServerHandshake` state
+# machine, and a frozen copy no longer compiled.
+python3 - "$SRC_ABS" "$DEST" <<'PY'
+from pathlib import Path
+import sys
+
+src, dest = Path(sys.argv[1]), Path(sys.argv[2])
+upstream = src / "apps" / "photocraft" / "src" / "control_server.rs"
+target = dest / "src" / "control_server.rs"
+
+if not upstream.is_file():
+    raise SystemExit(
+        f"photocraft: upstream no longer has {upstream}; the Android control server has to be "
+        "adapted by hand"
+    )
+
+text = upstream.read_text()
+
+# The desktop logs to stderr; on Android the records go to logcat through the `log` crate.
+text = text.replace("eprintln!(", "log::info!(")
+
+# The tests need the desktop crate's test-only dependencies; the Android launcher has none.
+marker = "#[cfg(test)]\nmod tests {"
+if marker in text:
+    text = text[: text.index(marker)].rstrip() + "\n"
+
+target.write_text(text)
+print(f"photocraft: the control server follows upstream ({upstream.name})")
+PY
+
 # Ship the shared Android system-font module next to the adapter sources; its launcher references
 # `mod system_fonts;` (see templates/android/system_fonts.rs, shared with the generated launchers).
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
+cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
+cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
 # The soft keyboard uses android-activity's native IME (the launcher polls `text_input_state`);
 # there is no ime_bridge module to copy.
 # Launcher icons: density mipmaps plus the API 26+ adaptive layers, from the same shared module

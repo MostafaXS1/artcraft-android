@@ -1,10 +1,73 @@
 use core::fmt;
-use std::sync::{Arc, RwLock};
+use core::ptr::NonNull;
+use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+
+use ndk::asset::AssetManager;
 
 use ndk::configuration::{
     Configuration, Keyboard, KeysHidden, LayoutDir, NavHidden, Navigation, Orientation, ScreenLong,
     ScreenSize, Touchscreen, UiModeNight, UiModeType,
 };
+
+/// The app's asset manager, which is how the platform's current configuration is read.
+static ASSET_MANAGER: AtomicPtr<ndk_sys::AAssetManager> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Remembers the app's asset manager (the `AndroidApp` keeps one for its whole life).
+pub(crate) fn remember_asset_manager(manager: &AssetManager) {
+    ASSET_MANAGER.store(manager.ptr().as_ptr().cast(), Ordering::Relaxed);
+}
+
+/// How long a keyboard's state is remembered before the platform is asked again. Reading the
+/// configuration is a JNI call, and a keyboard comes and goes rarely.
+const KEYBOARD_STATE_TTL: Duration = Duration::from_millis(200);
+
+/// Whether a hardware keyboard is attached to the device, right now.
+///
+/// This is what Android itself uses to decide whether the soft keyboard is needed: a hardware
+/// keyboard reports [`ndk::configuration::Keyboard::Qwerty`] and is not hidden. The on-screen
+/// helpers that stand in for the soft keyboard (the Shift/Ctrl/Alt buttons, the
+/// Cut/Copy/Paste/Delete bar) read this and stay away when there is a keyboard.
+///
+/// The configuration Android hands the app only changes when the system sends a configuration
+/// change, and it does not always do that when a keyboard is plugged in or unplugged, so this
+/// asks the platform instead of trusting the cached configuration.
+pub fn hardware_keyboard_connected() -> bool {
+    static LAST: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+    {
+        let guard = match LAST.lock() {
+            Ok(guard) => guard,
+            Err(_) => return read_keyboard_state(),
+        };
+        if let Some((read_at, connected)) = *guard {
+            if read_at.elapsed() < KEYBOARD_STATE_TTL {
+                return connected;
+            }
+        }
+    }
+
+    let connected = read_keyboard_state();
+    if let Ok(mut guard) = LAST.lock() {
+        *guard = Some((Instant::now(), connected));
+    }
+    connected
+}
+
+/// The platform's current answer, read from the app's own configuration.
+fn read_keyboard_state() -> bool {
+    let manager = ASSET_MANAGER.load(Ordering::Relaxed);
+    if manager.is_null() {
+        return false;
+    }
+    let Some(manager) = NonNull::new(manager) else {
+        return false;
+    };
+    // SAFETY: the pointer is the app's own asset manager, which lives as long as the process.
+    let manager = unsafe { AssetManager::from_ptr(manager) };
+    let config = Configuration::from_asset_manager(&manager);
+    config.keyboard() == Keyboard::Qwerty && config.keys_hidden() == KeysHidden::No
+}
 
 /// A runtime-replacable reference to [`ndk::configuration::Configuration`].
 ///

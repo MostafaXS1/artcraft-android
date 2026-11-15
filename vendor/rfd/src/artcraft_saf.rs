@@ -107,8 +107,13 @@ impl std::future::Future for SafFuture {
 
 /// The Android backend's entry point: run the SAF picker for `kind` and resolve with its paths.
 pub(crate) async fn pick(kind: Kind) -> Option<Vec<PathBuf>> {
-    let id = start(kind)?;
-    SafFuture { id }.await
+    if let Some(id) = start(kind.clone()) {
+        SafFuture { id }.await
+    } else if let Some(blocking) = BLOCKING_LAUNCHER.get() {
+        blocking(kind)
+    } else {
+        None
+    }
 }
 
 /// The synchronous dialog API's entry point: run the blocking SAF picker for `kind` and return its

@@ -985,6 +985,36 @@ public final class __CLASS__ extends NativeActivity {
         });
     }
 
+    public void setSurfacePointerIcon(final int pointerIconType) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        runOnUiThread(() -> {
+            try {
+                Window window = getWindow();
+                if (window == null) return;
+                View decor = window.getDecorView();
+                if (decor == null) return;
+                android.view.PointerIcon icon =
+                        android.view.PointerIcon.getSystemIcon(this, pointerIconType);
+                applyPointerIconRecursive(decor, icon);
+            } catch (Throwable error) {
+                Log.w(TAG, "Could not set surface pointer icon", error);
+            }
+        });
+    }
+
+    private static void applyPointerIconRecursive(View root, android.view.PointerIcon icon) {
+        if (root == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return;
+        }
+        root.setPointerIcon(icon);
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyPointerIconRecursive(group.getChildAt(i), icon);
+            }
+        }
+    }
+
     /**
      * Folder picker. SAF hands back a document-tree URI; only a folder on the device's main storage
      * (`primary:…`) maps to a real path the app can use, so other volumes answer with an error.
@@ -994,6 +1024,19 @@ public final class __CLASS__ extends NativeActivity {
             try {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                        if (!docsDir.exists()) docsDir.mkdirs();
+                        Uri docsTreeUri = DocumentsContract.buildTreeDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Documents"
+                        );
+                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not set initial tree URI for folder picker", e);
+                    }
+                }
                 requestIds.put(REQ_FOLDER, id);
                 startActivityForResult(intent, REQ_FOLDER);
             } catch (Exception e) {
@@ -1002,15 +1045,32 @@ public final class __CLASS__ extends NativeActivity {
         });
     }
 
-    private static String treeToPath(Uri tree) {
+    private String treeToPath(Uri tree) {
         try {
             String documentId = DocumentsContract.getTreeDocumentId(tree);
             if (documentId == null) return null;
             int colon = documentId.indexOf(':');
             if (colon < 0) return null;
-            if (!"primary".equalsIgnoreCase(documentId.substring(0, colon))) return null;
+            String volume = documentId.substring(0, colon);
             String relative = documentId.substring(colon + 1);
-            File base = Environment.getExternalStorageDirectory();
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                base = new File("/storage/" + volume);
+                if (!base.exists()) {
+                    File[] externalDirs = getExternalFilesDirs(null);
+                    if (externalDirs != null) {
+                        for (File f : externalDirs) {
+                            if (f != null && f.getAbsolutePath().contains(volume)) {
+                                int idx = f.getAbsolutePath().indexOf(volume);
+                                base = new File(f.getAbsolutePath().substring(0, idx + volume.length()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             return relative.isEmpty() ? base.getAbsolutePath() : new File(base, relative).getAbsolutePath();
         } catch (Exception e) {
             return null;
@@ -1034,7 +1094,7 @@ public final class __CLASS__ extends NativeActivity {
             Uri tree = data.getData();
             String path = tree == null ? null : treeToPath(tree);
             if (path == null) {
-                enqueueError(id, kind, "Only folders on the device's main storage can be opened");
+                enqueueError(id, kind, "Only folders on device storage can be opened");
                 return;
             }
             persistPermission(tree, data);
@@ -1062,8 +1122,17 @@ public final class __CLASS__ extends NativeActivity {
                 // chosen document stayed 0 B. Keep the extension the app asked to save as, so the
                 // staged path is the path the app writes.
                 name = keepSuggestedExtension(name, suggestedNames.get(id));
-                File stage = newStageFile(name, uri);
-                rememberUri(stage, uri);
+                // The picker adds a counter to the whole name when a document with that name is
+                // already there ("animation.webm" becomes "animation.webm (3)"), so the name no
+                // longer ends in the extension: the app asked for a video and the name it gets
+                // back ends in "webm (3)", which is no video extension. Put the counter in front
+                // of the extension ("animation (3).webm"), and give the chosen document that
+                // name too, so the file the user ends up with is one the system recognises.
+                name = extensionLast(name);
+                Uri target = renameDocument(uri, name);
+                if (!target.equals(uri)) persistPermission(target, data);
+                File stage = newStageFile(name, target);
+                rememberUri(stage, target);
                 enqueueSave(id, stage.getAbsolutePath());
             } catch (Exception e) {
                 enqueueError(id, kind, e.toString());
@@ -1179,6 +1248,62 @@ public final class __CLASS__ extends NativeActivity {
     }
 
     /**
+     * Put a counter the picker added at the end of a name in front of the extension.
+     *
+     * <p>When a document with the name the app asked for is already there, the picker keeps the
+     * whole name and adds a counter to it: {@code animation.webm} becomes
+     * {@code animation.webm (3)}. The extension is then in the middle of the name, so the file is
+     * no longer a video (or a spreadsheet, or a drawing) as far as the app and the system are
+     * concerned — the app is told to write {@code animation.webm (3)}, whose extension is
+     * {@code webm (3)}. The counter belongs in front of the extension:
+     * {@code animation (3).webm}.</p>
+     */
+    private static String extensionLast(String name) {
+        if (name == null) return name;
+        int close = name.lastIndexOf(')');
+        if (close != name.length() - 1) return name;
+        int open = name.lastIndexOf('(', close);
+        if (open <= 0) return name;
+        String counter = name.substring(open);
+        String head = name.substring(0, open);
+        int dot = head.lastIndexOf('.');
+        if (dot <= 0) return name;
+        return head.substring(0, dot) + counter + head.substring(dot);
+    }
+
+    /**
+     * Give a chosen document the name the app works with, when the picker's name needs fixing.
+     *
+     * <p>The document is renamed only when its name really changed (the picker's counter sits
+     * behind the extension). The grant the picker gave is for the document's old URI, so the new
+     * one is checked for writing before it is kept: a provider that does not allow renaming, or
+     * one that drops the grant with the old name, leaves the document as it was. The app's
+     * working copy is written either way, so the document the user chose still gets the
+     * content.</p>
+     *
+     * @return the document's (possibly new) URI, or the one that was handed in.
+     */
+    private Uri renameDocument(Uri uri, String name) {
+        try {
+            String current = displayName(uri);
+            if (current == null || current.equals(name)) return uri;
+            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, name);
+            if (renamed == null) return uri;
+            try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(renamed, "rw")) {
+                return renamed;
+            } catch (Exception e) {
+                // The old name back, and the old URI: the document is the one the user chose.
+                try {
+                    DocumentsContract.renameDocument(getContentResolver(), renamed, current);
+                } catch (Exception ignored) { }
+                return uri;
+            }
+        } catch (Exception e) {
+            return uri;
+        }
+    }
+
+    /**
      * The working copy of a document the user chose through SAF. It is created under
      * {@link #appStorageDir()} rather than internal storage so the file the app actually edits is the
      * one a file manager or a computer finds under {@code Android/data/<pkg>/files}, and inside a
@@ -1241,7 +1366,7 @@ public final class __CLASS__ extends NativeActivity {
     }
 
     private void rememberUri(File path, Uri uri) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("uri:" + path.getAbsolutePath(), uri.toString()).commit();
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
@@ -1497,15 +1622,48 @@ public final class __CLASS__ extends NativeActivity {
         }
     }
 
+    private static final int SAMSUNG_PEN_DOWN = 211;
+    private boolean sideButtonHeld = false;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e == null) return super.dispatchTouchEvent(e);
+        // Translate Samsung S-Pen side-button actions (211 down, 212 up, 213 move, 214 cancel)
+        int samsung = e.getActionMasked() - SAMSUNG_PEN_DOWN;
+        sideButtonHeld = samsung >= 0 && samsung <= 3;
+        if (sideButtonHeld) {
+            int[] standard = {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL};
+            e.setAction(standard[samsung] | (e.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK));
+        }
+
+        int action = e.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            int i = e.getActionIndex();
+            int tool = e.getToolType(i);
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                // Request unbuffered dispatch for zero digitizer latency
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(e);
+                }
+            }
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        // Trackpad/touchpad/mouse/stylus should go through native handling (enables tap-to-click)
-        if (event != null && (
-            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
-        )) {
-            return super.dispatchGenericMotionEvent(event);
+        if (event != null) {
+            int tool = event.getToolType(event.getActionIndex());
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(event);
+                }
+            }
+            if (event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)) {
+                return super.dispatchGenericMotionEvent(event);
+            }
         }
         return super.dispatchGenericMotionEvent(event);
     }
@@ -1554,6 +1712,34 @@ public final class __CLASS__ extends NativeActivity {
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
         if (lower.endsWith(".epub")) return "application/epub+zip";
         if (lower.endsWith(".zip")) return "application/zip";
+        // Documents and spreadsheets: the save dialog has to create the document with the type
+        // the app will write, or other apps (and the file manager's own icon) do not recognise it.
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".xlsm")) return "application/vnd.ms-excel.sheet.macroEnabled.12";
+        if (lower.endsWith(".xltx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.template";
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".ods")) return "application/vnd.oasis.opendocument.spreadsheet";
+        if (lower.endsWith(".csv")) return "text/csv";
+        if (lower.endsWith(".tsv")) return "text/tab-separated-values";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".doc")) return "application/msword";
+        if (lower.endsWith(".odt")) return "application/vnd.oasis.opendocument.text";
+        if (lower.endsWith(".rtf")) return "application/rtf";
+        if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        // Video and sound: the export writes these, and a document saved with the right type is
+        // recognised by the file manager and by the apps that open it.
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".m4v")) return "video/x-m4v";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".avi")) return "video/x-msvideo";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg")) return "audio/ogg";
+        if (lower.endsWith(".oga")) return "audio/ogg";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
+        if (lower.endsWith(".flac")) return "audio/flac";
         return "application/octet-stream";
     }
 }

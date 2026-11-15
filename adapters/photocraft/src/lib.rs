@@ -28,6 +28,12 @@ use std::sync::{Arc, Mutex};
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod mcp_http;
+mod mobile_text_bar;
+mod touch_gestures;
+mod control_server;
+
+pub static CONTROL_INFO: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
 
 /// Emitted at startup so a device log (and the packaged `.so` strings) can confirm this shell —
 /// including the Android modifier-key fix and immersive fullscreen — is the one that is running.
@@ -229,6 +235,22 @@ impl AndroidFileBridge {
             })
             .map_err(|e| e.to_string())
     }
+
+    pub fn request_folder(&self, id: u64) -> Result<(), String> {
+        self.vm
+            .attach_current_thread(|env| -> jni::errors::Result<()> {
+                let activity_raw = self.app.activity_as_ptr() as jni::sys::jobject;
+                let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+                env.call_method(
+                    &*activity,
+                    jni_str!("pcRequestFolder"),
+                    jni_sig!("(J)V"),
+                    &[JValue::Long(id as i64)],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[derive(Default)]
@@ -266,10 +288,11 @@ impl PickerState {
                 bridge.request_save(id, &name)
             }
             FileDialogRequest::Folder { .. } => {
-                reply.send(Some(FileDialogAnswer::Unavailable(
-                    "Choosing folders is not supported by this Android file picker yet. Use Open or Save As for individual files.".into(),
-                )));
-                return;
+                self.replies
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id, reply);
+                bridge.request_folder(id)
             }
         };
         if let Err(error) = launch_result {
@@ -342,6 +365,10 @@ impl PickerState {
                     .get("path")
                     .and_then(serde_json::Value::as_str)
                     .map(|path| FileDialogAnswer::SaveTo(path.to_owned())),
+                "ok" if kind == "folder" => value
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|path| FileDialogAnswer::FolderTo(path.to_owned())),
                 _ => Some(FileDialogAnswer::Unavailable(
                     value
                         .get("message")
@@ -384,8 +411,19 @@ fn write_mobile(bridge: &AndroidFileBridge, path: &str, bytes: &[u8]) -> Result<
         ));
     }
     match bridge.commit_if_mapped(path)? {
-        state if state == "NONE" || state == "OK" => Ok(()),
-        state if state.starts_with("ERROR:") => Err(state.trim_start_matches("ERROR:").to_owned()),
+        state if state == "NONE" => {
+            log::debug!("File {path} written to internal/private storage (unmapped)");
+            Ok(())
+        }
+        state if state == "OK" => {
+            log::info!("Successfully committed SAF document for {path} ({} bytes)", bytes.len());
+            Ok(())
+        }
+        state if state.starts_with("ERROR:") => {
+            let msg = state.trim_start_matches("ERROR:").trim();
+            log::error!("Failed to commit SAF document for {path}: {msg}");
+            Err(msg.to_owned())
+        }
         state => Err(format!("Unexpected Android save result: {state}")),
     }
 }
@@ -558,6 +596,14 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
     let mut kept: Vec<egui::Event> = Vec::with_capacity(raw.events.len());
     for mut event in raw.events.drain(..) {
         match &mut event {
+            egui::Event::ModifiersChanged(m) => {
+                state.shift = m.shift;
+                state.ctrl = m.ctrl;
+                state.alt = m.alt;
+                state.mac_cmd = m.mac_cmd;
+                state.command = m.command || m.ctrl;
+                kept.push(event);
+            }
             egui::Event::Key {
                 key,
                 physical_key,
@@ -574,15 +620,28 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
                 }
                 state.mac_cmd = false;
                 state.command = state.ctrl;
-                *modifiers = *state;
+                if matches!(*key, egui::Key::Backspace | egui::Key::Delete) {
+                    *modifiers = egui::Modifiers::default();
+                } else {
+                    modifiers.shift |= state.shift;
+                    modifiers.ctrl |= state.ctrl;
+                    modifiers.alt |= state.alt;
+                    modifiers.command |= state.command;
+                }
                 kept.push(event);
             }
             egui::Event::PointerButton { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::MouseWheel { modifiers, .. } => {
-                *modifiers = *state;
+                modifiers.shift |= state.shift;
+                modifiers.ctrl |= state.ctrl;
+                modifiers.alt |= state.alt;
+                modifiers.command |= state.command;
                 kept.push(event);
             }
             egui::Event::Text(_) if state.ctrl || state.command || state.mac_cmd => {
@@ -600,6 +659,130 @@ fn apply_android_modifiers(state: &mut egui::Modifiers, raw: &mut egui::RawInput
         // `RawInput` has no modifier field in this egui version: `InputState.modifiers` is driven
         // purely by this event (plus its own per-event copies), so it must be emitted on change.
         raw.events.push(egui::Event::ModifiersChanged(*state));
+    }
+}
+
+/// Read the Android system clipboard's text (empty when there is none).
+fn android_clipboard_get(app: &AndroidApp) -> String {
+    let app = app.clone();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<String> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(String::new());
+        }
+        let clip = env
+            .call_method(
+                &manager,
+                jni_str!("getPrimaryClip"),
+                jni_sig!("()Landroid/content/ClipData;"),
+                &[],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(String::new());
+        }
+        let count = env
+            .call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?
+            .i()?;
+        if count <= 0 {
+            return Ok(String::new());
+        }
+        let item = env
+            .call_method(
+                &clip,
+                jni_str!("getItemAt"),
+                jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                &[JValue::Int(0)],
+            )?
+            .l()?;
+        if item.is_null() {
+            return Ok(String::new());
+        }
+        let text = env
+            .call_method(
+                &item,
+                jni_str!("getText"),
+                jni_sig!("()Ljava/lang/CharSequence;"),
+                &[],
+            )?
+            .l()?;
+        if text.is_null() {
+            return Ok(String::new());
+        }
+        let text = env
+            .call_method(
+                &text,
+                jni_str!("toString"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+        if text.is_null() {
+            return Ok(String::new());
+        }
+        let text = JString::cast_local(env, text)?;
+        Ok(text.try_to_string(env)?)
+    });
+    result.unwrap_or_else(|error| {
+        log::error!("Could not read the Android clipboard: {error}");
+        String::new()
+    })
+}
+
+/// Write text to the Android system clipboard (`ClipboardManager`).
+fn android_clipboard_set(app: &AndroidApp, text: &str) {
+    let app = app.clone();
+    let text = text.to_owned();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(());
+        }
+        let text_obj = JObject::from(env.new_string(&text)?);
+        let label = JObject::from(env.new_string("egui")?);
+        let clip = env
+            .call_static_method(
+                jni_str!("android/content/ClipData"),
+                jni_str!("newPlainText"),
+                jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"),
+                &[JValue::Object(&label), JValue::Object(&text_obj)],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(());
+        }
+        env.call_method(
+            &manager,
+            jni_str!("setPrimaryClip"),
+            jni_sig!("(Landroid/content/ClipData;)V"),
+            &[JValue::Object(&clip)],
+        )?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::error!("Could not write the Android clipboard: {error}");
     }
 }
 
@@ -656,6 +839,7 @@ struct PhotoCraftAndroidApp {
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
     persist_last: Option<std::time::Instant>,
+    _mcp: Option<mcp_http::Endpoint>,
 }
 
 /// Read the files the system asked this app to open (an `ACTION_VIEW`/`ACTION_SEND` it is registered
@@ -919,10 +1103,19 @@ impl eframe::App for PhotoCraftAndroidApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui, _frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        mobile_text_bar::process_raw_input(ctx, raw);
+        touch_gestures::process_raw_input(ctx, raw);
         apply_android_modifiers(&mut self.modifiers, raw);
+        photocraft_ui_egui::topbar_modifiers::apply_to_raw_input(&self.modifiers, raw);
+        // The Shift/Ctrl/Alt buttons stand in for the soft keyboard: with a hardware
+        // keyboard attached they are in the way.
+        photocraft_ui_egui::topbar_modifiers::set_hardware_keyboard_connected(
+            android_activity::hardware_keyboard_connected(),
+        );
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
             self.persist_now();
         }
@@ -981,6 +1174,15 @@ fn device_scale_first_time(dir: &Path) -> bool {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(android_app: AndroidApp) {
+    #[allow(unused_unsafe)]
+    unsafe {
+        std::env::set_var("RUST_BACKTRACE", "1");
+        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+            let tmp = path.join("tmp");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+        }
+    }
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
@@ -1023,10 +1225,13 @@ fn android_main(android_app: AndroidApp) {
     // The adapter's real texture and buffer limits, so large documents stay on the GPU canvas;
     // Vulkan first, GLES on devices without a usable Vulkan driver — the same setup the desktop
     // app and the generated launchers use.
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
     photocraft_ui_egui::gpu_canvas::use_adapter_limits(&mut options.wgpu_options.wgpu_setup);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
         create.instance_descriptor.backends =
             eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
     }
     let app_bridge = bridge.clone_for_services();
     let app_picker = picker.clone();
@@ -1051,6 +1256,22 @@ fn android_main(android_app: AndroidApp) {
                 ),
             );
             app.background_jobs = true;
+            let control_rx = match std::net::TcpListener::bind("127.0.0.1:0") {
+                Ok(listener) => {
+                    let addr = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| "127.0.0.1:0".to_string());
+                    let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string();
+                    let rx = control_server::start(listener, token.clone(), cc.egui_ctx.clone());
+                    let _ = CONTROL_INFO.set((addr, token));
+                    Some(rx)
+                }
+                Err(e) => {
+                    log::warn!("Could not bind PhotoCraft control server: {e}");
+                    None
+                }
+            };
+            if let Some(rx) = control_rx {
+                app = app.with_control(rx);
+            }
             // A high-density screen gets the app's 150 % UI scale; every other screen keeps its own
             // default, Auto. Applied once (`device_scale_first_time`), which covers a first launch
             // and an upgrade from a build without this bootstrap; a user who sets the scale by hand
@@ -1071,6 +1292,15 @@ fn android_main(android_app: AndroidApp) {
                     app.set_wgpu(rs);
                 }
             }
+            let _mcp = mcp_http::start_mcp_service(
+                "PhotoCraft".to_string(),
+                "0.21.0".to_string(),
+                Arc::new(|| ALIVE.load(Ordering::Relaxed)),
+            );
+            let app_clip = app_bridge.app.clone();
+            mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
+            let app_clip_set = app_bridge.app.clone();
+            mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
             Ok(Box::new(PhotoCraftAndroidApp {
                 inner: app,
                 bridge: app_bridge.clone_for_services(),
@@ -1084,6 +1314,7 @@ fn android_main(android_app: AndroidApp) {
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
                 persist_last: None,
+                _mcp,
             }))
         }),
     );

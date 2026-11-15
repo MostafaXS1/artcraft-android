@@ -282,7 +282,7 @@ Module `saf`. Shared by generated launchers and SubCraft adapter copies it inlin
 - `SAF_MARKER = "ARTCRAFT_ANDROID_SAF_BRIDGE_V3"`, `PICK_TIMEOUT = 180s`
 - `NonblockingCallbacks` RAII: sets `android_activity::set_nonblocking_callbacks(true)` during blocking picks, restores on drop (prevents ANR of JVM callbacks)
 - `Bridge` holds `AndroidApp` and `Arc<JavaVM>`, methods: `request_open/save/folder`, `pick_blocking`, `pick_blocking_worker`, `commit`, `poll`, `files_dir`, `intent_poll`, `intent_pending`, `print_document`, `request_storage_permission`
-- `SaveMirror`: tracks staged save paths by id, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (every ~200ms family scan mentioned) to detect writes
+- `SaveMirror`: tracks staged save paths by id, watches for writes, calls `commit()` to mirror to SAF URI. Scans periodically (every ~200ms family scan mentioned) to detect writes. A file that appears beside the staged path after the pick is the app's own write (it added or replaced the extension) and is committed too, even when it was already fully written when it was discovered — otherwise the chosen document stays 0 B.
 - JSON protocol over JNI for picker results
 
 ### `templates/android/system_fonts.rs`

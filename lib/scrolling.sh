@@ -90,9 +90,13 @@ if app == "wordcraft":
         "/// backend keeps clear, so that egui does not read the same fingers as a pinch).\n"
         "fn touch_gesture_active(ui: &Ui) -> bool {\n"
         "    ui.input(|i| {\n"
-        "        i.events\n"
-        "            .iter()\n"
-        "            .any(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }))\n"
+        "        i.events.iter().any(|e| {\n"
+        "            matches!(\n"
+        "                e,\n"
+        "                egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }\n"
+        "                    | egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, .. }\n"
+        "            )\n"
+        "        })\n"
         "    })\n"
         "}\n"
     )
@@ -506,11 +510,112 @@ if app == "wordcraft":
         fixed.append("crates/ui-egui/src/scroll.rs (the app makes the coast Android does not send)")
 
     if fix(
+        "crates/ui-egui/src/scroll.rs",
+        "                    lifted |= matches!(phase, TouchPhase::End | TouchPhase::Cancel);\n",
+        "                    stop |= matches!(phase, TouchPhase::Start);\n"
+        "                    lifted |= matches!(phase, TouchPhase::End | TouchPhase::Cancel);\n",
+    ):
+        fixed.append("crates/ui-egui/src/scroll.rs (touchpad touch-down stops active coast)")
+
+    if fix(
         "apps/wordcraft-web/index.html",
         '    #wordcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }',
         '    #wordcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }',
     ):
         fixed.append("apps/wordcraft-web/index.html (touch-action: none)")
+
+elif app == "gridcraft":
+    # Selection box handle touch expand and hold-to-right-click support:
+    # 1. Expand the handle hit-test from 9x9 to 37x37 so a fingertip can grab it easily.
+    handle_old = (
+        "    fn on_handle(&self, p: Pos2) -> bool {\n"
+        "        self.handle.contains(p) && self.handle_panes.iter().any(|r| r.contains(p))\n"
+        "    }\n"
+    )
+    handle_new = (
+        "    fn on_handle(&self, p: Pos2) -> bool {\n"
+        "        self.handle.expand(14.0).contains(p) && self.handle_panes.iter().any(|r| r.expand(14.0).contains(p))\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/interact.rs", handle_old, handle_new):
+        fixed.append("crates/ui-egui/src/grid/interact.rs (expand touch hit-test for selection handle)")
+
+    # 2. Do not start touch_pan when touching the selection handle so the user can drag it to expand.
+    pan_old = (
+        "    // A one-finger touch drag pans the sheet, the content following the finger; it doesn't select.\n"
+        "    // (Two fingers pinch-zoom through `zoom_delta` above.)\n"
+        "    if resp.drag_started() && ui.input(|i| i.any_touches()) {\n"
+        "        app.grid.touch_pan = true;\n"
+        "    }\n"
+    )
+    pan_new = (
+        "    // A one-finger touch drag pans the sheet, the content following the finger; it doesn't select.\n"
+        "    // (Two fingers pinch-zoom through `zoom_delta` above.)\n"
+        "    let touch_start_pos = ui.input(|i| i.pointer.press_origin().or(i.pointer.interact_pos()));\n"
+        "    let on_handle_touch = touch_start_pos.map_or(false, |p| {\n"
+        "        let geo = make_geo(app, view.scroll);\n"
+        "        let cur = geo.range_rect(sh, sel.current());\n"
+        "        Rect::from_center_size(cur.right_bottom(), vec2(40.0, 40.0)).contains(geo.mirror_pos(p))\n"
+        "    });\n"
+        "    if resp.drag_started() && ui.input(|i| i.any_touches()) && !on_handle_touch {\n"
+        "        app.grid.touch_pan = true;\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/show.rs", pan_old, pan_new):
+        fixed.append("crates/ui-egui/src/grid/show.rs (touching selection handle allows drag instead of panning)")
+
+    # 3. Allow right-clicks (secondary click) to pass through to interact() even if touch_pan was active.
+    pan_bypass_old = (
+        "    if app.grid.touch_pan {\n"
+        "        // Skip the frames of a touch pan, its release included.\n"
+        "        if !resp.dragged() {\n"
+        "            app.grid.touch_pan = false;\n"
+        "        }\n"
+        "    } else {\n"
+        "        crate::paper_view::interact(app, ui, resp, geo, sh, wb);\n"
+        "        interact(app, ui, resp, geo, sh, wb);\n"
+        "    }\n"
+    )
+    pan_bypass_new = (
+        "    if resp.secondary_clicked() {\n"
+        "        app.grid.touch_pan = false;\n"
+        "    }\n"
+        "    if app.grid.touch_pan {\n"
+        "        // Skip the frames of a touch pan, its release included.\n"
+        "        if !resp.dragged() {\n"
+        "            app.grid.touch_pan = false;\n"
+        "        }\n"
+        "    } else {\n"
+        "        crate::paper_view::interact(app, ui, resp, geo, sh, wb);\n"
+        "        interact(app, ui, resp, geo, sh, wb);\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/grid/show.rs", pan_bypass_old, pan_bypass_new):
+        fixed.append("crates/ui-egui/src/grid/show.rs (secondary click cancels touch pan)")
+
+elif app == "deckcraft":
+    # Enable Cmd+Shift+Z (Ctrl+Shift+Z) to trigger edit.redo in DeckCraft
+    deck_keys_old = (
+        "                    let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };\n"
+        "                    if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {\n"
+        "                        continue;\n"
+        "                    }\n"
+    )
+    deck_keys_new = (
+        "                    let mods = Mods { shift: modifiers.shift, alt: modifiers.alt, cmd: modifiers.command || modifiers.ctrl };\n"
+        "                    if !self.session.tool.drawing_freeform() && menus::ui_shortcut(self, key, mods) {\n"
+        "                        continue;\n"
+        "                    }\n"
+        "                    if mods.cmd && mods.shift && !mods.alt && key == egui::Key::Z {\n"
+        '                        if let Err(e) = self.session.execute("edit.redo", &json!({})) {\n'
+        "                            self.set_status(e.to_string());\n"
+        "                        }\n"
+        "                        self.note_application_edit(ctx);\n"
+        "                        continue;\n"
+        "                    }\n"
+    )
+    if fix("crates/ui-egui/src/app/keys.rs", deck_keys_old, deck_keys_new):
+        fixed.append("crates/ui-egui/src/app/keys.rs (enable Cmd+Shift+Z for redo)")
 
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")

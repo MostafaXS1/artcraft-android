@@ -635,14 +635,46 @@ public final class VectorCraftActivity extends NativeActivity {
         }
     }
 
+    private static final int SAMSUNG_PEN_DOWN = 211;
+    private boolean sideButtonHeld = false;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e == null) return super.dispatchTouchEvent(e);
+        int samsung = e.getActionMasked() - SAMSUNG_PEN_DOWN;
+        sideButtonHeld = samsung >= 0 && samsung <= 3;
+        if (sideButtonHeld) {
+            int[] standard = {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL};
+            e.setAction(standard[samsung] | (e.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK));
+        }
+
+        int action = e.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            int i = e.getActionIndex();
+            int tool = e.getToolType(i);
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(e);
+                }
+            }
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        if (event != null && (
-            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)
-        )) {
-            return super.dispatchGenericMotionEvent(event);
+        if (event != null) {
+            int tool = event.getToolType(event.getActionIndex());
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    getWindow().getDecorView().requestUnbufferedDispatch(event);
+                }
+            }
+            if (event.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(android.view.InputDevice.SOURCE_STYLUS)) {
+                return super.dispatchGenericMotionEvent(event);
+            }
         }
         return super.dispatchGenericMotionEvent(event);
     }
@@ -936,6 +968,7 @@ public final class VectorCraftActivity extends NativeActivity {
                 if (name == null || name.trim().isEmpty()) {
                     name = suggestedNames.getOrDefault(id, "Untitled.svg");
                 }
+                name = keepSuggestedExtension(name, suggestedNames.get(id));
                 File stage = newStageFile(name, uri);
                 rememberUri(stage, uri);
                 enqueuePaths(id, "save", new String[] { stage.getAbsolutePath() });
@@ -991,29 +1024,72 @@ public final class VectorCraftActivity extends NativeActivity {
         try {
             String uriText = getSharedPreferences(PREFS, MODE_PRIVATE).getString("uri:" + path, null);
             if (uriText == null) {
+                uriText = uriForSibling(path);
+            }
+            if (uriText == null) {
                 return "NONE";
             }
             Uri uri = Uri.parse(uriText);
-            OutputStream out = getContentResolver().openOutputStream(uri, "wt");
+            File srcFile = new File(path);
+            if (!srcFile.exists()) {
+                return "ERROR: Staged file does not exist: " + path;
+            }
+            OutputStream out = getContentResolver().openOutputStream(uri, "w");
             if (out == null) {
-                out = getContentResolver().openOutputStream(uri, "w");
+                out = getContentResolver().openOutputStream(uri, "wt");
             }
             if (out == null) {
                 return "ERROR: Android document provider did not open an output stream";
             }
-            try (InputStream in = new FileInputStream(new File(path)); OutputStream target = out) {
+            try (InputStream in = new FileInputStream(srcFile); OutputStream target = out) {
                 byte[] buffer = new byte[64 * 1024];
                 int count;
+                long total = 0;
                 while ((count = in.read(buffer)) != -1) {
                     target.write(buffer, 0, count);
+                    total += count;
                 }
                 target.flush();
+                Log.i(TAG, "Committed " + total + " bytes from " + path + " to " + uri);
             }
             return "OK";
         } catch (Exception e) {
             Log.e(TAG, "Could not write a selected document", e);
             return "ERROR: Could not write the selected document: " + e.getMessage();
         }
+    }
+
+    private static String stagedStem(String path) {
+        File file = new File(path);
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        File parent = file.getParentFile();
+        return parent == null ? stem : new File(parent, stem).getAbsolutePath();
+    }
+
+    private String uriForSibling(String path) {
+        String stem = stagedStem(path);
+        try {
+            for (Map.Entry<String, ?> entry : getSharedPreferences(PREFS, MODE_PRIVATE).getAll().entrySet()) {
+                if (!entry.getKey().startsWith("uri:") || !(entry.getValue() instanceof String uriText)) continue;
+                String staged = entry.getKey().substring("uri:".length());
+                if (stagedStem(staged).equals(stem)) return uriText;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look up a staged document", e);
+        }
+        return null;
+    }
+
+    private static String keepSuggestedExtension(String name, String suggested) {
+        if (name == null || suggested == null) return name;
+        int dot = name.lastIndexOf('.');
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (dot > slash + 1 && dot < name.length() - 1) return name;
+        int suggestedDot = suggested.lastIndexOf('.');
+        if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
+        return name + suggested.substring(suggestedDot);
     }
 
     /**
@@ -1096,7 +1172,7 @@ public final class VectorCraftActivity extends NativeActivity {
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putString("uri:" + path.getAbsolutePath(), uri.toString())
-                .apply();
+                .commit();
     }
 
     private void copyUriToFile(Uri uri, File destination) throws Exception {
@@ -1238,4 +1314,35 @@ public final class VectorCraftActivity extends NativeActivity {
         if (lower.endsWith(".bmp")) return "image/bmp";
         return "application/octet-stream";
     }
+
+    public void setSurfacePointerIcon(final int pointerIconType) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return;
+        runOnUiThread(() -> {
+            try {
+                android.view.Window window = getWindow();
+                if (window == null) return;
+                android.view.View decor = window.getDecorView();
+                if (decor == null) return;
+                android.view.PointerIcon icon =
+                        android.view.PointerIcon.getSystemIcon(this, pointerIconType);
+                applyPointerIconRecursive(decor, icon);
+            } catch (Throwable error) {
+                android.util.Log.w(TAG, "Could not set surface pointer icon", error);
+            }
+        });
+    }
+
+    private static void applyPointerIconRecursive(android.view.View root, android.view.PointerIcon icon) {
+        if (root == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+            return;
+        }
+        root.setPointerIcon(icon);
+        if (root instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyPointerIconRecursive(group.getChildAt(i), icon);
+            }
+        }
+    }
+
 }
