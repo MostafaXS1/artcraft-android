@@ -47,9 +47,9 @@ def patch_file(path: Path, target: str, replacement: str) -> bool:
         if MARKER_P2 not in new_content:
             old_p1_pattern = r'ui\.label\("We are an independent group of people who love ArtCraft very much[^"]+"\);'
             replacement_labels = (
-                f'ui.label("{DISCLAIMER_P1}");\n'
+                f'ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());\n'
                 f'            ui.add_space(4.0);\n'
-                f'            ui.label("{DISCLAIMER_P2}");'
+                f'            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());'
             )
             new_content = re.sub(old_p1_pattern, replacement_labels, new_content)
             changed = True
@@ -62,6 +62,29 @@ def patch_file(path: Path, target: str, replacement: str) -> bool:
                     new_content,
                 )
                 changed = True
+
+        # Ensure paragraph 1 wraps
+        p1_unwrapped = re.compile(r'ui\.label\("We are an independent group of people who love ArtCraft very much[^"]+"\);')
+        if p1_unwrapped.search(new_content):
+            new_content = p1_unwrapped.sub(f'ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());', new_content)
+            changed = True
+
+        # Ensure paragraph 2 wraps
+        p2_unwrapped = re.compile(r'ui\.label\("Please direct any bugs/issues related to Android porting to our GitHub[^"]+"\);')
+        if p2_unwrapped.search(new_content):
+            new_content = p2_unwrapped.sub(f'ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());', new_content)
+            changed = True
+
+        # Ensure headings wrap
+        heading_plain = re.compile(r'ui\.heading\("(You are using an unofficial android port of [^"]+)"\);')
+        if heading_plain.search(new_content):
+            new_content = heading_plain.sub(r'ui.add(egui::Label::new(egui::RichText::new("\1").heading()).wrap());', new_content)
+            changed = True
+
+        heading_rich = re.compile(r'ui\.label\((egui::RichText::new\("You are using an unofficial android port of [^"]+"\)[^;]+)\);')
+        if heading_rich.search(new_content):
+            new_content = heading_rich.sub(r'ui.add(egui::Label::new(\1).wrap());', new_content)
+            changed = True
 
         # Ensure divider separator follows hyperlink_to before native about content
         sep_pattern = re.compile(
@@ -93,11 +116,11 @@ def patch_file(path: Path, target: str, replacement: str) -> bool:
     return False
 
 
-code_block = f"""ui.heading("You are using an unofficial android port of {title}");
+code_block = f"""ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").heading()).wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P1}");
+            ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P2}");
+            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
@@ -118,11 +141,11 @@ if app == "wordcraft":
         1 => crate::credits::contributors_ui(ui),
         2 => crate::credits::models_ui(ui),
         _ => {{
-            ui.label(egui::RichText::new("You are using an unofficial android port of {title}").font(semibold(18.0)));
+            ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(semibold(18.0))).wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P1}");
+            ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P2}");
+            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
@@ -142,11 +165,11 @@ elif app == "soundcraft":
             1 => crate::credits::contributors_ui(ui),
             2 => crate::credits::models_ui(ui),
             _ => {{
-                ui.label(egui::RichText::new("You are using an unofficial android port of {title}").font(bold(18.0)));
+                ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(bold(18.0))).wrap());
                 ui.add_space(4.0);
-                ui.label("{DISCLAIMER_P1}");
+                ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
                 ui.add_space(4.0);
-                ui.label("{DISCLAIMER_P2}");
+                ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
                 ui.add_space(4.0);
                 ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
                 ui.add_space(8.0);
@@ -166,11 +189,11 @@ elif app == "lightcraft":
         1 => crate::credits::contributors_ui(app, ui),
         2 => crate::credits::models_ui(ui),
         _ => {{
-            ui.label(egui::RichText::new("You are using an unofficial android port of {title}").font(t.semibold(18.0)).color(t.text));
+            ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(t.semibold(18.0)).color(t.text)).wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P1}");
+            ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P2}");
+            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
@@ -183,11 +206,11 @@ elif app == "vectorcraft":
     target = """fn about_tab(app: &mut VectorcraftApp, ui: &mut egui::Ui) {\n    ui.set_width(380.0);"""
     replacement = f"""fn about_tab(app: &mut VectorcraftApp, ui: &mut egui::Ui) {{
     ui.set_width(520.0);
-    ui.label(egui::RichText::new("You are using an unofficial android port of {title}").font(theme::semibold(18.0)));
+    ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(theme::semibold(18.0))).wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P1}");
+    ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P2}");
+    ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
     ui.add_space(8.0);
@@ -203,11 +226,11 @@ elif app == "filmcraft":
     use crate::links;
     let t = app.tokens;
     ui.set_width(520.0);
-    ui.heading("You are using an unofficial android port of {title}");
+    ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").heading()).wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P1}");
+    ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P2}");
+    ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
     ui.add_space(8.0);
@@ -227,11 +250,11 @@ elif app == "photocraft":
         "contributors" => crate::credits::contributors_ui(app, ui),
         "models" => crate::credits::models_ui(ui),
         _ => {{
-            ui.heading("You are using an unofficial android port of {title}");
+            ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").heading()).wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P1}");
+            ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P2}");
+            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
@@ -243,11 +266,11 @@ elif app == "effectcraft":
     dialogs_rs = src / "crates" / "ui-egui" / "src" / "panels" / "dialogs.rs"
     target = """fn about_main(app: &mut EffectcraftApp, ui: &mut egui::Ui, t: &Tokens, cmd: &mut Option<&'static str>) {"""
     replacement = f"""fn about_main(app: &mut EffectcraftApp, ui: &mut egui::Ui, t: &Tokens, cmd: &mut Option<&'static str>) {{
-    ui.heading("You are using an unofficial android port of {title}");
+    ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").heading()).wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P1}");
+    ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
     ui.add_space(4.0);
-    ui.label("{DISCLAIMER_P2}");
+    ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
     ui.add_space(8.0);
@@ -268,11 +291,11 @@ elif app == "cadcraft":
                 1 => crate::credits::contributors_ui(ui),
                 2 => crate::credits::models_ui(ui),
                 _ => {{
-                    ui.heading("You are using an unofficial android port of {title}");
+                    ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").heading()).wrap());
                     ui.add_space(4.0);
-                    ui.label("{DISCLAIMER_P1}");
+                    ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
                     ui.add_space(4.0);
-                    ui.label("{DISCLAIMER_P2}");
+                    ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
                     ui.add_space(4.0);
                     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
                     ui.add_space(8.0);
@@ -289,11 +312,11 @@ elif app == "designcraft":
             let (r, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());"""
     replacement = f"""\
         ui.vertical_centered(|ui| {{
-            ui.label(egui::RichText::new("You are using an unofficial android port of {title}").font(semibold(18.0)).color(t.text_strong));
+            ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(semibold(18.0)).color(t.text_strong)).wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P1}");
+            ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
             ui.add_space(4.0);
-            ui.label("{DISCLAIMER_P2}");
+            ui.add(egui::Label::new("{DISCLAIMER_P2}").wrap());
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
