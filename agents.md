@@ -1104,14 +1104,19 @@ Located in `vendor/` with Android-specific patches:
 **File:** `.github/workflows/build.yml`
 
 ### 31.1 Triggers
-- Push to branches/tags
-- Manual dispatch (mode: release/debug, source_version: stable/main)
+- **Push to branches/tags:** Defaults to building all 32 apps and launcher.
+- **Commit Message Directives:** Pushes can specify which apps to build via commit message or description tags:
+  - `[build: wordcraft]` or `[ci: wordcraft]` — Builds only WordCraft.
+  - `[build: wordcraft, filmcraft]` — Builds WordCraft and FilmCraft.
+  - `[build: launcher]` — Builds only the launcher.
+  - `[skip ci]` or `[build: none]` — Skips all matrix and bundle jobs.
+- **Manual dispatch:** Select specific apps via `apps` input (or `all`), toggle `build_launcher`, select mode (`release`/`debug`), `source_version` (`stable`/`main`), and `release_build` number.
 
 ### 31.2 Configuration
-- **Concurrency:** Cancels in-progress runs for same ref
-- **Matrix:** Builds all 28 apps in parallel
-- **Runner:** Ubuntu (GitHub Actions)
-- **Timeout:** 35 minutes per-job limit
+- **Concurrency:** Cancels in-progress runs for same ref.
+- **Dynamic Matrix:** Preliminary `prepare` job evaluates inputs and commit message tags, scheduling runners only for the requested apps.
+- **Runner:** Ubuntu (GitHub Actions).
+- **Timeout:** 45 minutes per-job limit.
 
 ### 31.3 Toolchain & Robustness Constraints
 - Python 3.12
