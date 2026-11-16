@@ -698,14 +698,16 @@ fi
 APP_COMMIT_SHA="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
 BUILD_DATE="$(date -u +%Y-%m-%d)"
 APP_UPPER="$(echo "$APP" | tr '[:lower:]' '[:upper:]')"
-if [[ -n "$APP_COMMIT_SHA" ]]; then
+if [[ "$MODE" == "release" && -n "$APP_COMMIT_SHA" ]]; then
     export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
     export "${APP_UPPER}_BUILD_DATE"="$BUILD_DATE"
     export BUILD_SHA="$APP_COMMIT_SHA"
     export BUILD_DATE="$BUILD_DATE"
     export GIT_HASH="$APP_COMMIT_SHA"
     export GIT_COMMIT="$APP_COMMIT_SHA"
-    echo "  -> Baked build commit: ${APP_COMMIT_SHA:0:8} (${APP_UPPER}_BUILD_SHA)"
+    echo "  -> Baked release build commit: ${APP_COMMIT_SHA:0:8} (${APP_UPPER}_BUILD_SHA)"
+else
+    echo "  -> Development/debug build mode: leaving ${APP_UPPER}_BUILD_SHA unset (will show development build)"
 fi
 
 # Remove pinned upstream toolchains that might lack Android targets in CI runners
@@ -7719,14 +7721,16 @@ for base in search_dirs:
             pass
 WGPUPY
 
-VAR_SHA="${APP_UPPER}_BUILD_SHA"
-if [[ -z "${!VAR_SHA:-}" && -d "$ROOT/$SRC/.git" ]]; then
-    APP_COMMIT_SHA="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
-    if [[ -n "$APP_COMMIT_SHA" ]]; then
-        export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
-        export "${APP_UPPER}_BUILD_DATE"="$(date -u +%Y-%m-%d)"
-        export BUILD_SHA="$APP_COMMIT_SHA"
-        export BUILD_DATE="$(date -u +%Y-%m-%d)"
+if [[ "$MODE" == "release" ]]; then
+    VAR_SHA="${APP_UPPER}_BUILD_SHA"
+    if [[ -z "${!VAR_SHA:-}" && -d "$ROOT/$SRC/.git" ]]; then
+        APP_COMMIT_SHA="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
+        if [[ -n "$APP_COMMIT_SHA" ]]; then
+            export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
+            export "${APP_UPPER}_BUILD_DATE"="$(date -u +%Y-%m-%d)"
+            export BUILD_SHA="$APP_COMMIT_SHA"
+            export BUILD_DATE="$(date -u +%Y-%m-%d)"
+        fi
     fi
 fi
 
