@@ -691,6 +691,23 @@ else
     mv "$SRC_TMP" "$SRC"
 fi
 
+# Export upstream release commit SHA and build date for the app being built.
+# Upstream ArtCraft apps use <APP>_BUILD_SHA and <APP>_BUILD_DATE in their About dialog and CLI
+# (e.g. WORDCRAFT_BUILD_SHA, PHOTOCRAFT_BUILD_SHA, FILMCRAFT_BUILD_SHA). When absent, they fall back
+# to "(development build)" or "dev". Setting these ensures Android builds display the exact release commit.
+APP_COMMIT_SHA="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+BUILD_DATE="$(date -u +%Y-%m-%d)"
+APP_UPPER="$(echo "$APP" | tr '[:lower:]' '[:upper:]')"
+if [[ -n "$APP_COMMIT_SHA" ]]; then
+    export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
+    export "${APP_UPPER}_BUILD_DATE"="$BUILD_DATE"
+    export BUILD_SHA="$APP_COMMIT_SHA"
+    export BUILD_DATE="$BUILD_DATE"
+    export GIT_HASH="$APP_COMMIT_SHA"
+    export GIT_COMMIT="$APP_COMMIT_SHA"
+    echo "  -> Baked build commit: ${APP_COMMIT_SHA:0:8} (${APP_UPPER}_BUILD_SHA)"
+fi
+
 # Remove pinned upstream toolchains that might lack Android targets in CI runners
 rm -f "$SRC/rust-toolchain" "$SRC/rust-toolchain.toml"
 
@@ -7701,6 +7718,17 @@ for base in search_dirs:
         except Exception as e:
             pass
 WGPUPY
+
+VAR_SHA="${APP_UPPER}_BUILD_SHA"
+if [[ -z "${!VAR_SHA:-}" && -d "$ROOT/$SRC/.git" ]]; then
+    APP_COMMIT_SHA="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$APP_COMMIT_SHA" ]]; then
+        export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
+        export "${APP_UPPER}_BUILD_DATE"="$(date -u +%Y-%m-%d)"
+        export BUILD_SHA="$APP_COMMIT_SHA"
+        export BUILD_DATE="$(date -u +%Y-%m-%d)"
+    fi
+fi
 
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
