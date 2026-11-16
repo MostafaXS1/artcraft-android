@@ -709,7 +709,34 @@ s = re.sub(
     s,
     flags=re.S,
 )
-ime_block = """        // The terminal is a text surface: publish its IME output while it has focus.
+
+# In upstream v0.5.0+, terminal.rs has built-in publish_ime. Update its IMEOutput
+# to use the storytold egui fork fields.
+pristine_terminal_ime = """        o.ime = Some(egui::output::IMEOutput {
+            purpose: egui::IMEPurpose::Terminal,
+            rect: to_global * rect,
+            cursor_rect: to_global * cursor_rect,
+            should_interrupt_composition: false,
+        });"""
+patched_terminal_ime = """        o.ime = Some(egui::output::IMEOutput {
+            owner: egui::Id::NULL,
+            context_generation: 0,
+            purpose: egui::IMEPurpose::Terminal,
+            rect: to_global * rect,
+            cursor_rect: to_global * cursor_rect,
+            should_interrupt_composition: false,
+            reset_request: None,
+            change_cause: egui::output::ImeChangeCause::Other,
+            surrounding_text: egui::output::IMESurroundingText::Unavailable,
+        });"""
+
+if patched_terminal_ime in s:
+    print("terminal.rs: publish_ime already has egui fork fields")
+elif pristine_terminal_ime in s:
+    s = s.replace(pristine_terminal_ime, patched_terminal_ime, 1)
+    print("terminal.rs: publish_ime updated for egui fork fields")
+elif "fn publish_ime(" not in s:
+    ime_block = """        // The terminal is a text surface: publish its IME output while it has focus.
         if focused {
             let term = tab.session.term();
             let content = term.renderable_content();
@@ -736,7 +763,7 @@ ime_block = """        // The terminal is a text surface: publish its IME output
             });
         }
 """
-s = s.replace(anchor, anchor + ime_block, 1)
+    s = s.replace(anchor, anchor + ime_block, 1)
 
 # A tap in the terminal is the user saying "type here": in Auto mode the shell brings the
 # keyboard back when the user dismissed it.
