@@ -248,6 +248,9 @@ Guarded fixes applied only if broken text present and not already fixed:
 - Adds `files::deliver_android(purpose, paths)` to SubCraft
 - Enables incoming files (intents/drops) to go into same queue as picked files
 
+**`lib/about_dialog.sh`** - Applied to all apps
+- Injects unofficial Android port disclaimer and project link into the About dialog
+
 **`lib/ime.sh`** - Applied only to WordCraft
 - Fixes Backspace at the start of a paragraph for IMEs that deliver `DeleteSurrounding` instead of text-state changes
 - The Activity and Rust shell use android-activity's native IME; no Java host is patched
@@ -1228,6 +1231,7 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 | `lib/file_associations.py` | Intent filter registry (EXT_MIME, ASSOCIATIONS) |
 | `lib/app_icons.py` | Adaptive icon generation (mipmaps + monochrome) |
 | `lib/scrolling.sh` | Two-finger scroll/momentum patches for all apps |
+| `lib/about_dialog.sh` | Unofficial port disclaimer injection for About dialogs |
 | `lib/ime.sh` | WordCraft Backspace-at-paragraph-start patch |
 | `lib/subcraft.sh` | SubCraft file handoff patch adding `files::deliver_android` |
 | `templates/android/SafActivity.java` | Shared Activity base (SAF, IME, permissions, fullscreen, etc.) |

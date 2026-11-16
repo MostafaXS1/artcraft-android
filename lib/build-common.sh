@@ -2460,6 +2460,9 @@ bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 # Topbar modifiers (Shift, Ctrl, Alt toggle buttons integrated into topbar/ribbon for 6 apps).
 bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
 
+# Unofficial Android port disclaimer in About dialogs.
+bash "$ROOT/lib/about_dialog.sh" "$SRC" "$APP" "$TITLE"
+
 say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
