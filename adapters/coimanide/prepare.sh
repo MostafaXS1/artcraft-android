@@ -21,7 +21,11 @@ APP="${1:-coimanide}"
 TITLE="${2:-Coiman IDE}"
 SRC="${3:-source/coimanide}"
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-SRC_ABS="$ROOT/$SRC"
+if [[ "$SRC" = /* ]]; then
+    SRC_ABS="$SRC"
+else
+    SRC_ABS="$ROOT/$SRC"
+fi
 ADAPTER="$ROOT/adapters/coimanide"
 DEST="$SRC_ABS/apps/$APP-android"
 
@@ -132,10 +136,10 @@ if lib_path.is_file():
     # CodeApp, and coiman_core re-exports. We only need to ensure modules needed by the Android
     # shell (android_keyboard, app, ui) are exposed.
     lib = lib_path.read_text()
-    if "pub mod android_keyboard;" not in lib:
-        lib = "pub mod android_keyboard;\n" + lib
     lib = re.sub(r"(?m)^mod app;", "pub mod app;", lib)
     lib = re.sub(r"(?m)^mod ui;", "pub mod ui;", lib)
+    if "pub mod android_keyboard;" not in lib:
+        lib = lib.replace("pub mod app;", "pub mod android_keyboard;\npub mod app;", 1)
     lib_path.write_text(lib)
     print("coiman-ide: src/lib.rs updated for Android shell")
 else:
