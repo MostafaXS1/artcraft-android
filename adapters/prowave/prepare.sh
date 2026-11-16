@@ -83,6 +83,21 @@ sed -i 's/^eframe = "0.37.0"/eframe = { version = "0.37.0", default-features = f
 # Downgrade midir to 0.10.4 to use vendored dummy backend (avoids libamidi linking error on API 28)
 sed -i 's/^midir = "0.11.1"/midir = "0.10.4"/' "$SRC_ABS/crates/prowave-app/Cargo.toml" || true
 
+# Disable POSIX shared memory plugin sandbox on Android (Bionic libc does not provide shm_open/shm_unlink)
+python3 - "$SRC_ABS/crates/prowave-plugin-host/src/lib.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    s = s.replace("#[cfg(unix)]\nmod sandbox;", '#[cfg(all(unix, not(target_os = "android")))]\nmod sandbox;')
+    s = s.replace("#[cfg(unix)]", '#[cfg(all(unix, not(target_os = "android")))]')
+    s = s.replace("#[cfg(not(unix))]", '#[cfg(any(not(unix), target_os = "android"))]')
+    p.write_text(s)
+    print("prowave-plugin-host: disabled POSIX shm sandbox on Android")
+PY
+
 # Ensure crates/prowave-app has a [lib] entry
 if ! grep -q '^\[lib\]' "$SRC_ABS/crates/prowave-app/Cargo.toml"; then
     cat >> "$SRC_ABS/crates/prowave-app/Cargo.toml" <<'EOF'
