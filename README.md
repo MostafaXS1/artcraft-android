@@ -1,5 +1,8 @@
 # UNOFFICIAL ArtCraft Android
 
+# We were banned from ArtCraft, statement coming soon.
+(work will not stop, they can get bent)
+
 > [!NOTE]
 > **About this project:** We are an independent group of people who love ArtCraft very much and want to make these apps available on Android. We are not affiliated with, related to, or endorsed by ArtCraft / Storytold, and all our ports are completely unofficial.
 
