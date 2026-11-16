@@ -178,6 +178,7 @@ pub fn create_app(cc: &eframe::CreationContext<'_>) -> App {
     let measuring = true;
     let shot_exit: std::sync::Arc<std::sync::atomic::AtomicI32> = Default::default();
     let midi_out = None;
+    let prefs = audio_prefs::AudioPrefs::load();
     App {""" + literal + """}
 }
 """
