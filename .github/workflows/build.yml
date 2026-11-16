@@ -64,6 +64,8 @@ jobs:
           INPUT_APPS: ${{ github.event.inputs.apps }}
           INPUT_LAUNCHER: ${{ github.event.inputs.build_launcher }}
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           python3 - <<'PY'
           import json
@@ -81,15 +83,19 @@ jobs:
           ]
 
           event = os.environ.get("EVENT_NAME", "")
+          ref = os.environ.get("GITHUB_REF", "")
           raw_apps = (os.environ.get("INPUT_APPS") or "").strip()
           raw_launcher = (os.environ.get("INPUT_LAUNCHER") or "").strip().lower()
+          commit_msg = (os.environ.get("COMMIT_MSG") or "").strip()
 
-          # Default behaviour on push/tag or when "all" is specified: build all 32 apps + launcher
-          if event != "workflow_dispatch":
+          # 1. Tag pushes (release tags) always build all 32 apps + launcher
+          if ref.startswith("refs/tags/"):
               selected_apps = ALL_APPS
               has_apps = True
               build_launcher = True
-          else:
+
+          # 2. Manual workflow_dispatch
+          elif event == "workflow_dispatch":
               tokens = re.split(r"[\s,;]+", raw_apps.strip()) if raw_apps else []
               clean_tokens = [t.strip().lower().lstrip("-") for t in tokens if t.strip()]
 
@@ -104,12 +110,10 @@ jobs:
                   launcher_in_tokens = any(k in clean_tokens for k in ("launcher", "artcraft-launcher", "artcraft_launcher"))
 
                   if not selected and not launcher_in_tokens:
-                      # If nothing recognized, fallback to all apps
                       selected_apps = ALL_APPS
                       has_apps = True
                       build_launcher = (raw_launcher != "false")
                   elif not selected and launcher_in_tokens:
-                      # Only launcher requested
                       selected_apps = ["none"]
                       has_apps = False
                       build_launcher = True
@@ -117,6 +121,45 @@ jobs:
                       selected_apps = selected
                       has_apps = True
                       build_launcher = launcher_in_tokens or (raw_launcher == "true")
+
+          # 3. Push events (inspect commit message)
+          else:
+              skip_markers = ("[skip ci]", "[ci skip]", "[build: none]", "[ci: none]", "[build: skip]", "[ci: skip]")
+              if any(marker in commit_msg.lower() for marker in skip_markers):
+                  selected_apps = ["none"]
+                  has_apps = False
+                  build_launcher = False
+              else:
+                  match = re.search(r'\[(?:build|ci):\s*([^\]]+)\]', commit_msg, re.IGNORECASE)
+                  if match:
+                      tokens = re.split(r"[\s,;]+", match.group(1).strip())
+                      clean_tokens = [t.strip().lower().lstrip("-") for t in tokens if t.strip()]
+
+                      if not clean_tokens or "all" in clean_tokens:
+                          selected_apps = ALL_APPS
+                          has_apps = True
+                          build_launcher = True
+                      else:
+                          selected = [app for app in ALL_APPS if app in clean_tokens]
+                          launcher_in_tokens = any(k in clean_tokens for k in ("launcher", "artcraft-launcher", "artcraft_launcher"))
+
+                          if not selected and not launcher_in_tokens:
+                              selected_apps = ALL_APPS
+                              has_apps = True
+                              build_launcher = True
+                          elif not selected and launcher_in_tokens:
+                              selected_apps = ["none"]
+                              has_apps = False
+                              build_launcher = True
+                          else:
+                              selected_apps = selected
+                              has_apps = True
+                              build_launcher = launcher_in_tokens
+                  else:
+                      # Default push behavior without commit directive: build all
+                      selected_apps = ALL_APPS
+                      has_apps = True
+                      build_launcher = True
 
           out_file = os.environ.get("GITHUB_OUTPUT", "")
           if out_file:
@@ -418,7 +461,7 @@ jobs:
     name: Bundle APKs
     needs: [prepare, build, build-launcher]
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.prepare.result == 'success'
+    if: always() && !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.has_apps == 'true' || needs.prepare.outputs.build_launcher == 'true')
     steps:
       - name: Download all APK artifacts
         uses: actions/download-artifact@v4
