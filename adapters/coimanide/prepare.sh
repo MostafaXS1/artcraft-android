@@ -175,7 +175,7 @@ pub fn open_folder(app: &mut app::CodeApp, path: PathBuf) {
 PY
 
 # --------------------------------------------------------------------------------------------------
-# coiman-core: Termux tool routing, Android pty, portable-pty off Android.
+# coiman-core: Termux tool routing, Android pty, libc for Android.
 # --------------------------------------------------------------------------------------------------
 python3 - "$SRC_ABS/crates/coiman-core/Cargo.toml" <<'PY'
 from pathlib import Path
@@ -184,14 +184,6 @@ import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# Remove the desktop-only pty crate from `[dependencies]` (not the target section this script
-# appends below).
-deps = re.search(r"(?ms)^\[dependencies\]\n(.*?)(?=^\[|\Z)", s)
-if deps and re.search(r"(?m)^\s*portable-pty\s*=", deps.group(1)):
-    block = re.sub(r"(?m)^\s*portable-pty\s*=.*\n?", "", deps.group(1), count=1)
-    s = s[: deps.start(1)] + block + s[deps.end(1):]
-
-desktop_pty = "[target.'cfg(not(target_os = \"android\"))'.dependencies]"
 android_libc = "[target.'cfg(target_os = \"android\")'.dependencies]"
 
 
@@ -205,14 +197,12 @@ def ensure_section(header_line, content_line):
         s = s[: match.start(1)] + content_line + "\n" + match.group(1) + s[match.end(1):]
 
 
-# The desktop terminal opens a pty; Android has no fork/pty for another app's binaries and the
-# terminal is relayed through Termux instead (see src/terminal/pty_android.rs). The Android
-# terminal session signals its child (the Termux shim) with libc::kill.
-ensure_section(desktop_pty, 'portable-pty = "0.9.0"')
+# The Android terminal session signals its child (the Termux shim) with libc::kill.
+# portable-pty compiles on aarch64-linux-android and stays in [dependencies].
 ensure_section(android_libc, 'libc = "0.2"')
 tomllib.loads(s)
 p.write_text(s)
-print("coiman-core: portable-pty is desktop-only, libc for Android")
+print("coiman-core: libc added for Android")
 PY
 
 cp -f "$ADAPTER/patches/android_termux.rs" "$SRC_ABS/crates/coiman-core/src/android_termux.rs"
@@ -258,6 +248,9 @@ if changed:
 # --- pty.rs: the desktop Session is compiled out on Android -----------------------------------
 text = pty.read_text()
 
+if "#![allow(dead_code, unused_imports)]" not in text:
+    text = "#![allow(dead_code, unused_imports)]\n" + text
+
 
 def gate(old, new, count=1):
     global text
@@ -268,20 +261,6 @@ def gate(old, new, count=1):
     text = text.replace(old, new, count)
 
 
-gate(
-    "use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};",
-    '#[cfg(not(target_os = "android"))]\n'
-    "use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};",
-)
-gate("impl Size {\n    fn pty(self) -> PtySize {",
-     '#[cfg(not(target_os = "android"))]\nimpl Size {\n    fn pty(self) -> PtySize {')
-# `Read` and `mpsc::channel` are only used by the desktop session.
-gate("use std::io::{Read, Write};",
-     '#[cfg(not(target_os = "android"))]\nuse std::io::Read;\nuse std::io::Write;')
-gate("use std::sync::mpsc::{self, Receiver, Sender};",
-     '#[cfg(not(target_os = "android"))]\nuse std::sync::mpsc;\nuse std::sync::mpsc::{Receiver, Sender};')
-gate("fn merged_path(", '#[cfg(not(target_os = "android"))]\nfn merged_path(')
-gate("fn split_command(", '#[cfg(not(target_os = "android"))]\nfn split_command(')
 gate("pub struct Session {", '#[cfg(not(target_os = "android"))]\npub struct Session {')
 gate("impl Session {", '#[cfg(not(target_os = "android"))]\nimpl Session {')
 gate("impl Drop for Session {", '#[cfg(not(target_os = "android"))]\nimpl Drop for Session {')
@@ -298,7 +277,15 @@ pub use android_impl::*;
 if "mod android_impl;" not in text:
     text = text.rstrip() + "\n" + tail
 pty.write_text(text)
-print("pty.rs: desktop pty gated, Android session module attached")
+print("pty.rs: desktop Session gated, Android session module attached")
+
+platform = root.parent / "platform.rs"
+if platform.exists():
+    ps = platform.read_text()
+    if "#[allow(dead_code)]\npub(crate) fn terminal_started" not in ps:
+        ps = ps.replace("pub(crate) fn terminal_started", "#[allow(dead_code)]\npub(crate) fn terminal_started")
+        platform.write_text(ps)
+        print("platform.rs: terminal_started marked allow(dead_code)")
 
 # --- discovery.rs: quiet_command and which know about Termux ----------------------------------
 text = discovery.read_text()
