@@ -61,6 +61,17 @@
 - Registered build targets and SAF launcher recipes in `lib/build-common.sh`.
 
 ### Fixed
+- **CADCraft's Simplified Chinese interface on Android.** Choosing 简体中文 failed with "No
+  Chinese font is installed, so the interface stays in English" on every device, although
+  `/system/fonts/NotoSansCJK-Regular.ttc` is part of Android. CADCraft's `theme::cjk_font()` only
+  looked in the desktop font folders (`/usr/share/fonts`, `C:\Windows\Fonts`,
+  `/System/Library/Fonts`), which Android does not have, so `can_show("zh")` was always false; the
+  face is also barred from the embedded craft-fonts set (`Noto Sans CJK` is Source Han under
+  another name, see the upstream `BARRED_FAMILIES`). The build patch adds the Android locations to
+  that check: a face the user drops in `/storage/emulated/0/Fonts` first (the folder the launcher
+  already links into the app's font environment), then the system CJK faces in `/system/fonts`.
+  Verified on a Galaxy Tab S9+ (Android 16): the language dialog switches the whole interface, and
+  the choice survives a restart.
 - **Three Android builds that CI could not build** — each was a change in the upstream project
   the builder follows, and each is now taken from upstream at build time instead of being frozen
   in the adapter:
