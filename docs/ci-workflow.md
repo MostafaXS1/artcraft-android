@@ -126,7 +126,7 @@ Rust Android cross-compilation builds hundreds of native crates and dependencies
 * Rust stable with the `aarch64-linux-android` target installed via `dtolnay/rust-toolchain@stable`.
 * Compiler tuning via environment variables:
   - `CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"`: Parallelizes LLVM code generation across all available CPU cores.
-  - `CARGO_PROFILE_RELEASE_LTO: "thin"`: Replaces monolithic Link-Time Optimization with ThinLTO, speeding up the final native `.so` link by up to 4× while retaining 95% of LTO performance gains.
+  - `CARGO_PROFILE_RELEASE_LTO: "off"`: Disables whole-program LTO during release builds, drastically speeding up linking time (especially for massive monolithic crates like SolidCraft, reducing link times from 13+ minutes down to seconds) without sacrificing core runtime optimization flags.
   - `CARGO_PROFILE_RELEASE_DEBUG: "false"`: Strips debug symbols to conserve disk space and build cache size.
 
 ### Android SDK & NDK
