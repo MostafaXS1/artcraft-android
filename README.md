@@ -1,5 +1,8 @@
 # UNOFFICIAL ArtCraft Android
 
+> [!NOTE]
+> **About this project:** We are an independent group of people who love ArtCraft very much and want to make these apps available on Android. We are not affiliated with, related to, or endorsed by ArtCraft / Storytold, and all our ports are completely unofficial.
+
 **The full ArtCraft PC experience, now on Android.**
 
 [**Download the apps**](https://github.com/MostafaXS1/artcraft-android/releases/) · [ArtCraft website](https://getartcraft.com/) · [Explore the apps](https://getartcraft.com/apps)
