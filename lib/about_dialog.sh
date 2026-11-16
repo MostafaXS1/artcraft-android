@@ -26,7 +26,7 @@ DISCLAIMER_P1 = (
 DISCLAIMER_P2 = (
     "Please direct any bugs/issues related to Android porting to our GitHub. "
     "Do NOT go asking for help in the official ArtCraft discord server, "
-    "Mailing list, or GitHub. They don't maintain mobile apps so don't waste their time"
+    "Mailing list, or GitHub. They don't maintain mobile apps. Don't waste their time"
 )
 DISCLAIMER_URL = "https://github.com/MostafaXS1/artcraft-android"
 DISCLAIMER_LINK_TEXT = "Source code: github.com/MostafaXS1/artcraft-android"
@@ -40,19 +40,49 @@ def patch_file(path: Path, target: str, replacement: str) -> bool:
         return False
     content = path.read_text(encoding="utf-8")
     if MARKER in content:
-        if MARKER_P2 not in content:
-            # Upgrade old disclaimer text to include paragraph 2
+        changed = False
+        new_content = content
+
+        # Check if missing paragraph 2 completely
+        if MARKER_P2 not in new_content:
             old_p1_pattern = r'ui\.label\("We are an independent group of people who love ArtCraft very much[^"]+"\);'
             replacement_labels = (
                 f'ui.label("{DISCLAIMER_P1}");\n'
                 f'            ui.add_space(4.0);\n'
                 f'            ui.label("{DISCLAIMER_P2}");'
             )
-            new_content = re.sub(old_p1_pattern, replacement_labels, content)
-            if new_content != content:
-                path.write_text(new_content, encoding="utf-8")
-                print(f"  Upgraded unofficial disclaimer to full text for {title} in {path.relative_to(src)}")
-                return True
+            new_content = re.sub(old_p1_pattern, replacement_labels, new_content)
+            changed = True
+        else:
+            # Upgrade paragraph 2 wording if needed
+            if "They don't maintain mobile apps. Don't waste their time" not in new_content:
+                new_content = re.sub(
+                    r"They don't maintain mobile apps[^\"]*\"",
+                    "They don't maintain mobile apps. Don't waste their time\"",
+                    new_content,
+                )
+                changed = True
+
+        # Ensure divider separator follows hyperlink_to before native about content
+        sep_pattern = re.compile(
+            r'([ \t]*)(ui\.hyperlink_to\("[^"]*artcraft-android"[^)]*\);)\r?\n[ \t]*ui\.add_space\(12\.0\);'
+        )
+        if sep_pattern.search(new_content):
+            def replace_sep(m):
+                indent = m.group(1)
+                return (
+                    f"{indent}{m.group(2)}\n"
+                    f"{indent}ui.add_space(8.0);\n"
+                    f"{indent}ui.separator();\n"
+                    f"{indent}ui.add_space(8.0);"
+                )
+            new_content = sep_pattern.sub(replace_sep, new_content)
+            changed = True
+
+        if changed and new_content != content:
+            path.write_text(new_content, encoding="utf-8")
+            print(f"  Upgraded unofficial disclaimer for {title} in {path.relative_to(src)}")
+            return True
         return False
 
     if target in content:
@@ -70,7 +100,9 @@ code_block = f"""ui.heading("You are using an unofficial android port of {title}
             ui.label("{DISCLAIMER_P2}");
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-            ui.add_space(12.0);"""
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);"""
 
 patched = False
 
@@ -93,7 +125,9 @@ if app == "wordcraft":
             ui.label("{DISCLAIMER_P2}");
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-            ui.add_space(12.0);"""
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);"""
     patched = patch_file(dispatch_rs, target, replacement)
 
 elif app == "soundcraft":
@@ -115,7 +149,9 @@ elif app == "soundcraft":
                 ui.label("{DISCLAIMER_P2}");
                 ui.add_space(4.0);
                 ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-                ui.add_space(12.0);"""
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);"""
     patched = patch_file(about_rs, target, replacement)
 
 elif app == "lightcraft":
@@ -137,7 +173,9 @@ elif app == "lightcraft":
             ui.label("{DISCLAIMER_P2}");
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-            ui.add_space(12.0);"""
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);"""
     patched = patch_file(dialogs_rs, target, replacement)
 
 elif app == "vectorcraft":
@@ -152,7 +190,9 @@ elif app == "vectorcraft":
     ui.label("{DISCLAIMER_P2}");
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-    ui.add_space(12.0);"""
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(8.0);"""
     patched = patch_file(about_rs, target, replacement)
 
 elif app == "filmcraft":
@@ -170,7 +210,9 @@ elif app == "filmcraft":
     ui.label("{DISCLAIMER_P2}");
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-    ui.add_space(12.0);"""
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(8.0);"""
     patched = patch_file(dialogs_rs, target, replacement)
 
 elif app == "photocraft":
@@ -192,7 +234,9 @@ elif app == "photocraft":
             ui.label("{DISCLAIMER_P2}");
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-            ui.add_space(12.0);"""
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);"""
     patched = patch_file(dialogs_rs, target, replacement)
 
 elif app == "effectcraft":
@@ -206,7 +250,9 @@ elif app == "effectcraft":
     ui.label("{DISCLAIMER_P2}");
     ui.add_space(4.0);
     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-    ui.add_space(12.0);"""
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(8.0);"""
     patched = patch_file(dialogs_rs, target, replacement)
 
 elif app == "cadcraft":
@@ -229,7 +275,9 @@ elif app == "cadcraft":
                     ui.label("{DISCLAIMER_P2}");
                     ui.add_space(4.0);
                     ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-                    ui.add_space(12.0);
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
                     ui.heading(crate::tl!("CADCraft"));"""
     patched = patch_file(dialogs_rs, target, replacement)
 
@@ -248,7 +296,8 @@ elif app == "designcraft":
             ui.label("{DISCLAIMER_P2}");
             ui.add_space(4.0);
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
-            ui.add_space(12.0);
+            ui.add_space(8.0);
+            ui.separator();
             ui.add_space(8.0);
             let (r, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());"""
     patched = patch_file(about_rs, target, replacement)
@@ -295,14 +344,14 @@ elif app == "solidcraft":
                 help_rs.write_text(new_content, encoding="utf-8")
                 print(f"  Applied unofficial disclaimer to {title} in {help_rs.relative_to(src)}")
                 patched = True
-        elif MARKER in content and MARKER_P2 not in content:
+        elif MARKER in content:
             patch_file(help_rs, "", "")
             patched = True
 
 elif app == "materialcraft":
     windows_rs = src / "crates" / "ui-egui" / "src" / "windows.rs"
     target = 'modal(ctx, "about", tr("About MaterialCraft"), &mut open, vec2(400.0, 260.0), |ui| {\n        let tk = Tokens::get(ui.ctx());\n        ui.vertical_centered(|ui| {'
-    replacement = f"""modal(ctx, "about", tr("About MaterialCraft"), &mut open, vec2(540.0, 380.0), |ui| {{
+    replacement = f"""modal(ctx, "about", tr("About MaterialCraft"), &mut open, vec2(540.0, 420.0), |ui| {{
         let tk = Tokens::get(ui.ctx());
         ui.vertical_centered(|ui| {{
             {code_block}"""
