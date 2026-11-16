@@ -7631,6 +7631,13 @@ if [[ "$APP" == "pdfcraft" ]]; then
     fi
 fi
 
+# Contributor credits: if a refreshed snapshot is available in data/contributors/<app>.json,
+# copy it into the app source tree so the About dialog bakes full attribution.
+if [[ -f "$ROOT/data/contributors/$APP.json" && -d "$ROOT/$SRC/contributors" ]]; then
+    echo "  -> embedding refreshed contributor snapshot from data/contributors/$APP.json"
+    cp "$ROOT/data/contributors/$APP.json" "$ROOT/$SRC/contributors/contributors.json"
+fi
+
 # The Gradle project, AndroidManifest.xml and theme resource are regenerated from the launcher's
 # Cargo metadata on every build (see lib/android_project.py).
 echo "  -> generating AndroidManifest.xml, the theme resource and the Gradle project"

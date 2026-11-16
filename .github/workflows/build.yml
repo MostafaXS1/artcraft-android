@@ -6,6 +6,10 @@ on:
       - '**'
     tags:
       - '**'
+    paths-ignore:
+      - 'data/contributors/**'
+      - '.github/workflows/update-contributors.yml'
+      - 'scripts/fetch-contributors.py'
   workflow_dispatch:
     inputs:
       apps:
