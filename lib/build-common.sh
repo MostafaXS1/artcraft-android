@@ -691,6 +691,25 @@ else
     mv "$SRC_TMP" "$SRC"
 fi
 
+# Export upstream release commit SHA and build date for the app being built.
+# Upstream ArtCraft apps use <APP>_BUILD_SHA and <APP>_BUILD_DATE in their About dialog and CLI
+# (e.g. WORDCRAFT_BUILD_SHA, PHOTOCRAFT_BUILD_SHA, FILMCRAFT_BUILD_SHA). When absent, they fall back
+# to "(development build)" or "dev". Setting these ensures Android builds display the exact release commit.
+APP_COMMIT_SHA="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+BUILD_DATE="$(date -u +%Y-%m-%d)"
+APP_UPPER="$(echo "$APP" | tr '[:lower:]' '[:upper:]')"
+if [[ "$MODE" == "release" && -n "$APP_COMMIT_SHA" ]]; then
+    export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
+    export "${APP_UPPER}_BUILD_DATE"="$BUILD_DATE"
+    export BUILD_SHA="$APP_COMMIT_SHA"
+    export BUILD_DATE="$BUILD_DATE"
+    export GIT_HASH="$APP_COMMIT_SHA"
+    export GIT_COMMIT="$APP_COMMIT_SHA"
+    echo "  -> Baked release build commit: ${APP_COMMIT_SHA:0:8} (${APP_UPPER}_BUILD_SHA)"
+else
+    echo "  -> Development/debug build mode: leaving ${APP_UPPER}_BUILD_SHA unset (will show development build)"
+fi
+
 # Remove pinned upstream toolchains that might lack Android targets in CI runners
 rm -f "$SRC/rust-toolchain" "$SRC/rust-toolchain.toml"
 
@@ -2459,6 +2478,9 @@ bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
 
 # Topbar modifiers (Shift, Ctrl, Alt toggle buttons integrated into topbar/ribbon for 6 apps).
 bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
+
+# Unofficial Android port disclaimer in About dialogs.
+bash "$ROOT/lib/about_dialog.sh" "$SRC" "$APP" "$TITLE"
 
 say 4 "Preparing the NativeActivity launcher..."
 if [[ -x "adapters/$APP/prepare.sh" ]]; then
@@ -7609,6 +7631,13 @@ if [[ "$APP" == "pdfcraft" ]]; then
     fi
 fi
 
+# Contributor credits: if a refreshed snapshot is available in data/contributors/<app>.json,
+# copy it into the app source tree so the About dialog bakes full attribution.
+if [[ -f "$ROOT/data/contributors/$APP.json" && -d "$ROOT/$SRC/contributors" ]]; then
+    echo "  -> embedding refreshed contributor snapshot from data/contributors/$APP.json"
+    cp "$ROOT/data/contributors/$APP.json" "$ROOT/$SRC/contributors/contributors.json"
+fi
+
 # The Gradle project, AndroidManifest.xml and theme resource are regenerated from the launcher's
 # Cargo metadata on every build (see lib/android_project.py).
 echo "  -> generating AndroidManifest.xml, the theme resource and the Gradle project"
@@ -7698,6 +7727,19 @@ for base in search_dirs:
         except Exception as e:
             pass
 WGPUPY
+
+if [[ "$MODE" == "release" ]]; then
+    VAR_SHA="${APP_UPPER}_BUILD_SHA"
+    if [[ -z "${!VAR_SHA:-}" && -d "$ROOT/$SRC/.git" ]]; then
+        APP_COMMIT_SHA="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
+        if [[ -n "$APP_COMMIT_SHA" ]]; then
+            export "${APP_UPPER}_BUILD_SHA"="$APP_COMMIT_SHA"
+            export "${APP_UPPER}_BUILD_DATE"="$(date -u +%Y-%m-%d)"
+            export BUILD_SHA="$APP_COMMIT_SHA"
+            export BUILD_DATE="$(date -u +%Y-%m-%d)"
+        fi
+    fi
+fi
 
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"

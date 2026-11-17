@@ -46,13 +46,29 @@ flowchart TD
 
 ### Triggers
 1. **Push to Branches (`branches: ['**']`):**
-   Runs automatically on all branch commits to ensure PRs and branch updates don't break Android compatibility.
+   - **Default behavior:** Automatically builds all 32 applications and the ArtCraft Launcher.
+   - **Commit Message Directives:** You can selectively control which apps build by including tags in the commit message or description:
+     - `[build: wordcraft]` or `[ci: wordcraft]` — Builds only WordCraft.
+     - `[build: wordcraft, filmcraft]` — Builds WordCraft and FilmCraft.
+     - `[build: launcher]` — Builds only the ArtCraft Launcher.
+     - `[build: wordcraft, launcher]` — Builds WordCraft and the ArtCraft Launcher.
+     - `[skip ci]`, `[ci skip]`, or `[build: none]` — Skips all build matrix and packaging jobs completely.
 2. **Push to Tags (`tags: ['**']`):**
-   When pushing semantic release tags (e.g. `v1`, `v0.2.0`), triggers the full matrix build and publishes an official GitHub Release.
+   When pushing semantic release tags (e.g. `v1`, `v0.2.0`), triggers the full matrix build and publishes an official GitHub Release with all compiled APKs.
 3. **Manual Dispatch (`workflow_dispatch`):**
    Allows manual runs from the GitHub Actions UI with custom parameters:
+   - `apps`: Specific apps to build (comma or space separated, e.g. `wordcraft, filmcraft`; or `all` to build everything).
+   - `build_launcher`: Boolean checkbox to build the ArtCraft Launcher APK (default: `true`).
    - `mode`: `release` (default, optimized) or `debug` (faster build, larger binary).
    - `source_version`: `stable` (default, latest release tags) or `main` (bleeding-edge rolling upstream commits).
+   - `release_build`: Android release build number for repeat builds of the same version.
+
+### Execution Lifecycle
+A preliminary `prepare` job dynamically evaluates inputs and commit messages before spinning up build runners:
+1. `prepare`: Parses inputs or commit message directives, outputs a dynamic matrix JSON array (`apps`), `has_apps`, and `build_launcher`.
+2. `build`: Matrix jobs run only for the target apps selected by `prepare`.
+3. `build-launcher`: Runs only if requested (`build_launcher == 'true'`).
+4. `bundle`: Downloads and bundles all built APKs into `artcraft-all-apks`.
 
 ### Concurrency Control
 ```yaml
@@ -110,7 +126,7 @@ Rust Android cross-compilation builds hundreds of native crates and dependencies
 * Rust stable with the `aarch64-linux-android` target installed via `dtolnay/rust-toolchain@stable`.
 * Compiler tuning via environment variables:
   - `CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"`: Parallelizes LLVM code generation across all available CPU cores.
-  - `CARGO_PROFILE_RELEASE_LTO: "thin"`: Replaces monolithic Link-Time Optimization with ThinLTO, speeding up the final native `.so` link by up to 4× while retaining 95% of LTO performance gains.
+  - `CARGO_PROFILE_RELEASE_LTO: "off"`: Disables whole-program LTO during release builds, drastically speeding up linking time (especially for massive monolithic crates like SolidCraft, reducing link times from 13+ minutes down to seconds) without sacrificing core runtime optimization flags.
   - `CARGO_PROFILE_RELEASE_DEBUG: "false"`: Strips debug symbols to conserve disk space and build cache size.
 
 ### Android SDK & NDK

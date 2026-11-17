@@ -21,7 +21,11 @@ APP="${1:-coimanide}"
 TITLE="${2:-Coiman IDE}"
 SRC="${3:-source/coimanide}"
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-SRC_ABS="$ROOT/$SRC"
+if [[ "$SRC" = /* ]]; then
+    SRC_ABS="$SRC"
+else
+    SRC_ABS="$ROOT/$SRC"
+fi
 ADAPTER="$ROOT/adapters/coimanide"
 DEST="$SRC_ABS/apps/$APP-android"
 
@@ -124,13 +128,28 @@ python3 - "$SRC_ABS/crates/coiman-ide/src/main.rs" "$SRC_ABS/crates/coiman-ide/s
 from pathlib import Path
 import re, sys
 
-main = Path(sys.argv[1]).read_text()
-match = re.search(r"(?ms)^pub\(crate\) use coiman_core::\{.*?\};", main)
-if not match:
-    raise SystemExit("main.rs no longer has the coiman_core re-export line")
-reexport = match.group(0)
+main_path = Path(sys.argv[1])
+lib_path = Path(sys.argv[2])
 
-lib = '''//! Library form of Coiman IDE, used by the Android shell in `apps/coimanide-android`.
+if lib_path.is_file():
+    # In newer upstream releases (v0.5.0+), lib.rs already exists and exposes open_file, open_folder,
+    # CodeApp, and coiman_core re-exports. We only need to ensure modules needed by the Android
+    # shell (android_keyboard, app, ui) are exposed.
+    lib = lib_path.read_text()
+    lib = re.sub(r"(?m)^mod app;", "pub mod app;", lib)
+    lib = re.sub(r"(?m)^mod ui;", "pub mod ui;", lib)
+    if "pub mod android_keyboard;" not in lib:
+        lib = lib.replace("pub mod app;", "pub mod android_keyboard;\npub mod app;", 1)
+    lib_path.write_text(lib)
+    print("coiman-ide: src/lib.rs updated for Android shell")
+else:
+    main = main_path.read_text()
+    match = re.search(r"(?ms)^pub\(crate\) use coiman_core::\{.*?\};", main)
+    if not match:
+        raise SystemExit("main.rs no longer has the coiman_core re-export line")
+    reexport = match.group(0)
+
+    lib = '''//! Library form of Coiman IDE, used by the Android shell in `apps/coimanide-android`.
 //!
 //! The desktop binary keeps its own `main.rs`; this exposes the very same modules so the Android
 //! launcher can draw `app::CodeApp` inside its own eframe shell and hand it files the system
@@ -155,12 +174,12 @@ pub fn open_folder(app: &mut app::CodeApp, path: PathBuf) {
     app.open_folder(path);
 }
 '''
-Path(sys.argv[2]).write_text(lib)
-print("coiman-ide: src/lib.rs written")
+    lib_path.write_text(lib)
+    print("coiman-ide: src/lib.rs written")
 PY
 
 # --------------------------------------------------------------------------------------------------
-# coiman-core: Termux tool routing, Android pty, portable-pty off Android.
+# coiman-core: Termux tool routing, Android pty, libc for Android.
 # --------------------------------------------------------------------------------------------------
 python3 - "$SRC_ABS/crates/coiman-core/Cargo.toml" <<'PY'
 from pathlib import Path
@@ -169,14 +188,6 @@ import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# Remove the desktop-only pty crate from `[dependencies]` (not the target section this script
-# appends below).
-deps = re.search(r"(?ms)^\[dependencies\]\n(.*?)(?=^\[|\Z)", s)
-if deps and re.search(r"(?m)^\s*portable-pty\s*=", deps.group(1)):
-    block = re.sub(r"(?m)^\s*portable-pty\s*=.*\n?", "", deps.group(1), count=1)
-    s = s[: deps.start(1)] + block + s[deps.end(1):]
-
-desktop_pty = "[target.'cfg(not(target_os = \"android\"))'.dependencies]"
 android_libc = "[target.'cfg(target_os = \"android\")'.dependencies]"
 
 
@@ -190,14 +201,12 @@ def ensure_section(header_line, content_line):
         s = s[: match.start(1)] + content_line + "\n" + match.group(1) + s[match.end(1):]
 
 
-# The desktop terminal opens a pty; Android has no fork/pty for another app's binaries and the
-# terminal is relayed through Termux instead (see src/terminal/pty_android.rs). The Android
-# terminal session signals its child (the Termux shim) with libc::kill.
-ensure_section(desktop_pty, 'portable-pty = "0.9.0"')
+# The Android terminal session signals its child (the Termux shim) with libc::kill.
+# portable-pty compiles on aarch64-linux-android and stays in [dependencies].
 ensure_section(android_libc, 'libc = "0.2"')
 tomllib.loads(s)
 p.write_text(s)
-print("coiman-core: portable-pty is desktop-only, libc for Android")
+print("coiman-core: libc added for Android")
 PY
 
 cp -f "$ADAPTER/patches/android_termux.rs" "$SRC_ABS/crates/coiman-core/src/android_termux.rs"
@@ -243,6 +252,9 @@ if changed:
 # --- pty.rs: the desktop Session is compiled out on Android -----------------------------------
 text = pty.read_text()
 
+if "#![allow(dead_code, unused_imports)]" not in text:
+    text = "#![allow(dead_code, unused_imports)]\n" + text
+
 
 def gate(old, new, count=1):
     global text
@@ -253,20 +265,6 @@ def gate(old, new, count=1):
     text = text.replace(old, new, count)
 
 
-gate(
-    "use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};",
-    '#[cfg(not(target_os = "android"))]\n'
-    "use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};",
-)
-gate("impl Size {\n    fn pty(self) -> PtySize {",
-     '#[cfg(not(target_os = "android"))]\nimpl Size {\n    fn pty(self) -> PtySize {')
-# `Read` and `mpsc::channel` are only used by the desktop session.
-gate("use std::io::{Read, Write};",
-     '#[cfg(not(target_os = "android"))]\nuse std::io::Read;\nuse std::io::Write;')
-gate("use std::sync::mpsc::{self, Receiver, Sender};",
-     '#[cfg(not(target_os = "android"))]\nuse std::sync::mpsc;\nuse std::sync::mpsc::{Receiver, Sender};')
-gate("fn merged_path(", '#[cfg(not(target_os = "android"))]\nfn merged_path(')
-gate("fn split_command(", '#[cfg(not(target_os = "android"))]\nfn split_command(')
 gate("pub struct Session {", '#[cfg(not(target_os = "android"))]\npub struct Session {')
 gate("impl Session {", '#[cfg(not(target_os = "android"))]\nimpl Session {')
 gate("impl Drop for Session {", '#[cfg(not(target_os = "android"))]\nimpl Drop for Session {')
@@ -283,16 +281,20 @@ pub use android_impl::*;
 if "mod android_impl;" not in text:
     text = text.rstrip() + "\n" + tail
 pty.write_text(text)
-print("pty.rs: desktop pty gated, Android session module attached")
+print("pty.rs: desktop Session gated, Android session module attached")
+
+platform = root.parent / "platform.rs"
+if platform.exists():
+    ps = platform.read_text()
+    if "#[allow(dead_code)]\npub(crate) fn terminal_started" not in ps:
+        ps = ps.replace("pub(crate) fn terminal_started", "#[allow(dead_code)]\npub(crate) fn terminal_started")
+        platform.write_text(ps)
+        print("platform.rs: terminal_started marked allow(dead_code)")
 
 # --- discovery.rs: quiet_command and which know about Termux ----------------------------------
 text = discovery.read_text()
 if "crate::android_termux::tool_for" not in text:
-    old = """pub fn quiet_command(program: &Path) -> Command {
-    #[allow(unused_mut)]
-    let mut cmd = Command::new(program);"""
-    new = """pub fn quiet_command(program: &Path) -> Command {
-    // Android has none of Coiman's tools in its own sandbox: Termux has them. The bundled shim
+    shim_block = """    // Android has none of Coiman's tools in its own sandbox: Termux has them. The bundled shim
     // turns one Termux RUN_COMMAND invocation into a normal child process (stdin/stdout/stderr),
     // so every caller keeps working unchanged.
     #[cfg(target_os = "android")]
@@ -303,7 +305,15 @@ if "crate::android_termux::tool_for" not in text:
             return forwarded;
         }
     }
+"""
+    if "if let Some(routed) = crate::platform::routed(program)" in text:
+        old = "pub fn quiet_command(program: &Path) -> Command {\n"
+        new = "pub fn quiet_command(program: &Path) -> Command {\n" + shim_block
+    else:
+        old = """pub fn quiet_command(program: &Path) -> Command {
     #[allow(unused_mut)]
+    let mut cmd = Command::new(program);"""
+        new = "pub fn quiet_command(program: &Path) -> Command {\n" + shim_block + """    #[allow(unused_mut)]
     let mut cmd = Command::new(program);"""
     if old not in text:
         raise SystemExit("quiet_command no longer has the expected shape")
@@ -313,17 +323,21 @@ if "crate::android_termux::tool_for" not in text:
 
 text = servers.read_text()
 if "crate::android_termux::tool_for" not in text:
-    old = """pub fn which(name: &str) -> Option<PathBuf> {
-    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };"""
-    new = """pub fn which(name: &str) -> Option<PathBuf> {
-    // Termux's bin directory belongs to another app (mode 700), so `is_file` can never see its
+    probe_block = """    // Termux's bin directory belongs to another app (mode 700), so `is_file` can never see its
     // tools. Treat the programs the shim forwards as installed: quiet_command routes them to
     // Termux, and a missing package then produces Termux's "pkg install ..." hint.
     #[cfg(target_os = "android")]
     if let Some(tool) = crate::android_termux::tool_for(Path::new(name)) {
         return Some(PathBuf::from(tool));
     }
+"""
+    if "if let Some(found) = crate::platform::probed(name)" in text:
+        old = "pub fn which(name: &str) -> Option<PathBuf> {\n"
+        new = "pub fn which(name: &str) -> Option<PathBuf> {\n" + probe_block
+    else:
+        old = """pub fn which(name: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };"""
+        new = "pub fn which(name: &str) -> Option<PathBuf> {\n" + probe_block + """    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };"""
     if old not in text:
         raise SystemExit("which no longer has the expected shape")
     text = text.replace(old, new, 1)
@@ -563,7 +577,7 @@ new_press = (
     "    let pressed =\n"
     "        (response.is_pointer_button_down_on() || response.clicked()) && ui.input(|i| i.pointer.primary_pressed());"
 )
-if new_press in s:
+if "(response.is_pointer_button_down_on() || response.clicked())" in s or new_press in s:
     print("editor_view.rs: a tap already counts as a press")
 elif old_press in s:
     s = s.replace(old_press, new_press, 1)
@@ -585,7 +599,7 @@ tap_patched = """    if response.clicked() || response.drag_started() {
         crate::android_keyboard::text_tapped();
     }
 """
-if "crate::android_keyboard::text_tapped();" in s:
+if "crate::android_keyboard::text_tapped();" in s or "crate::hooks::text_tapped();" in s:
     print("editor_view.rs: a tap already asks for the soft keyboard again")
 elif tap_anchor in s:
     s = s.replace(tap_anchor, tap_patched, 1)
@@ -695,7 +709,34 @@ s = re.sub(
     s,
     flags=re.S,
 )
-ime_block = """        // The terminal is a text surface: publish its IME output while it has focus.
+
+# In upstream v0.5.0+, terminal.rs has built-in publish_ime. Update its IMEOutput
+# to use the storytold egui fork fields.
+pristine_terminal_ime = """        o.ime = Some(egui::output::IMEOutput {
+            purpose: egui::IMEPurpose::Terminal,
+            rect: to_global * rect,
+            cursor_rect: to_global * cursor_rect,
+            should_interrupt_composition: false,
+        });"""
+patched_terminal_ime = """        o.ime = Some(egui::output::IMEOutput {
+            owner: egui::Id::NULL,
+            context_generation: 0,
+            purpose: egui::IMEPurpose::Terminal,
+            rect: to_global * rect,
+            cursor_rect: to_global * cursor_rect,
+            should_interrupt_composition: false,
+            reset_request: None,
+            change_cause: egui::output::ImeChangeCause::Other,
+            surrounding_text: egui::output::IMESurroundingText::Unavailable,
+        });"""
+
+if patched_terminal_ime in s:
+    print("terminal.rs: publish_ime already has egui fork fields")
+elif pristine_terminal_ime in s:
+    s = s.replace(pristine_terminal_ime, patched_terminal_ime, 1)
+    print("terminal.rs: publish_ime updated for egui fork fields")
+elif "fn publish_ime(" not in s:
+    ime_block = """        // The terminal is a text surface: publish its IME output while it has focus.
         if focused {
             let term = tab.session.term();
             let content = term.renderable_content();
@@ -722,7 +763,7 @@ ime_block = """        // The terminal is a text surface: publish its IME output
             });
         }
 """
-s = s.replace(anchor, anchor + ime_block, 1)
+    s = s.replace(anchor, anchor + ime_block, 1)
 
 # A tap in the terminal is the user saying "type here": in Auto mode the shell brings the
 # keyboard back when the user dismissed it.
@@ -738,11 +779,13 @@ tap_patched = """        if focus_requested || response.clicked() || response.dr
             crate::android_keyboard::text_tapped();
         }
 """
-if "crate::android_keyboard::text_tapped();" not in s:
-    if tap_anchor not in s:
-        raise SystemExit("terminal.rs no longer focuses the terminal on a tap")
+if "crate::android_keyboard::text_tapped();" in s or "crate::hooks::text_tapped();" in s:
+    print("terminal.rs: a tap already asks for the soft keyboard again")
+elif tap_anchor in s:
     s = s.replace(tap_anchor, tap_patched, 1)
     print("terminal.rs: a tap asks for the soft keyboard again")
+else:
+    raise SystemExit("terminal.rs no longer focuses the terminal on a tap")
 p.write_text(s)
 print("terminal.rs: the selection reaches the text bar, and the terminal asks for the soft keyboard")
 PY

@@ -37,6 +37,12 @@ if "https://github.com/storytold/egui.git" not in s:
     p.write_text(s)
 PY
 
+# If upstream includes its own android crate (e.g. android/Cargo.toml), remove it to avoid
+# duplicate package name collisions with apps/notecraft-android in the workspace.
+if [[ -d "$SRC_ABS/android" ]]; then
+    rm -rf "$SRC_ABS/android"
+fi
+
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
 import re, sys
@@ -45,13 +51,14 @@ s = p.read_text()
 m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
 if m:
     inner = m.group(1)
+    inner = re.sub(r'["\']android["\']\s*,?', '', inner)
     if '"apps/notecraft-android"' not in inner:
         new_inner = inner.rstrip()
         if not new_inner.endswith(','):
             new_inner += ','
         new_inner += ' "apps/notecraft-android"'
-        s = s[:m.start(1)] + new_inner + s[m.end(1):]
-        p.write_text(s)
+    s = s[:m.start(1)] + new_inner + s[m.end(1):]
+    p.write_text(s)
 PY
 
 mkdir -p "$DEST"

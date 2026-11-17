@@ -6,6 +6,7 @@ fn main() {
         (_, "macos") => println!("cargo:rustc-link-lib=framework=AppKit"),
         (_, "windows") => {}
         ("wasm32", _) => {}
+        (_, "android") => {}
         _ => {
             let gtk = std::env::var_os("CARGO_FEATURE_GTK3").is_some();
             let xdg = std::env::var_os("CARGO_FEATURE_XDG_PORTAL").is_some();
