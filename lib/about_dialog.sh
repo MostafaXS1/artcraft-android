@@ -184,16 +184,8 @@ patched = False
 
 if app == "wordcraft":
     dispatch_rs = src / "crates" / "ui-egui" / "src" / "dialogs" / "dispatch.rs"
-    target = """\
-    match *tab {
-        1 => crate::credits::contributors_ui(ui),
-        2 => crate::credits::models_ui(ui),
-        _ => {"""
-    replacement = f"""\
-    match *tab {{
-        1 => crate::credits::contributors_ui(ui),
-        2 => crate::credits::models_ui(ui),
-        _ => {{
+    target = "_ => {\n            ui.label(egui::RichText::new(tl!(\"WordCraft\")).font(semibold(22.0)));"
+    replacement = f"""_ => {{
             ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of {title}").font(semibold(18.0))).wrap());
             ui.add_space(4.0);
             ui.add(egui::Label::new("{DISCLAIMER_P1}").wrap());
@@ -203,7 +195,8 @@ if app == "wordcraft":
             ui.hyperlink_to("{DISCLAIMER_LINK_TEXT}", "{DISCLAIMER_URL}");
             ui.add_space(8.0);
             ui.separator();
-            ui.add_space(8.0);"""
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));"""
     patched = patch_file(dispatch_rs, target, replacement)
 
     chrome_rs = src / "crates" / "ui-egui" / "src" / "dialogs" / "chrome.rs"
@@ -336,8 +329,8 @@ elif app == "photocraft":
             ui.add_space(8.0);"""
     patched = patch_file(dialogs_rs, target, replacement)
 
-    fr_target = "pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {\n    crate::layer_style::color_picker::prune(app);"
-    fr_repl = 'pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {\n    if app.ui.dialogs.is_empty() && is_first_run("photocraft") {\n        app.ui.open_dialog(crate::state::DialogKind::About, Default::default());\n    }\n    crate::layer_style::color_picker::prune(app);'
+    fr_target = "pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {\n"
+    fr_repl = 'pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {\n    if app.ui.dialogs.is_empty() && is_first_run("photocraft") {\n        app.ui.open_dialog(crate::state::DialogKind::About, Default::default());\n    }\n'
     inject_first_run(dialogs_rs, fr_target, fr_repl)
 
 elif app == "effectcraft":

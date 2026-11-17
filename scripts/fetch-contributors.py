@@ -98,7 +98,10 @@ def fetch_contributor_snapshot(app):
             except Exception as e:
                 print(f"[{app}] Error reading artifact: {e}")
 
-    print(f"[{app}] No valid contributor-snapshot artifact found in recent runs")
+    if app == "gridcraft":
+        print(f"[{app}] Note: storytold/gridcraft does not run credits: in release.yml; preserving data/contributors/gridcraft.json")
+    else:
+        print(f"[{app}] No valid contributor-snapshot artifact found in recent runs")
     return False
 
 
