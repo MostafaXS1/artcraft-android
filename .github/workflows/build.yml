@@ -182,7 +182,7 @@ jobs:
     needs: [prepare]
     if: needs.prepare.outputs.has_apps == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       RUSTC_WRAPPER: "sccache"
       SCCACHE_DIR: "/home/runner/.cache/sccache"
@@ -314,13 +314,13 @@ jobs:
           echo "ARTCRAFT_BUILD_TOOLS_VERSION=35.0.0" >> $GITHUB_ENV
 
       - name: Build ${{ matrix.app }} APK
-        timeout-minutes: 35
+        timeout-minutes: 55
         env:
           BUILD_MODE: ${{ inputs.mode || 'release' }}
           BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
           RUSTC_WRAPPER: sccache
           SCCACHE_IDLE_TIMEOUT: "0"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.app == 'solidcraft' && '1' || '16' }}
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
           CARGO_PROFILE_RELEASE_DEBUG: "false"
           ARTCRAFT_KEYSTORE: ${{ hashFiles('keys/artcraft-builder.jks') != '' && format('{0}/keys/artcraft-builder.jks', github.workspace) || '' }}
