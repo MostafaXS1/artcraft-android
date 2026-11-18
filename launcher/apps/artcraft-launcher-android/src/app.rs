@@ -87,6 +87,9 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
     }
 
     let files_dir = android_files_dir(&android)?;
+    let cache_dir = files_dir.join("cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    std::env::set_var("TMPDIR", &cache_dir);
 
     // Bridge for JNI calls (install, uninstall, detect version) — file-based like photocraft
     let bridge_dir = files_dir.join("bridge");

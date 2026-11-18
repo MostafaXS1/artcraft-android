@@ -512,6 +512,23 @@ elif app == "gridcraft":
     fr_repl = 'pub fn show(app: &mut SheetApp, ctx: &egui::Context) {\n    if app.dialog.is_none() && is_first_run("gridcraft") {\n        app.open_dialog("about", json!({}));\n    }\n    let Some(mut d) = app.dialog.take() else { return };'
     inject_first_run(show_rs, fr_target, fr_repl)
 
+elif app in ("launcher", "artcraft-launcher"):
+    settings_dialog_rs = src / "crates" / "ui-egui" / "src" / "settings_dialog.rs"
+    target = "    fn settings_contents(&mut self, ui: &mut Ui, host: &mut dyn Host, wide: bool) {\n"
+    replacement = f"""    fn settings_disclaimer(&self, ui: &mut Ui) {{
+        {code_block}
+    }}
+
+    fn settings_contents(&mut self, ui: &mut Ui, host: &mut dyn Host, wide: bool) {{
+        self.settings_disclaimer(ui);
+"""
+    patched = patch_file(settings_dialog_rs, target, replacement)
+
+    dialogs_rs = src / "crates" / "ui-egui" / "src" / "dialogs.rs"
+    fr_target = "    pub(crate) fn dialogs(&mut self, ctx: &egui::Context, host: &mut dyn Host) {\n"
+    fr_repl = '    pub(crate) fn dialogs(&mut self, ctx: &egui::Context, host: &mut dyn Host) {\n        if self.dialog.is_none() && is_first_run("launcher") {\n            self.dialog = Some(Dialog::Settings);\n        }\n'
+    inject_first_run(dialogs_rs, fr_target, fr_repl)
+
 # Generic fallback for any other app with crates/ui-egui
 if not patched:
     ui_src = src / "crates" / "ui-egui" / "src"

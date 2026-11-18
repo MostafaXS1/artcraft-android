@@ -15,6 +15,9 @@ impl LauncherUi {
     /// so a smaller prompt cannot inherit a taller one's last size, and closing (button, Escape or
     /// a click outside) discards the dialog.
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context, host: &mut dyn Host) {
+        if self.dialog.is_none() && is_first_run("launcher") {
+            self.dialog = Some(Dialog::Settings);
+        }
         let Some(mut dialog) = self.dialog.clone() else {
             self.alert_popup(ctx);
             return;
@@ -346,5 +349,45 @@ impl LauncherUi {
                 folder.clear();
             }
         });
+    }
+}
+
+#[allow(dead_code)]
+fn is_first_run(app_name: &str) -> bool {
+    #[cfg(test)]
+    {
+        return false;
+    }
+    static CHECKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static IS_FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    if CHECKED.load(std::sync::atomic::Ordering::Relaxed) {
+        return IS_FIRST.swap(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    let base_dir = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+        .or_else(|| {
+            std::env::var_os("TMPDIR").and_then(|p| {
+                let pb = std::path::PathBuf::from(p);
+                pb.parent().map(|p| p.to_path_buf())
+            })
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let marker = base_dir.join(format!(".artcraft_{}_about_seen", app_name));
+    let marker_settings = base_dir.join(format!(".artcraft_{}_settings_seen", app_name));
+    if marker.exists() || marker_settings.exists() {
+        CHECKED.store(true, std::sync::atomic::Ordering::Relaxed);
+        IS_FIRST.store(false, std::sync::atomic::Ordering::Relaxed);
+        false
+    } else {
+        let _ = std::fs::create_dir_all(&base_dir);
+        let _ = std::fs::write(&marker, b"seen\n");
+        let _ = std::fs::write(&marker_settings, b"seen\n");
+        CHECKED.store(true, std::sync::atomic::Ordering::Relaxed);
+        IS_FIRST.store(false, std::sync::atomic::Ordering::Relaxed);
+        true
     }
 }
