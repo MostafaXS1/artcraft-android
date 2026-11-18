@@ -196,12 +196,28 @@ final class TermuxBroker {
     }
 
     private void handle(File request) {
-        String script = read(new File(request, "script"));
+        String scriptContent = "";
+        File scriptFile = new File(request, "run.sh");
+        if (scriptFile.exists()) {
+            scriptContent = read(scriptFile);
+        }
+        if (scriptContent.isEmpty()) {
+            String scriptTarget = read(new File(request, "script"));
+            if (!scriptTarget.isEmpty()) {
+                File targetFile = new File(scriptTarget);
+                if (targetFile.exists()) {
+                    scriptContent = read(targetFile);
+                } else {
+                    scriptContent = scriptTarget;
+                }
+            }
+        }
         String workdir = read(new File(request, "workdir"));
         String label = read(new File(request, "label"));
         String result = read(new File(request, "result"));
+        String scratchPath = read(new File(request, "scratch"));
         deleteRecursively(request);
-        if (script.isEmpty()) {
+        if (scriptContent.isEmpty()) {
             Log.w(TAG, "Ignoring a request without a script: " + request.getName());
             return;
         }
@@ -209,7 +225,7 @@ final class TermuxBroker {
         Intent intent = new Intent(ACTION_RUN_COMMAND);
         intent.setClassName(TERMUX_PACKAGE, TERMUX_SERVICE);
         intent.putExtra(EXTRA_COMMAND_PATH, TERMUX_BASH);
-        intent.putExtra(EXTRA_ARGUMENTS, new String[]{script});
+        intent.putExtra(EXTRA_ARGUMENTS, new String[]{"-c", scriptContent});
         if (!workdir.isEmpty()) {
             intent.putExtra(EXTRA_WORKDIR, workdir);
         }
@@ -223,15 +239,21 @@ final class TermuxBroker {
         }
         try {
             activity.startService(intent);
-            Log.i(TAG, "Sent to Termux: " + (label.isEmpty() ? script : label));
+            Log.i(TAG, "Sent to Termux: " + (label.isEmpty() ? "command" : label));
         } catch (Throwable error) {
             Log.e(TAG, "Could not start Termux's RUN_COMMAND service", error);
-            writeBrokerError(script, error);
+            writeBrokerError(scratchPath, result, error);
         }
     }
 
-    private void writeBrokerError(String script, Throwable error) {
-        File scratch = new File(script).getParentFile();
+    private void writeBrokerError(String scratchPath, String resultPath, Throwable error) {
+        File scratch = null;
+        if (scratchPath != null && !scratchPath.isEmpty()) {
+            scratch = new File(scratchPath);
+        }
+        if (scratch == null && resultPath != null && !resultPath.isEmpty()) {
+            scratch = new File(resultPath).getParentFile();
+        }
         if (scratch == null) return;
         String message = "Termux could not be started: " + error;
         try (FileOutputStream out = new FileOutputStream(new File(scratch, "error"))) {

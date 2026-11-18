@@ -105,13 +105,20 @@ impl Drop for Endpoint {
     }
 }
 
-/// A new random token.
+/// A new cryptographically secure random token (or pseudorandom fallback).
 pub fn new_token() -> Option<String> {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        if f.read_exact(&mut bytes).is_ok() {
+            return Some(bytes.iter().map(|b| format!("{:02x}", b)).collect());
+        }
+    }
     use std::time::SystemTime;
     let t = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
     let pid = std::process::id();
     let ptr = &t as *const _ as usize;
-    Some(format!("{:016x}{:08x}{:08x}", t, pid, ptr))
+    Some(format!("{:032x}{:016x}{:016x}", t, pid as u64, ptr as u64))
 }
 
 /// A default lightweight MCP server exposing app metadata, status and ping.
@@ -261,16 +268,23 @@ pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) ->
     let make: MakeServer = Arc::new(move || {
         Box::new(CapsuleCraftMcpServer::new())
     });
-    let addr = SocketAddr::from(([0, 0, 0, 0], 27880));
-    let token = std::env::var("MCP_TOKEN").unwrap_or_else(|_| "artcraft".to_string());
+    let host: IpAddr = std::env::var("MCP_BIND_HOST")
+        .ok()
+        .and_then(|h| h.parse().ok())
+        .unwrap_or_else(|| IpAddr::from([127, 0, 0, 1]));
+    let addr = SocketAddr::new(host, 27880);
+    let token = match std::env::var("MCP_TOKEN") {
+        Ok(t) if !t.trim().is_empty() => t,
+        _ => new_token()?,
+    };
     match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
         Ok(ep) => {
-            log::info!("MCP server listening on port {} with token {}", ep.port(), token);
+            log::info!("MCP server listening on {}:{}", addr.ip(), ep.port());
             Some(ep)
         }
         Err(e) => {
             log::warn!("Could not bind MCP server on port 27880: {e}, falling back to dynamic port...");
-            let fallback_addr = SocketAddr::from(([0, 0, 0, 0], 0));
+            let fallback_addr = SocketAddr::new(host, 0);
             Endpoint::start(fallback_addr, token, make, ready).ok()
         }
     }

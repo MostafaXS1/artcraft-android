@@ -414,7 +414,7 @@ int main(int argc, char **argv) {
     snprintf(started_path, sizeof(started_path), "%s/started", scratch);
     snprintf(kill_path, sizeof(kill_path), "%s/kill", scratch);
     snprintf(alive_path, sizeof(alive_path), "%s/alive", scratch);
-    snprintf(script_path, sizeof(script_path), "%s/run.sh", scratch);
+    snprintf(script_path, sizeof(script_path), "%s/run.sh", temp_request);
     snprintf(size_path, sizeof(size_path), "%s/size", scratch);
     snprintf(result_dir, sizeof(result_dir), "%s/result", scratch);
     snprintf(result_exit, sizeof(result_exit), "%s/exit_code", result_dir);
@@ -622,7 +622,7 @@ int main(int argc, char **argv) {
     shell_quote(script, exit_path);
     fprintf(script, "\n");
     fclose(script);
-    chmod(script_path, 0755);
+    chmod(script_path, 0700);
 
     /* Publish the request atomically: the broker only sees complete directories. */
     char path[PATH_MAX_LEN];
@@ -642,6 +642,8 @@ int main(int argc, char **argv) {
     write_file(path, label, strlen(label));
     snprintf(path, sizeof(path), "%s/result", temp_request);
     write_file(path, result_dir, strlen(result_dir));
+    snprintf(path, sizeof(path), "%s/scratch", temp_request);
+    write_file(path, scratch, strlen(scratch));
     if (rename(temp_request, request) != 0) {
         fail("cannot publish the Termux request: %s", strerror(errno));
         return 127;
