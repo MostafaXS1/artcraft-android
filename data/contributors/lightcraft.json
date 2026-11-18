@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "f5da4a27d31702c24a13f1e15239472d661de1eb",
-  "head_date": "2026-11-16T00:39:59Z",
-  "commits": 5309,
+  "head": "27b755a93c8091a6f0c71151184a88f0b90144ce",
+  "head_date": "2026-11-17T13:14:04Z",
+  "commits": 5420,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -47,6 +47,19 @@
       "last_commit": "2026-11-06T13:20:26Z"
     },
     {
+      "login": "dylanmtaylor",
+      "people_entry": true,
+      "github_name": "Dylan M. Taylor",
+      "prs": 98,
+      "commits": 300,
+      "lines_added": 21150,
+      "lines_deleted": 57840,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-10T00:04:24Z",
+      "last_commit": "2026-11-17T13:14:04Z"
+    },
+    {
       "login": "bflatastic",
       "people_entry": false,
       "github_name": null,
@@ -60,30 +73,17 @@
       "last_commit": "2026-10-22T11:02:01Z"
     },
     {
-      "login": "dylanmtaylor",
-      "people_entry": true,
-      "github_name": "Dylan M. Taylor",
-      "prs": 84,
-      "commits": 218,
-      "lines_added": 16665,
-      "lines_deleted": 55384,
-      "binary_added": 1,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-10T00:04:24Z",
-      "last_commit": "2026-11-16T00:39:59Z"
-    },
-    {
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
       "prs": 25,
-      "commits": 172,
-      "lines_added": 36806,
-      "lines_deleted": 3332,
+      "commits": 198,
+      "lines_added": 36998,
+      "lines_deleted": 3377,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-15T14:29:34Z"
+      "last_commit": "2026-11-16T12:52:11Z"
     },
     {
       "login": "radialmonster",
@@ -229,6 +229,19 @@
       "last_commit": "2026-10-21T17:57:58Z"
     },
     {
+      "login": "Bruno-Alumn",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 27,
+      "commits": 59,
+      "lines_added": 2930,
+      "lines_deleted": 336,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-20T23:47:24Z",
+      "last_commit": "2026-11-14T03:34:50Z"
+    },
+    {
       "login": "dev-null-undefined",
       "people_entry": false,
       "github_name": null,
@@ -240,19 +253,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-09T21:08:02Z",
       "last_commit": "2026-10-14T13:58:37Z"
-    },
-    {
-      "login": "Bruno-Alumn",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 26,
-      "commits": 57,
-      "lines_added": 2907,
-      "lines_deleted": 332,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-20T23:47:24Z",
-      "last_commit": "2026-11-14T03:34:50Z"
     },
     {
       "login": "AlexChambers",
@@ -2424,6 +2424,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-09T19:37:15Z",
       "last_commit": "2026-10-09T19:37:15Z"
+    },
+    {
+      "login": "gmrmad1",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 4,
+      "lines_deleted": 2,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-15T03:34:27Z",
+      "last_commit": "2026-11-15T03:34:27Z"
     },
     {
       "login": "Gremiger",

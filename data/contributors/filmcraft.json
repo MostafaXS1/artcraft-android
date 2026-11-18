@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "7215e46c8ff42d40bd4aa73f9fb688baf5524b18",
-  "head_date": "2026-11-16T01:05:09Z",
-  "commits": 3901,
+  "head": "1b0f9f8e7b0584a4b65d0486100e71107527db57",
+  "head_date": "2026-11-18T00:40:28Z",
+  "commits": 4146,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -34,12 +34,25 @@
       "last_commit": "2026-10-31T05:56:51Z"
     },
     {
+      "login": "dylanmtaylor",
+      "people_entry": true,
+      "github_name": "Dylan M. Taylor",
+      "prs": 163,
+      "commits": 358,
+      "lines_added": 33645,
+      "lines_deleted": 142850,
+      "binary_added": 4,
+      "binary_deleted": 2,
+      "first_commit": "2026-10-10T00:04:17Z",
+      "last_commit": "2026-11-18T00:40:28Z"
+    },
+    {
       "login": "vangel76",
       "people_entry": true,
       "github_name": null,
-      "prs": 167,
-      "commits": 356,
-      "lines_added": 52785,
+      "prs": 168,
+      "commits": 357,
+      "lines_added": 52787,
       "lines_deleted": 5102,
       "binary_added": 1,
       "binary_deleted": 14,
@@ -47,30 +60,17 @@
       "last_commit": "2026-11-08T17:27:08Z"
     },
     {
-      "login": "dylanmtaylor",
-      "people_entry": true,
-      "github_name": "Dylan M. Taylor",
-      "prs": 132,
-      "commits": 242,
-      "lines_added": 30854,
-      "lines_deleted": 136438,
-      "binary_added": 4,
-      "binary_deleted": 2,
-      "first_commit": "2026-10-10T00:04:17Z",
-      "last_commit": "2026-11-16T00:27:31Z"
-    },
-    {
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 25,
-      "commits": 96,
-      "lines_added": 9662,
-      "lines_deleted": 7139,
+      "prs": 27,
+      "commits": 221,
+      "lines_added": 11132,
+      "lines_deleted": 7511,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T01:04:56Z",
-      "last_commit": "2026-11-16T01:05:09Z"
+      "last_commit": "2026-11-16T17:11:31Z"
     },
     {
       "login": "Felix-Helleckes",
@@ -580,6 +580,19 @@
       "last_commit": "2026-10-30T10:50:46Z"
     },
     {
+      "login": "nuclearspike",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 6,
+      "commits": 8,
+      "lines_added": 821,
+      "lines_deleted": 188,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-14T20:18:34Z",
+      "last_commit": "2026-11-04T11:36:19Z"
+    },
+    {
       "login": "texjer",
       "people_entry": false,
       "github_name": null,
@@ -604,6 +617,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T07:45:37Z",
       "last_commit": "2026-10-20T11:33:01Z"
+    },
+    {
+      "login": "ZIDAN44",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 4,
+      "commits": 8,
+      "lines_added": 850,
+      "lines_deleted": 89,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-30T15:13:33Z",
+      "last_commit": "2026-11-16T09:23:12Z"
     },
     {
       "login": "00xJS",
@@ -684,19 +710,6 @@
       "last_commit": "2026-10-27T15:57:22Z"
     },
     {
-      "login": "nuclearspike",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 5,
-      "commits": 7,
-      "lines_added": 818,
-      "lines_deleted": 187,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-14T20:18:34Z",
-      "last_commit": "2026-10-19T06:50:20Z"
-    },
-    {
       "login": "tylerjenningsw",
       "people_entry": false,
       "github_name": null,
@@ -708,19 +721,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-17T16:51:57Z",
       "last_commit": "2026-10-30T20:59:46Z"
-    },
-    {
-      "login": "ZIDAN44",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 3,
-      "commits": 7,
-      "lines_added": 676,
-      "lines_deleted": 79,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-30T15:13:33Z",
-      "last_commit": "2026-11-13T22:01:44Z"
     },
     {
       "login": "itrycodinganditsbad",
@@ -2140,6 +2140,19 @@
       "last_commit": "2026-10-30T05:42:27Z"
     },
     {
+      "login": "gmrmad1",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 31,
+      "lines_deleted": 4,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-15T10:30:54Z",
+      "last_commit": "2026-11-15T10:30:54Z"
+    },
+    {
       "login": "Hathor875",
       "people_entry": true,
       "github_name": "Krzysztof Cie\u015blik",
@@ -2753,8 +2766,8 @@
       "company": "Anthropic",
       "model": "Claude Sonnet",
       "version": "5.5",
-      "commits": 213,
-      "lines_added": 27119,
+      "commits": 214,
+      "lines_added": 27121,
       "lines_deleted": 2155
     },
     {
@@ -2762,9 +2775,9 @@
       "company": "OpenAI",
       "model": "Codex",
       "version": "",
-      "commits": 53,
-      "lines_added": 13977,
-      "lines_deleted": 1499
+      "commits": 54,
+      "lines_added": 13980,
+      "lines_deleted": 1500
     },
     {
       "id": "anthropic/claude-haiku/5.5",
