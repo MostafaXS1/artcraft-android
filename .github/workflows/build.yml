@@ -210,18 +210,19 @@ jobs:
           persist-credentials: false
 
       - name: Restore Signing Keystore
-        if: ${{ (secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64) != '' }}
         env:
           ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
           ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
           ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
           ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
         run: |
-          mkdir -p keys
-          echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
-          echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
-          chmod 700 keys
-          chmod 600 keys/artcraft-builder.jks keys/.keystore-password
+          if [ -n "$ARTCRAFT_KEYSTORE_BASE64" ]; then
+            mkdir -p keys
+            echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
+            echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
+            chmod 700 keys
+            chmod 600 keys/artcraft-builder.jks keys/.keystore-password
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -404,18 +405,19 @@ jobs:
           persist-credentials: false
 
       - name: Restore Signing Keystore
-        if: ${{ (secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64) != '' }}
         env:
           ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
           ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
           ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
           ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
         run: |
-          mkdir -p keys
-          echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
-          echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
-          chmod 700 keys
-          chmod 600 keys/artcraft-builder.jks keys/.keystore-password
+          if [ -n "$ARTCRAFT_KEYSTORE_BASE64" ]; then
+            mkdir -p keys
+            echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
+            echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
+            chmod 700 keys
+            chmod 600 keys/artcraft-builder.jks keys/.keystore-password
+          fi
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
