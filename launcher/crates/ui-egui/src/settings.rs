@@ -134,6 +134,12 @@ pub struct Settings {
     /// Extra command-line flags each app is opened with (catalog id → the text as typed, split
     /// by [`args::split`](artcraft_launcher_core::args::split) at launch).
     pub launch_flags: BTreeMap<String, String>,
+    /// Whether the ArtCraft Suite section is collapsed in the grid view.
+    #[serde(default)]
+    pub suite_collapsed: bool,
+    /// Whether the Community Apps section is collapsed in the grid view.
+    #[serde(default)]
+    pub community_collapsed: bool,
 }
 
 impl Settings {
@@ -285,6 +291,8 @@ impl Default for Settings {
             launches: BTreeMap::new(),
             pinned: Vec::new(),
             launch_flags: BTreeMap::new(),
+            suite_collapsed: false,
+            community_collapsed: false,
         }
     }
 }

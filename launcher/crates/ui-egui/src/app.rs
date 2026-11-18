@@ -1023,6 +1023,7 @@ impl LauncherUi {
     }
 
     /// Whether the app on screen under `id` is installed on this computer.
+    #[allow(dead_code)]
     pub(crate) fn is_installed(&self, id: &str) -> bool {
         self.entry(id).is_some_and(|e| e.status(self.platform, self.caps.manage_apps).is_installed())
     }

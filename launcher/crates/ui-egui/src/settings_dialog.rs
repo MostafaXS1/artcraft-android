@@ -101,7 +101,22 @@ impl LauncherUi {
         close
     }
 
+    #[allow(clippy::unused_self)]
+    fn settings_disclaimer(&self, ui: &mut Ui) {
+        ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of ArtCraft Launcher").heading()).wrap());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new("We are an independent group of people who love ArtCraft very much and want to make them available for android. We are not affiliated with, related to or endorsed by ArtCraft / Storytold and all our ports are completely unofficial").wrap());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new("Please direct any bugs/issues related to Android porting to our GitHub. Do NOT go asking for help in the official ArtCraft discord server, Mailing list, or GitHub. They don't maintain mobile apps. Don't waste their time").wrap());
+        ui.add_space(4.0);
+        ui.hyperlink_to("Source code: github.com/MostafaXS1/artcraft-android", "https://github.com/MostafaXS1/artcraft-android");
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+    }
+
     fn settings_contents(&mut self, ui: &mut Ui, host: &mut dyn Host, wide: bool) {
+        self.settings_disclaimer(ui);
         // The columns are drawn from two closures that both need `self` and `host`: the pieces
         // are drawn one after the other, through a cell, never at the same time (were they ever,
         // the second would be skipped rather than panic).

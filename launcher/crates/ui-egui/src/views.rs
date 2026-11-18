@@ -162,6 +162,31 @@ const CARD_PAD: f32 = 20.0;
 /// Room macOS's traffic lights take at the left of the header.
 const TRAFFIC_LIGHTS_W: f32 = 72.0;
 
+/// The 17 applications in the ArtCraft suite.
+pub const ARTCRAFT_SUITE_IDS: &[&str] = &[
+    "anicraft",
+    "cadcraft",
+    "deckcraft",
+    "designcraft",
+    "effectcraft",
+    "figcraft",
+    "filmcraft",
+    "gridcraft",
+    "lightcraft",
+    "materialcraft",
+    "pdfcraft",
+    "photocraft",
+    "solidcraft",
+    "soundcraft",
+    "texturecraft",
+    "vectorcraft",
+    "wordcraft",
+];
+
+pub fn is_suite_app(id: &str) -> bool {
+    ARTCRAFT_SUITE_IDS.contains(&id)
+}
+
 impl LauncherUi {
     /// The header bar; with a custom or macOS title bar it is also the window's title bar.
     pub(crate) fn header(&mut self, ui: &mut Ui, bar: TitleBar) {
@@ -479,7 +504,43 @@ impl LauncherUi {
 
     // ---- grid ----------------------------------------------------------------------------
 
-    /// Pinned apps first (user order), then installed, then the rest under a "Not installed" header.
+    fn collapsible_section_header(ui: &mut Ui, title: &str, collapsed: &mut bool) {
+        let t = Tokens::get(ui.ctx());
+        let width = ui.available_width();
+        let h = 24.0;
+        let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
+        let hovered = resp.hovered();
+        let color = if hovered { t.ink_strong } else { t.muted };
+
+        let p = ui.painter();
+        let chevron_center = egui::pos2(rect.left() + 5.0, rect.center().y);
+        let stroke = Stroke::new(1.5, color);
+        if *collapsed {
+            // Right chevron >
+            let w = 2.5;
+            let ch = 4.5;
+            p.line_segment([egui::pos2(chevron_center.x - w, chevron_center.y - ch), egui::pos2(chevron_center.x + w, chevron_center.y)], stroke);
+            p.line_segment([egui::pos2(chevron_center.x + w, chevron_center.y), egui::pos2(chevron_center.x - w, chevron_center.y + ch)], stroke);
+        } else {
+            // Down chevron v
+            let w = 4.5;
+            let ch = 2.5;
+            p.line_segment([egui::pos2(chevron_center.x - w, chevron_center.y - ch), egui::pos2(chevron_center.x, chevron_center.y + ch)], stroke);
+            p.line_segment([egui::pos2(chevron_center.x, chevron_center.y + ch), egui::pos2(chevron_center.x + w, chevron_center.y - ch)], stroke);
+        }
+
+        let galley = egui::WidgetText::from(widgets::heading(title, 16.0, color))
+            .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Heading);
+        p.galley(egui::pos2(rect.left() + 18.0, rect.center().y - galley.size().y / 2.0), galley, color);
+
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, title));
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            *collapsed = !*collapsed;
+        }
+    }
+
+    /// Collapsible ArtCraft Suite and Community Apps sections. Pinned apps stay first under a
+    /// "Pinned" header when any are pinned.
     pub(crate) fn grid(&mut self, ui: &mut Ui, ids: &[&'static str]) {
         let pinned_n = ids.iter().take_while(|id| self.settings.is_pinned(id)).count();
         let (pinned, rest) = ids.split_at(pinned_n);
@@ -492,16 +553,28 @@ impl LauncherUi {
                 ui.add_space(28.0);
             }
         }
-        let installed = rest.iter().take_while(|id| self.is_installed(id)).count();
-        let (top, rest) = rest.split_at(installed);
-        self.grid_block(ui, top);
-        if !top.is_empty() && !rest.is_empty() {
-            let t = Tokens::get(ui.ctx());
-            ui.add_space(28.0);
-            widgets::hud(ui, tl!("Not installed"), t.faint);
-            ui.add_space(12.0);
+
+        let suite_ids: Vec<&'static str> = rest.iter().copied().filter(|id| is_suite_app(id)).collect();
+        let community_ids: Vec<&'static str> = rest.iter().copied().filter(|id| !is_suite_app(id)).collect();
+
+        if !suite_ids.is_empty() {
+            Self::collapsible_section_header(ui, "ArtCraft Suite", &mut self.settings.suite_collapsed);
+            if !self.settings.suite_collapsed {
+                ui.add_space(12.0);
+                self.grid_block(ui, &suite_ids);
+            }
+            if !community_ids.is_empty() {
+                ui.add_space(28.0);
+            }
         }
-        self.grid_block(ui, rest);
+
+        if !community_ids.is_empty() {
+            Self::collapsible_section_header(ui, "Community Apps", &mut self.settings.community_collapsed);
+            if !self.settings.community_collapsed {
+                ui.add_space(12.0);
+                self.grid_block(ui, &community_ids);
+            }
+        }
         ui.add_space(24.0);
     }
 
