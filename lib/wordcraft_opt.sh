@@ -97,7 +97,7 @@ fix_source(
         if spec.mutates && !typing {
             self.typing_open = false;
         }""",
-    """        let typing = matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace" | "text.newParagraph" | "text.lineBreak");
+    """        let typing = matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
         if spec.mutates && !typing {
             self.typing_open = false;
         }""",
@@ -626,8 +626,11 @@ fn try_fast_typing_layout(
         let new_pl = para::layout_para(p_new, &env_new);
 
         let dy_prev = new_prev_pl.height - old_pl_height;
+        if dy_prev.abs() > 0.01 {
+            return None; // paragraph split in middle with height change: full layout pass handles flow safely
+        }
         let gap = new_prev_pl.rp.space_after.max(new_pl.rp.space_before);
-        let added_height = dy_prev.max(0.0) + new_pl.height + gap;
+        let added_height = new_pl.height + gap;
 
         if current_bottom + added_height > page_bottom_limit {
             return None;
