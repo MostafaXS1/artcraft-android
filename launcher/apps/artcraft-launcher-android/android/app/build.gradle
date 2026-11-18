@@ -104,10 +104,11 @@ android {
             // GameActivity calls into Java by name from native code: keep every class as is.
             minifyEnabled false
             def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
+            def isReleaseTag = System.getenv('GITHUB_REF')?.startsWith('refs/tags/')
             if ((keystorePath && file(keystorePath).exists()) || file('keystore/release.keystore').exists()) {
                 signingConfig signingConfigs.release
-            } else if (System.getenv('CI')) {
-                throw new GradleException("Release build in CI requires a release signing key (set ARTCRAFT_KEYSTORE or keystore/release.keystore).")
+            } else if (System.getenv('CI') && isReleaseTag) {
+                throw new GradleException("Release tag build in CI requires a release signing key (set ARTCRAFT_KEYSTORE or keystore/release.keystore).")
             } else {
                 signingConfig signingConfigs.debug
             }

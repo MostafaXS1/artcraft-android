@@ -188,6 +188,29 @@ if wgpu_winit.is_file():
         if target in txt:
             txt = txt.replace(target, replacement, 1)
             wgpu_winit.write_text(txt)
+    else:
+        # Clean up any earlier buggy patch that unpacked requested/retry before checking Android
+        buggy = """        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
+
+        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }
+
+        self.instance.poll_all(true);
+
+        drop(old_state);"""
+        clean = """        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }"""
+        if buggy in txt:
+            txt = txt.replace(buggy, clean)
+        if "let mut retry = old_state.retry" not in txt and "retry.recreated();" in txt:
+            txt = txt.replace("retry.recreated();", "let mut retry = old_state.retry;\n        retry.recreated();", 1)
+        if "requested.0" in txt:
+            txt = txt.replace("requested.0,\n            requested.1,\n            resizing,\n            retry,", "old_state.requested.0,\n            old_state.requested.1,\n            old_state.resizing,\n            retry,")
+        wgpu_winit.write_text(txt)
 PY
 
 # Update SolidCraft workspace Cargo.toml

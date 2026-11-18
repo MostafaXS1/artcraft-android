@@ -7308,34 +7308,24 @@ winit_rs = Path(sys.argv[1]) / "src" / "winit.rs"
 if not winit_rs.is_file():
     sys.exit(0)
 text = winit_rs.read_text()
-if "dropping the lost surface" not in text:
-    # SolidCraft's recreate_surface doesn't have Android handling
-    # The original code creates the surface then uses old_state afterwards
-    # We need to: extract fields, check Android, drop old_state, create surface, use extracted fields
-    recreate_target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+if 'cfg!(target_os = "android")' not in text:
+    target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+            return Ok(());
+        };"""
+    replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
             return Ok(());
         };
 
-        let surface = self.instance.create_surface(Arc::clone(window))?;
-        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
-        // recreate the streak asked for is done by this one.
-        let mut retry = old_state.retry;
-        retry.recreated();
-        self.install_surface(
-            surface,
-            viewport_id,
-            old_state.requested.0,
-            old_state.requested.1,
-            old_state.resizing,
-            retry,
-        );
-        Ok(())"""
-
-    recreate_replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
+        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
             return Ok(());
-        };
-
-        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
+        }"""
+    if target in text:
+        text = text.replace(target, replacement, 1)
+        winit_rs.write_text(text)
+        print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
+else:
+    buggy = """        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
 
         if cfg!(target_os = "android") {
             log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
@@ -7344,26 +7334,19 @@ if "dropping the lost surface" not in text:
 
         self.instance.poll_all(true);
 
-        drop(old_state);
-
-        let surface = self.instance.create_surface(Arc::clone(window))?;
-        // SolidCraft: the refusal streak and its deadline go on with the new surface (#1935); a
-        // recreate the streak asked for is done by this one.
-        retry.recreated();
-        self.install_surface(
-            surface,
-            viewport_id,
-            requested.0,
-            requested.1,
-            resizing,
-            retry,
-        );
-        Ok(())"""
-
-    if "fn recreate_surface" in text and recreate_target in text:
-        text = text.replace(recreate_target, recreate_replacement)
-        winit_rs.write_text(text)
-        print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
+        drop(old_state);"""
+    clean = """        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }"""
+    if buggy in text:
+        text = text.replace(buggy, clean)
+    if "let mut retry = old_state.retry" not in text and "retry.recreated();" in text:
+        text = text.replace("retry.recreated();", "let mut retry = old_state.retry;\n        retry.recreated();", 1)
+    if "requested.0" in text:
+        text = text.replace("requested.0,\n            requested.1,\n            resizing,\n            retry,", "old_state.requested.0,\n            old_state.requested.1,\n            old_state.resizing,\n            retry,")
+    winit_rs.write_text(text)
+    print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
 PY
 elif [[ "$APP" == "solidcraft" ]]; then
     # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)

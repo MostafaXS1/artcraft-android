@@ -210,7 +210,7 @@ jobs:
           persist-credentials: false
 
       - name: Restore Signing Keystore
-        if: env.ARTCRAFT_KEYSTORE_BASE64 != ''
+        if: ${{ (secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64) != '' }}
         env:
           ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
           ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
@@ -404,7 +404,7 @@ jobs:
           persist-credentials: false
 
       - name: Restore Signing Keystore
-        if: env.ARTCRAFT_KEYSTORE_BASE64 != ''
+        if: ${{ (secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64) != '' }}
         env:
           ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
           ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
