@@ -78,6 +78,16 @@ fi
 
 cd "$HERE/android"
 
+# Connect builder's signing keystore if available and not explicitly overridden
+if [[ -z "${ARTCRAFT_KEYSTORE:-}" && -f "$ROOT/../keys/artcraft-builder.jks" ]]; then
+    export ARTCRAFT_KEYSTORE="$(cd "$ROOT/.." && pwd)/keys/artcraft-builder.jks"
+    if [[ -f "$ROOT/../keys/.keystore-password" ]]; then
+        export ARTCRAFT_KEYSTORE_PASSWORD="$(<"$ROOT/../keys/.keystore-password")"
+        export ARTCRAFT_KEY_PASSWORD="$ARTCRAFT_KEYSTORE_PASSWORD"
+    fi
+    export ARTCRAFT_KEY_ALIAS="artcraftbuilder"
+fi
+
 # Set the version for Gradle
 export APP_VERSION="${VERSION}"
 export RELEASE_BUILD="${RELEASE_BUILD}"

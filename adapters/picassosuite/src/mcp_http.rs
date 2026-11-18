@@ -402,7 +402,7 @@ fn connection(stream: TcpStream, shared: &Shared) -> std::io::Result<()> {
     stream.set_read_timeout(Some(READ_TIMEOUT))?;
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
-    let reply = match read_request(&mut reader) {
+    let reply = match read_request(&mut reader, shared) {
         Ok(request) => match handle(&request, shared) {
             Routed::Reply(reply) => reply,
             // A session's thread answers it.
@@ -419,7 +419,7 @@ fn connection(stream: TcpStream, shared: &Shared) -> std::io::Result<()> {
 }
 
 /// Read one HTTP/1.1 request, refusing what is too large or not understood.
-fn read_request(reader: &mut impl BufRead) -> Result<Request, Reply> {
+fn read_request(reader: &mut impl BufRead, shared: &Shared) -> Result<Request, Reply> {
     let mut used = 0usize;
     let mut line = |reader: &mut dyn BufRead| -> Result<String, Reply> {
         let mut buf = Vec::new();
@@ -445,6 +445,16 @@ fn read_request(reader: &mut impl BufRead) -> Result<Request, Reply> {
         if let Some((k, v)) = header.split_once(':') {
             request.headers.push((k.trim().to_string(), v.trim().to_string()));
         }
+    }
+    if !matches!(request.path.trim_end_matches('/'), "/mcp" | "") {
+        return Err(Reply::error(404, "the MCP endpoint is /mcp"));
+    }
+    let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
+    if shared.token.is_empty() || !bearer.is_some_and(|b| same(b.trim(), &shared.token)) {
+        shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
+        let mut reply = Reply::error(401, "a valid access token is needed: copy the command from the app's Settings › MCP server again");
+        reply.headers.push(("WWW-Authenticate", "Bearer".into()));
+        return Err(reply);
     }
     if request.header("transfer-encoding").is_some() {
         return Err(Reply::error(411, "send the body with a Content-Length"));
@@ -473,16 +483,6 @@ enum Routed {
 }
 
 fn handle(request: &Request, shared: &Shared) -> Routed {
-    if !matches!(request.path.trim_end_matches('/'), "/mcp" | "") {
-        return Routed::Reply(Reply::error(404, "the MCP endpoint is /mcp"));
-    }
-    let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
-    if shared.token.is_empty() || !bearer.is_some_and(|b| same(b.trim(), &shared.token)) {
-        shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
-        let mut reply = Reply::error(401, "a valid access token is needed: copy the command from SolidCraft's Settings › MCP server again");
-        reply.headers.push(("WWW-Authenticate", "Bearer".into()));
-        return Routed::Reply(reply);
-    }
     {
         let mut a = shared.activity.lock().unwrap_or_else(PoisonError::into_inner);
         a.requests += 1;

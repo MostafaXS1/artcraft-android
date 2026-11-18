@@ -803,7 +803,11 @@ public final class VectorCraftActivity extends NativeActivity {
         if (clip == null) return uris;
         for (int i = 0; i < clip.getItemCount(); i++) {
             Uri uri = clip.getItemAt(i).getUri();
-            if (uri != null) uris.add(uri);
+            if (uri != null && "content".equalsIgnoreCase(uri.getScheme())) {
+                uris.add(uri);
+            } else if (uri != null) {
+                Log.w(TAG, "Rejected non-content drag URI: " + uri);
+            }
         }
         return uris;
     }
@@ -1169,6 +1173,10 @@ public final class VectorCraftActivity extends NativeActivity {
     }
 
     private void rememberUri(File path, Uri uri) {
+        if (uri == null || !"content".equalsIgnoreCase(uri.getScheme())) {
+            Log.w(TAG, "Refusing to remember non-content URI for path: " + path + ", uri: " + uri);
+            return;
+        }
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putString("uri:" + path.getAbsolutePath(), uri.toString())
@@ -1217,7 +1225,15 @@ public final class VectorCraftActivity extends NativeActivity {
                 if (uri != null) uris.add(uri);
             }
         }
-        return new ArrayList<>(uris);
+        List<Uri> validUris = new ArrayList<>();
+        for (Uri uri : uris) {
+            if (uri != null && "content".equalsIgnoreCase(uri.getScheme())) {
+                validUris.add(uri);
+            } else if (uri != null) {
+                Log.w(TAG, "Rejected non-content incoming URI: " + uri);
+            }
+        }
+        return validUris;
     }
 
     /**

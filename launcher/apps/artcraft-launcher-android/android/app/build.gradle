@@ -82,13 +82,35 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
+            if (keystorePath && file(keystorePath).exists()) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('ARTCRAFT_KEYSTORE_PASSWORD') ?: System.getenv('RELEASE_KEYSTORE_PASSWORD') ?: System.getenv('ARTCRAFT_KEY_PASSWORD') ?: 'android'
+                keyAlias System.getenv('ARTCRAFT_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: 'artcraftbuilder'
+                keyPassword System.getenv('ARTCRAFT_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: System.getenv('ARTCRAFT_KEYSTORE_PASSWORD') ?: 'android'
+            } else if (file('keystore/release.keystore').exists()) {
+                storeFile file('keystore/release.keystore')
+                storePassword System.getenv('RELEASE_KEYSTORE_PASSWORD') ?: 'android'
+                keyAlias System.getenv('RELEASE_KEY_ALIAS') ?: 'release'
+                keyPassword System.getenv('RELEASE_KEY_PASSWORD') ?: 'android'
+            }
+        }
+    }
+
     buildTypes {
         release {
             // GameActivity calls into Java by name from native code: keep every class as is.
             minifyEnabled false
-            // A prototype: signed with the debug key so it installs as is. Sign with your own
-            // key for distribution (see README.md).
-            signingConfig signingConfigs.debug
+            def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
+            if ((keystorePath && file(keystorePath).exists()) || file('keystore/release.keystore').exists()) {
+                signingConfig signingConfigs.release
+            } else if (System.getenv('CI')) {
+                throw new GradleException("Release build in CI requires a release signing key (set ARTCRAFT_KEYSTORE or keystore/release.keystore).")
+            } else {
+                signingConfig signingConfigs.debug
+            }
             // ProGuard rules to keep rustls-platform-verifier Android component
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

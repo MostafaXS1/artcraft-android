@@ -49,8 +49,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 jobs:
   prepare:
@@ -207,6 +206,22 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Restore Signing Keystore
+        if: env.ARTCRAFT_KEYSTORE_BASE64 != ''
+        env:
+          ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
+          ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p keys
+          echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
+          echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
+          chmod 700 keys
+          chmod 600 keys/artcraft-builder.jks keys/.keystore-password
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -304,9 +319,13 @@ jobs:
           BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}
           RUSTC_WRAPPER: sccache
           SCCACHE_IDLE_TIMEOUT: "0"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.app == 'solidcraft' && '1' || '16' }}
           CARGO_PROFILE_RELEASE_LTO: "off"
           CARGO_PROFILE_RELEASE_DEBUG: "false"
+          ARTCRAFT_KEYSTORE: ${{ hashFiles('keys/artcraft-builder.jks') != '' && format('{0}/keys/artcraft-builder.jks', github.workspace) || '' }}
+          ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
         run: |
           mkdir -p logs output
           rm -f output/*.apk output/*.tmp
@@ -382,6 +401,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore Signing Keystore
+        if: env.ARTCRAFT_KEYSTORE_BASE64 != ''
+        env:
+          ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
+          ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p keys
+          echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > keys/artcraft-builder.jks
+          echo "${ARTCRAFT_KEYSTORE_PASSWORD:-android}" > keys/.keystore-password
+          chmod 700 keys
+          chmod 600 keys/artcraft-builder.jks keys/.keystore-password
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -439,6 +473,10 @@ jobs:
         env:
           PROFILE: ${{ github.event.inputs.mode || 'release' }}
           RELEASE_BUILD: ${{ github.event.inputs.release_build || '0' }}
+          ARTCRAFT_KEYSTORE: ${{ hashFiles('keys/artcraft-builder.jks') != '' && format('{0}/keys/artcraft-builder.jks', github.workspace) || '' }}
+          ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          ARTCRAFT_KEY_ALIAS: ${{ secrets.ARTCRAFT_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ARTCRAFT_KEY_PASSWORD: ${{ secrets.ARTCRAFT_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.ARTCRAFT_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
         run: |
           ./build.sh
 
@@ -468,6 +506,8 @@ jobs:
     needs: [prepare, build, build-launcher]
     runs-on: ubuntu-latest
     if: always() && !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.has_apps == 'true' || needs.prepare.outputs.build_launcher == 'true')
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
