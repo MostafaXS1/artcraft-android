@@ -6910,9 +6910,9 @@ rm -rf "$SRC/vendor/egui-winit"
 if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
 elif [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft uses storytold egui fork (prepare.sh vendors it at vendor/egui/crates/egui-winit)
-    # Do not copy builder's egui-winit - the fork's egui-winit has clipboard_image() and correct process_viewport_commands()
-    echo "Skipping builder egui-winit copy for $APP (uses storytold fork)"
+    # SolidCraft uses its upstream vendored egui crates at vendor/egui/crates/egui-winit
+    # Do not copy builder's egui-winit - prepare.sh patches upstream's vendored egui-winit for Android
+    echo "Skipping builder egui-winit copy for $APP (uses upstream vendored egui)"
 else
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
@@ -7664,7 +7664,7 @@ python3 "$ROOT/lib/android_project.py" "$ROOT" "$ANDROID_DIR" "$APP" "$APP_VERSI
 # shellcheck source=/dev/null
 source "$ANDROID_DIR/.artcraft-gradle.properties"
 
-# SolidCraft uses storytold egui fork - prepare.sh handles all egui patches
+# SolidCraft uses upstream vendored egui - prepare.sh handles all egui patches
 # No additional patching needed here
 
 echo "  -> pre-fetching Cargo dependencies"
