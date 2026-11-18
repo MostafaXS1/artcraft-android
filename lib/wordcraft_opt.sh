@@ -8,6 +8,10 @@
 # 2. Zero-allocation page fingerprinting for fills and rules in page_content_key.
 # 3. Pre-allocate line indexing capacity in pagination pass (index_lines).
 # 4. Cache comment fonts key so body typing does not scan all comments every keystroke.
+# 5. Fast incremental layout during continuous typing in wordcraft_layout::layout:
+#    When typing inside an ordinary paragraph without changing its line count or height,
+#    re-lay only that single paragraph and reuse the surrounding document page geometry
+#    without running full O(N) multi-page pagination across all blocks and sections.
 #
 # Only WordCraft is touched.
 set -euo pipefail
@@ -259,6 +263,232 @@ fix_source(
             return;
         }
         self.comment_fonts_for = Some(key);""",
+)
+
+# 5. Fast incremental layout during continuous typing in wordcraft_layout::layout:
+# When typing inside an ordinary paragraph without changing line count or height,
+# re-lay only that single paragraph and reuse the surrounding document page geometry.
+fix_source(
+    "crates/layout/src/cache.rs",
+    """use super::{
+    Arc, Blocks, Document, Hash, HashMap, HashSet, Hasher, HideDeleted, InlineObject, LayoutOptions, Page, ParaLayout, Paragraph, SectionProps,
+    StoryRef, ViewMode, fields, styleref,
+};""",
+    """use super::{
+    Arc, Blocks, DocLayout, Document, Hash, HashMap, HashSet, Hasher, HideDeleted, InlineObject, LayoutOptions, Page, ParaLayout, Paragraph, SectionProps,
+    StoryRef, ViewMode, fields, styleref,
+};""",
+)
+
+fix_source(
+    "crates/layout/src/cache.rs",
+    """    pub hits: u64,
+    pub misses: u64,
+}""",
+    """    pub hits: u64,
+    pub misses: u64,
+    pub(crate) last_body: Option<Blocks>,
+    pub(crate) last_layout: Option<DocLayout>,
+}""",
+)
+
+fix_source(
+    "crates/layout/src/pass.rs",
+    """    if env != cache.env {
+        cache.paras.clear();
+        cache.measures.clear();
+        cache.env = env;
+    }""",
+    """    if env != cache.env {
+        cache.paras.clear();
+        cache.measures.clear();
+        cache.env = env;
+        cache.last_body = None;
+        cache.last_layout = None;
+    }""",
+)
+
+fix_source(
+    "crates/layout/src/lib.rs",
+    """/// Lay out the whole document.
+pub fn layout(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions) -> DocLayout {
+    #[cfg(test)]
+    crate::test_fonts();
+    let t0 = now_ms();""",
+    """/// Fast-path incremental layout during continuous typing: when typing inside an ordinary
+/// paragraph without altering its line count or height, re-lay only that single paragraph
+/// and reuse the surrounding document page geometry.
+fn try_fast_typing_layout(
+    doc: &Document,
+    cache: &mut LayoutCache,
+    opts: &LayoutOptions,
+    t0: f64,
+) -> Option<DocLayout> {
+    let tw = opts.typing_word.as_ref()?;
+    if opts.view != ViewMode::Print {
+        return None;
+    }
+    let last_layout = cache.last_layout.as_ref()?;
+    let last_body = cache.last_body.as_ref()?;
+    if last_body.len() != doc.body.len() || last_layout.pages.is_empty() {
+        return None;
+    }
+
+    let mut changed_block = None;
+    for (i, (b0, b1)) in last_body.iter().zip(doc.body.iter()).enumerate() {
+        if !Arc::ptr_eq(b0, b1) {
+            if changed_block.is_none() {
+                changed_block = Some(i);
+            } else {
+                return None;
+            }
+        }
+    }
+    let block_idx = changed_block?;
+    let block = doc.body.get(block_idx)?;
+    let p = block.as_para()?;
+    if p.rev != tw.rev || !p.objects.is_empty() || p.section.is_some() {
+        return None;
+    }
+
+    let path = Path::top(block_idx);
+    let pieces = last_layout.index.get(&(StoryRef::Body, path.clone()))?;
+    if pieces.len() != 1 {
+        return None;
+    }
+    let (page_idx, item_idx) = pieces[0];
+    let page = last_layout.pages.get(page_idx)?;
+    let item = page.items.get(item_idx)?;
+    let Placed::Lines {
+        story,
+        path: ref item_path,
+        para: ref prev_pl,
+        l0,
+        l1,
+        x,
+        y,
+        turn,
+    } = *item else {
+        return None;
+    };
+    if story != StoryRef::Body || *item_path != path || l0 != 0 || l1 != prev_pl.lines.len() {
+        return None;
+    }
+    if turn != TextDirection::Horizontal {
+        return None;
+    }
+    if prev_pl.has_page_fields
+        || !prev_pl.notes.is_empty()
+        || prev_pl.drop_cap.is_some()
+        || prev_pl.rp.page_break_before
+        || prev_pl.rp.borders.is_some()
+        || prev_pl.rp.shading.is_some()
+        || prev_pl.label.is_some()
+    {
+        return None;
+    }
+
+    let sections = doc.sections();
+    let (_, sect) = sections.get(page.section)?;
+    let cols = sect.column_boxes();
+    if cols.len() != 1 {
+        return None;
+    }
+    let col_w = page.body.w;
+
+    let fields = fields::FieldCtx::default();
+    let env = para::ParaEnv {
+        doc,
+        width: col_w,
+        label: None,
+        fields: &fields,
+        show_hidden: opts.show_hidden,
+        field_codes: opts.field_codes,
+        hide_deleted: opts.hides_deleted(StoryRef::Body),
+        table: None,
+        proofing: opts.proofing.then_some(opts.proof),
+        typing_word: Some((tw.start, tw.end)),
+        numeral: opts.numeral,
+        exclusions: &[],
+        eq_number: 0,
+        read_line_spacing: opts.read_line_spacing,
+        grid: para::Grid::of(doc, sect),
+        fit_objects: false,
+        fitted: &[],
+    };
+    let new_pl = para::layout_para(p, &env);
+
+    if new_pl.lines.len() != prev_pl.lines.len() || (new_pl.height - prev_pl.height).abs() > 0.01 {
+        return None;
+    }
+    for (l_new, l_prev) in new_pl.lines.iter().zip(prev_pl.lines.iter()) {
+        if (l_new.height - l_prev.height).abs() > 0.01 || (l_new.top - l_prev.top).abs() > 0.01 {
+            return None;
+        }
+    }
+
+    let line_count = new_pl.lines.len();
+    let arc_pl = Arc::new(new_pl);
+    let key = cache::Key {
+        rev: p.rev,
+        width: col_w.to_bits(),
+        label: None,
+        page: None,
+        page_from: 0,
+        table: 0,
+        notes: 0,
+        excl: 0,
+        eq: 0,
+        read_spacing: None,
+        grid: env.grid.key(),
+        fit: false,
+        fitted: 0,
+        hide_deleted: opts.hides_deleted(StoryRef::Body),
+        sref: 0,
+        typing: Some((tw.start, tw.end)),
+    };
+    cache.used.insert(key.clone());
+    cache.paras.insert(key, arc_pl.clone());
+
+    let mut updated = last_layout.clone();
+    let target_page = updated.pages.get_mut(page_idx)?;
+    let target_item = target_page.items.get_mut(item_idx)?;
+    *target_item = Placed::Lines {
+        story: StoryRef::Body,
+        path,
+        para: arc_pl,
+        l0: 0,
+        l1: line_count,
+        x,
+        y,
+        turn,
+    };
+    updated.ms = now_ms() - t0;
+    cache.last_body = Some(doc.body.clone());
+    cache.last_layout = Some(updated.clone());
+    Some(updated)
+}
+
+/// Lay out the whole document.
+pub fn layout(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions) -> DocLayout {
+    #[cfg(test)]
+    crate::test_fonts();
+    let t0 = now_ms();
+    if let Some(fast) = try_fast_typing_layout(doc, cache, opts, t0) {
+        return fast;
+    }""",
+)
+
+fix_source(
+    "crates/layout/src/lib.rs",
+    """    l.ms = now_ms() - t0;
+    l
+}""",
+    """    l.ms = now_ms() - t0;
+    cache.last_body = Some(doc.body.clone());
+    cache.last_layout = Some(l.clone());
+    l
+}""",
 )
 
 if fixed:
