@@ -101,6 +101,7 @@ impl LauncherUi {
         close
     }
 
+    #[allow(clippy::unused_self)]
     fn settings_disclaimer(&self, ui: &mut Ui) {
         ui.add(egui::Label::new(egui::RichText::new("You are using an unofficial android port of ArtCraft Launcher").heading()).wrap());
         ui.add_space(4.0);

@@ -515,7 +515,8 @@ elif app == "gridcraft":
 elif app in ("launcher", "artcraft-launcher"):
     settings_dialog_rs = src / "crates" / "ui-egui" / "src" / "settings_dialog.rs"
     target = "    fn settings_contents(&mut self, ui: &mut Ui, host: &mut dyn Host, wide: bool) {\n"
-    replacement = f"""    fn settings_disclaimer(&self, ui: &mut Ui) {{
+    replacement = f"""    #[allow(clippy::unused_self)]
+    fn settings_disclaimer(&self, ui: &mut Ui) {{
         {code_block}
     }}
 
