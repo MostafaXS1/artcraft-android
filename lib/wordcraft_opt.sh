@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Performance optimizations for WordCraft on Android (large document typing lag).
 #
-# 1. Fast-path during continuous typing in Session::run:
-#    When typing text (self.typing_open is true), avoid cloning the entire 100-step undo
-#    history and redo stacks on every keystroke, and skip the full-document block-by-block
-#    traversal in unchanged(self).
-#    Also, skip unchanged(self) on new lines (text.newParagraph and text.lineBreak) which
-#    always mutate the document.
-# 2. Zero-allocation page fingerprinting for fills and rules in page_content_key.
-# 3. Pre-allocate line indexing capacity in pagination pass (index_lines).
-# 4. Fast incremental layout cache state and zero-allocation env_hash.
-# 5. Fast single-paragraph incremental layout for all in-line typing and line editing:
+# 1. Fast typing in Session::run:
+#    Avoid cloning the entire 100-step undo history and redo stacks on any typing command
+#    (letters, punctuation, numbers, spaces, enter, backspace, delete), and skip the
+#    full-document block-by-block traversal in unchanged(self).
+# 2. UI layer debounce for full-document status counts and missing fonts scanning in chrome.rs:
+#    During active continuous typing (and within 500ms of keystrokes), reuse cached word/char
+#    counts and missing font memos instead of synchronously extracting plain text, running
+#    Unicode word segmentation across all paragraphs, and walking all pages every frame.
+# 3. Zero-allocation page fingerprinting for fills and rules in page_content_key.
+# 4. Pre-allocate line indexing capacity in pagination pass (index_lines).
+# 5. Fast incremental layout cache state and zero-allocation env_hash.
+# 6. Fast single-paragraph incremental layout for all in-line typing and line editing:
 #    When typing inside an ordinary paragraph without changing line count or height,
 #    re-lay only that single paragraph and reuse surrounding document page geometry.
 #
@@ -71,7 +73,16 @@ fix_source(
         // Commands may leave an equation (a whole-body replacement) even after they fail; put
         // the editing session back with the document.
         let math_before = spec.mutates.then(|| self.math.clone());
-        let fast_typing = self.typing_open && !self.history.is_empty() && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
+        let fast_typing = !self.history.is_empty() && matches!(
+            id,
+            "text.insert"
+                | "equation.type"
+                | "equation.backspace"
+                | "text.backspace"
+                | "text.delete"
+                | "text.newParagraph"
+                | "text.lineBreak"
+        );
         let (history_snap, redo_snap) = if fast_typing {
             (Vec::new(), Vec::new())
         } else {
@@ -90,6 +101,44 @@ fix_source(
         } else {
             None
         };""",
+)
+
+fix_source(
+    "crates/engine/src/session/run.rs",
+    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
+                    self.doc = d;
+                    self.sel = s;
+                    self.history = h;
+                    self.redo = r;
+                    self.typing_open = t;
+                    // The steps the command pushed out are back, so they no longer count as gone.
+                    self.undo_evicted = ev;
+                    self.column = c;
+                    // Its step is gone with them: its undo group has none to merge into.
+                    if pushed {
+                        self.join_anchor = false;
+                    }
+                }""",
+    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
+                    self.doc = d;
+                    self.sel = s;
+                    if !h.is_empty() {
+                        self.history = h;
+                    } else if pushed {
+                        self.history.pop();
+                    }
+                    if !r.is_empty() {
+                        self.redo = r;
+                    }
+                    self.typing_open = t;
+                    // The steps the command pushed out are back, so they no longer count as gone.
+                    self.undo_evicted = ev;
+                    self.column = c;
+                    // Its step is gone with them: its undo group has none to merge into.
+                    if pushed {
+                        self.join_anchor = false;
+                    }
+                }""",
 )
 
 fix_source(
@@ -136,10 +185,18 @@ fix_source(
             // document holds: `replaces_document` names the commands that may replace
             // it, and `document_id` catches any other that does (through
             // `set_document`, which starts a new history the old one must not overwrite).
-            let fast_typing = !pushed && self.typing_open && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
-            let is_always_mutating = matches!(id, "text.newParagraph" | "text.lineBreak");
+            let is_always_mutating = matches!(
+                id,
+                "text.insert"
+                    | "equation.type"
+                    | "equation.backspace"
+                    | "text.backspace"
+                    | "text.delete"
+                    | "text.newParagraph"
+                    | "text.lineBreak"
+            );
             let unchanged = |s: &Session| {
-                if fast_typing || is_always_mutating {
+                if is_always_mutating {
                     return false;
                 }
                 match (before_doc, pending_before) {
@@ -170,14 +227,95 @@ fix_source(
                 // group it belonged to is left without a step of its own, so the next
                 // command in it starts one.
                 if let Some((_, _, history, redo, typing_open, evicted, _)) = before_doc {
-                    self.history = history.clone();
-                    self.redo = redo.clone();
+                    if !history.is_empty() {
+                        self.history = history.clone();
+                    } else if pushed {
+                        self.history.pop();
+                    }
+                    if !redo.is_empty() {
+                        self.redo = redo.clone();
+                    }
                     self.typing_open = *typing_open;
                     self.undo_evicted = *evicted;
                 }""",
 )
 
-# 2. Zero-allocation page fingerprinting for fills and rules in page_content_key
+# 2. UI layer debounce for full-document status counts and missing fonts scanning in chrome.rs
+fix_source(
+    "crates/ui-egui/src/chrome.rs",
+    """    pub fn cached_missing_fonts(&mut self, layout: &std::sync::Arc<wordcraft_layout::DocLayout>) -> MissingFontsCache {
+        if !self.missing_fonts.0.upgrade().is_some_and(|seen| std::sync::Arc::ptr_eq(&seen, layout)) {
+            let found = wordcraft_engine::cmd::font::missing_fonts(&self.session.doc, layout);
+            let warnings = found
+                .iter()
+                .filter(|f| !f.metric_compatible)
+                .map(|f| (wordcraft_engine::cmd::font::font_key(&f.font), f.shown_as.join(", ")))
+                .collect();
+            self.missing_fonts = (std::sync::Arc::downgrade(layout), (std::sync::Arc::new(found), std::sync::Arc::new(warnings)));
+        }
+        self.missing_fonts.1.clone()
+    }""",
+    """    pub fn cached_missing_fonts(&mut self, layout: &std::sync::Arc<wordcraft_layout::DocLayout>) -> MissingFontsCache {
+        if !self.missing_fonts.0.upgrade().is_some_and(|seen| std::sync::Arc::ptr_eq(&seen, layout)) {
+            if (self.session.typing_open() || (crate::now_ms() - self.canvas.caret_visible_since < 500.0))
+                && self.missing_fonts.0.upgrade().is_some()
+            {
+                return self.missing_fonts.1.clone();
+            }
+            let found = wordcraft_engine::cmd::font::missing_fonts(&self.session.doc, layout);
+            let warnings = found
+                .iter()
+                .filter(|f| !f.metric_compatible)
+                .map(|f| (wordcraft_engine::cmd::font::font_key(&f.font), f.shown_as.join(", ")))
+                .collect();
+            self.missing_fonts = (std::sync::Arc::downgrade(layout), (std::sync::Arc::new(found), std::sync::Arc::new(warnings)));
+        }
+        self.missing_fonts.1.clone()
+    }""",
+)
+
+fix_source(
+    "crates/ui-egui/src/chrome.rs",
+    """    pub fn cached_status_counts(&mut self) -> StatusCounts {
+        // The count option changes the counts without a document change.
+        let key = self.session.rev().wrapping_mul(2) | u64::from(self.session.prefs.count_notes);
+        if self.status_counts.0 != key {
+            let text = self.session.counted_text();
+            self.status_counts = (
+                key,
+                StatusCounts {
+                    words: self.session.word_count(),
+                    chars: wordcraft_doc::count_chars(&text),
+                    chars_no_spaces: wordcraft_doc::count_chars_no_spaces(&text),
+                },
+            );
+        }
+        self.status_counts.1
+    }""",
+    """    pub fn cached_status_counts(&mut self) -> StatusCounts {
+        // The count option changes the counts without a document change.
+        let key = self.session.rev().wrapping_mul(2) | u64::from(self.session.prefs.count_notes);
+        if self.status_counts.0 != key {
+            if (self.session.typing_open() || (crate::now_ms() - self.canvas.caret_visible_since < 500.0))
+                && self.status_counts.0 != crate::window_ui::NOT_COUNTED.0
+            {
+                return self.status_counts.1;
+            }
+            let text = self.session.counted_text();
+            self.status_counts = (
+                key,
+                StatusCounts {
+                    words: self.session.word_count(),
+                    chars: wordcraft_doc::count_chars(&text),
+                    chars_no_spaces: wordcraft_doc::count_chars_no_spaces(&text),
+                },
+            );
+        }
+        self.status_counts.1
+    }""",
+)
+
+# 3. Zero-allocation page fingerprinting for fills and rules in page_content_key
 fix_source(
     "crates/ui-egui/src/canvas/pages.rs",
     """                Placed::Fill { rect, color } => format!("{rect:?}{color:?}").hash(&mut h),
@@ -190,7 +328,7 @@ fix_source(
                 }""",
 )
 
-# 3. Pre-allocate line indexing capacity in pagination pass (index_lines)
+# 4. Pre-allocate line indexing capacity in pagination pass (index_lines)
 fix_source(
     "crates/layout/src/pass.rs",
     """fn index_lines(pages: &[Page]) -> HashMap<(StoryRef, Path), Vec<(usize, usize)>> {
@@ -199,7 +337,7 @@ fix_source(
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::with_capacity(pages.iter().map(|p| p.items.len()).sum());""",
 )
 
-# 4. Fast incremental layout cache state and zero-allocation env_hash
+# 5. Fast incremental layout cache state and zero-allocation env_hash
 fix_source(
     "crates/layout/src/cache.rs",
     """use super::{
@@ -261,7 +399,7 @@ fix_source(
     }""",
 )
 
-# 5. Fast single-paragraph incremental layout for all in-line typing and line editing:
+# 6. Fast single-paragraph incremental layout for all in-line typing and line editing:
 # When typing inside an ordinary paragraph without altering line count or height,
 # re-lay only that single paragraph and reuse the surrounding document page geometry.
 fix_source(
