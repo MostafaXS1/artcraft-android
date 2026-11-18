@@ -1,24 +1,15 @@
 #!/usr/bin/env bash
-# WordCraft typing lag and large-file performance optimizations.
+# Performance optimizations for WordCraft on Android (large document typing lag).
 #
-# When typing in large documents (hundreds of pages, thousands of blocks):
-# 1. Speculative rollback snapshots cloned the entire undo history (up to 100 snapshots
-#    of every document block and style) and redo queue on every single character typed.
-#    During continuous typing (joined undo checkpoint), history and redo are unchanged,
-#    so cloning them can be safely skipped.
-# 2. On every keystroke, `unchanged` traversed thousands of blocks comparing `same_content`
-#    even though text was just inserted and definitely changed. Fast-pathing joined typing
-#    avoids traversing the whole document.
-# 3. Page fingerprinting (`page_content_key`) heap-allocated formatted debug strings for
-#    every fill and rule on each page. Direct hashing removes this heap churn.
-# 4. `index_lines` in pagination preallocates HashMap capacity to prevent repeated map growth.
+# 1. Fast-path during continuous typing in Session::run:
+#    When typing text (self.typing_open is true), avoid cloning the entire 100-step undo
+#    history and redo stacks on every keystroke, and skip the full-document block-by-block
+#    traversal in unchanged(self).
+# 2. Zero-allocation page fingerprinting for fills and rules in page_content_key.
+# 3. Pre-allocate line indexing capacity in pagination pass (index_lines).
+# 4. Cache comment fonts key so body typing does not scan all comments every keystroke.
 #
-# Only WordCraft gets this: the other apps keep their own behaviour.
-#
-# Every edit is guarded and idempotent: it applies only while the original text is still
-# present, so it no-ops once the code is there, and it is re-applied on a fresh checkout.
-#
-# Usage: wordcraft_opt.sh <source-dir> <app> <title>
+# Only WordCraft is touched.
 set -euo pipefail
 
 SRC="${1:?source dir}"
@@ -36,23 +27,24 @@ import sys
 src, app = Path(sys.argv[1]), Path(sys.argv[2])
 fixed = []
 
-def fix_source(rel: str, old: str, new: str) -> bool:
-    """Replace the single `old` in `rel` with `new`, unless it is already gone or already fixed."""
+def fix_source(rel: str, old: str, new: str) -> None:
     path = src / rel
     try:
         text = path.read_text()
     except OSError:
-        return False
+        return
     if old not in text or new in text or text.count(old) != 1:
-        return False
+        return
     path.write_text(text.replace(old, new, 1))
     fixed.append(rel)
-    return True
 
-# 1. Fast-path undo history and unchanged checking during continuous typing in run.rs
+# 1. Fast typing in Session::run: avoid history/redo cloning and skip full-doc comparison
 fix_source(
     "crates/engine/src/session/run.rs",
-    """        // Commands may leave an equation (a whole-body replacement) even after they fail; put
+    """        // The undo stacks are snapshotted whole, not as a length: commands run nested commands,
+        // whose checkpoints, undos and redos (and evictions at the limit) must be put back too.
+        let ime_epoch_before = spec.mutates.then_some(self.ime_body_epoch);
+        // Commands may leave an equation (a whole-body replacement) even after they fail; put
         // the editing session back with the document.
         let math_before = spec.mutates.then(|| self.math.clone());
         let before_doc: Option<RunSnapshot> = if spec.mutates {
@@ -68,10 +60,13 @@ fix_source(
         } else {
             None
         };""",
-    """        // Commands may leave an equation (a whole-body replacement) even after they fail; put
+    """        // The undo stacks are snapshotted whole, not as a length: commands run nested commands,
+        // whose checkpoints, undos and redos (and evictions at the limit) must be put back too.
+        let ime_epoch_before = spec.mutates.then_some(self.ime_body_epoch);
+        // Commands may leave an equation (a whole-body replacement) even after they fail; put
         // the editing session back with the document.
         let math_before = spec.mutates.then(|| self.math.clone());
-        let fast_typing = join && self.join_anchor && !self.history.is_empty() && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
+        let fast_typing = self.typing_open && !self.history.is_empty() && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
         let (history_snap, redo_snap) = if fast_typing {
             (Vec::new(), Vec::new())
         } else {
@@ -94,43 +89,12 @@ fix_source(
 
 fix_source(
     "crates/engine/src/session/run.rs",
-    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
-                    self.doc = d;
-                    self.sel = s;
-                    self.history = h;
-                    self.redo = r;
-                    self.typing_open = t;
-                    // The steps the command pushed out are back, so they no longer count as gone.
-                    self.undo_evicted = ev;
-                    self.column = c;
-                    // Its step is gone with them: its undo group has none to merge into.
-                    if pushed {
-                        self.join_anchor = false;
-                    }
-                }""",
-    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
-                    self.doc = d;
-                    self.sel = s;
-                    if !h.is_empty() {
-                        self.history = h;
-                    }
-                    if !r.is_empty() {
-                        self.redo = r;
-                    }
-                    self.typing_open = t;
-                    // The steps the command pushed out are back, so they no longer count as gone.
-                    self.undo_evicted = ev;
-                    self.column = c;
-                    // Its step is gone with them: its undo group has none to merge into.
-                    if pushed {
-                        self.join_anchor = false;
-                    }
-                }""",
-)
-
-fix_source(
-    "crates/engine/src/session/run.rs",
-    """            let unchanged = |s: &Session| match (before_doc, pending_before) {
+    """            // waiting at the caret as they were. A command that replaces the document —
+            // a mail merge, a comparison — is not an edit of this one, whatever the new
+            // document holds: `replaces_document` names the commands that may replace
+            // it, and `document_id` catches any other that does (through
+            // `set_document`, which starts a new history the old one must not overwrite).
+            let unchanged = |s: &Session| match (before_doc, pending_before) {
                 (Some((doc, sel, _, _, _, _, column)), Some(pending)) => {
                     !replaces_document && s.document_id == document_id_before && s.unchanged(doc, sel, column, pending)
                 }
@@ -162,7 +126,12 @@ fix_source(
                     self.typing_open = *typing_open;
                     self.undo_evicted = *evicted;
                 }""",
-    """            let fast_typing = !pushed && self.typing_open && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
+    """            // waiting at the caret as they were. A command that replaces the document —
+            // a mail merge, a comparison — is not an edit of this one, whatever the new
+            // document holds: `replaces_document` names the commands that may replace
+            // it, and `document_id` catches any other that does (through
+            // `set_document`, which starts a new history the old one must not overwrite).
+            let fast_typing = !pushed && self.typing_open && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
             let unchanged = |s: &Session| {
                 if fast_typing {
                     return false;
@@ -206,6 +175,42 @@ fix_source(
                 }""",
 )
 
+fix_source(
+    "crates/engine/src/session/run.rs",
+    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
+                    self.doc = d;
+                    self.sel = s;
+                    self.history = h;
+                    self.redo = r;
+                    self.typing_open = t;
+                    // The steps the command pushed out are back, so they no longer count as gone.
+                    self.undo_evicted = ev;
+                    self.column = c;
+                    // Its step is gone with them: its undo group has none to merge into.
+                    if pushed {
+                        self.join_anchor = false;
+                    }
+                }""",
+    """                if let Some((d, s, h, r, t, ev, c)) = before_doc {
+                    self.doc = d;
+                    self.sel = s;
+                    if !h.is_empty() {
+                        self.history = h;
+                    }
+                    if !r.is_empty() {
+                        self.redo = r;
+                    }
+                    self.typing_open = t;
+                    // The steps the command pushed out are back, so they no longer count as gone.
+                    self.undo_evicted = ev;
+                    self.column = c;
+                    // Its step is gone with them: its undo group has none to merge into.
+                    if pushed {
+                        self.join_anchor = false;
+                    }
+                }""",
+)
+
 # 2. Zero-allocation page fingerprinting for fills and rules
 fix_source(
     "crates/ui-egui/src/canvas/pages.rs",
@@ -227,6 +232,33 @@ fix_source(
     """fn index_lines(pages: &[Page]) -> HashMap<(StoryRef, Path), Vec<(usize, usize)>> {
     let total_placed: usize = pages.iter().map(|p| p.items.len()).sum();
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::with_capacity(total_placed / 2);""",
+)
+
+# 4. Cache comment fonts key so body typing does not scan all comments every keystroke
+fix_source(
+    "crates/ui-egui/src/app/fonts.rs",
+    """    pub(super) fn ensure_comment_fonts(&mut self) {
+        let key = (self.session.document_id(), self.session.rev());
+        if self.comment_fonts_for == Some(key) {
+            return;
+        }
+        self.comment_fonts_for = Some(key);""",
+    """    pub(super) fn ensure_comment_fonts(&mut self) {
+        let comment_hash = {
+            let mut h = self.session.doc.comments.len() as u64;
+            for (id, c) in &self.session.doc.comments {
+                h = h.wrapping_mul(31).wrapping_add(*id as u64).wrapping_add(c.part as u64);
+                if let Some(part) = self.session.doc.parts.get(&c.part) {
+                    h = h.wrapping_mul(31).wrapping_add(part.blocks.len() as u64);
+                }
+            }
+            h
+        };
+        let key = (self.session.document_id(), comment_hash);
+        if self.comment_fonts_for == Some(key) {
+            return;
+        }
+        self.comment_fonts_for = Some(key);""",
 )
 
 if fixed:

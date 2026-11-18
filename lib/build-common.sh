@@ -5250,12 +5250,15 @@ icon = "@mipmap/ic_launcher"
     if app == "wordcraft":
         ime_hide_logic = (
             "        // The canvas worked out that the user is scrolling or drawing, not editing:\n"
-            "        // put the soft keyboard away at once. It is read here, after the frame ran,\n"
-            "        // because the input hook and the frame itself run before the IME output is\n"
-            "        // handed to the platform.\n"
+            "        // put the soft keyboard away at once. Conversely, an explicit user tap on the\n"
+            "        // canvas sets `request_ime_show` to reopen the soft keyboard if dismissed.\n"
             "        if self.inner.request_ime_hide {\n"
             "            self.inner.request_ime_hide = false;\n"
+            "            self.inner.request_ime_show = false;\n"
             "            self.app.hide_soft_input(false);\n"
+            "        } else if self.inner.request_ime_show {\n"
+            "            self.inner.request_ime_show = false;\n"
+            "            self.app.show_soft_input(false);\n"
             "        }\n"
         )
 
@@ -6895,7 +6898,8 @@ fi
 bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 
 # WordCraft typing lag and large-file performance optimizations (joined typing fast-path,
-# zero-allocation page fingerprinting, and line indexing capacity). Only WordCraft is touched.
+# zero-allocation page fingerprinting, line indexing capacity, and comment font caching).
+# Only WordCraft is touched.
 bash "$ROOT/lib/wordcraft_opt.sh" "$SRC" "$APP" "$TITLE"
 
 # egui-winit's stock Android build gates its `arboard` clipboard backend behind
