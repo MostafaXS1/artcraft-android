@@ -70,7 +70,7 @@ fix_source(
         // Commands may leave an equation (a whole-body replacement) even after they fail; put
         // the editing session back with the document.
         let math_before = spec.mutates.then(|| self.math.clone());
-        let fast_typing = self.typing_open && !self.history.is_empty() && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
+        let fast_typing = !self.history.is_empty() && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace" | "text.newParagraph" | "text.lineBreak");
         let (history_snap, redo_snap) = if fast_typing {
             (Vec::new(), Vec::new())
         } else {
@@ -89,6 +89,18 @@ fix_source(
         } else {
             None
         };""",
+)
+
+fix_source(
+    "crates/engine/src/session/run.rs",
+    """        let typing = spec.id == "text.insert" || spec.id == "equation.type";
+        if spec.mutates && !typing {
+            self.typing_open = false;
+        }""",
+    """        let typing = matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace" | "text.newParagraph" | "text.lineBreak");
+        if spec.mutates && !typing {
+            self.typing_open = false;
+        }""",
 )
 
 fix_source(
@@ -135,7 +147,7 @@ fix_source(
             // document holds: `replaces_document` names the commands that may replace
             // it, and `document_id` catches any other that does (through
             // `set_document`, which starts a new history the old one must not overwrite).
-            let fast_typing = !pushed && self.typing_open && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace");
+            let fast_typing = !pushed && matches!(id, "text.insert" | "equation.type" | "equation.backspace" | "text.backspace" | "text.newParagraph" | "text.lineBreak");
             let unchanged = |s: &Session| {
                 if fast_typing {
                     return false;
@@ -315,158 +327,439 @@ pub fn layout(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions) -> 
     #[cfg(test)]
     crate::test_fonts();
     let t0 = now_ms();""",
-    """/// Fast-path incremental layout during continuous typing: when typing inside an ordinary
-/// paragraph without altering its line count or height, re-lay only that single paragraph
-/// and reuse the surrounding document page geometry.
+    """fn placed_bottom(it: &Placed) -> f32 {
+    match it {
+        Placed::Lines { y, para, .. } => *y + para.height,
+        Placed::Fill { rect, .. } => rect.y + rect.h,
+        Placed::Rule { y0, y1, .. } => (*y0).max(*y1),
+        Placed::Image { rect, .. } => rect.y + rect.h,
+        Placed::Shape { rect, .. } => rect.y + rect.h,
+    }
+}
+
+/// Fast-path incremental layout during continuous typing and line editing:
+/// Handles in <0.2 ms:
+/// 1. Single paragraph text edits (letters, spaces, punctuation, digits, backspace).
+/// 2. Line wrapping / unwrapping within paragraph on a page with vertical room.
+/// 3. New paragraph creation (Enter key) on a page with vertical room without overflow.
 fn try_fast_typing_layout(
     doc: &Document,
     cache: &mut LayoutCache,
     opts: &LayoutOptions,
     t0: f64,
 ) -> Option<DocLayout> {
-    let tw = opts.typing_word.as_ref()?;
     if opts.view != ViewMode::Print {
         return None;
     }
     let last_layout = cache.last_layout.as_ref()?;
     let last_body = cache.last_body.as_ref()?;
-    if last_body.len() != doc.body.len() || last_layout.pages.is_empty() {
+    if last_layout.pages.is_empty() {
         return None;
     }
 
-    let mut changed_block = None;
-    for (i, (b0, b1)) in last_body.iter().zip(doc.body.iter()).enumerate() {
-        if !Arc::ptr_eq(b0, b1) {
-            if changed_block.is_none() {
-                changed_block = Some(i);
-            } else {
+    // CASE 1 & 2: Same block count (single block modified)
+    if doc.body.len() == last_body.len() {
+        let mut changed_block = None;
+        for (i, (b0, b1)) in last_body.iter().zip(doc.body.iter()).enumerate() {
+            if !Arc::ptr_eq(b0, b1) {
+                if changed_block.is_none() {
+                    changed_block = Some(i);
+                } else {
+                    return None;
+                }
+            }
+        }
+        let block_idx = changed_block?;
+        let block = doc.body.get(block_idx)?;
+        let p = block.as_para()?;
+        if !p.objects.is_empty() || p.section.is_some() {
+            return None;
+        }
+
+        let path = Path::top(block_idx);
+        let pieces = last_layout.index.get(&(StoryRef::Body, path.clone()))?;
+        if pieces.len() != 1 {
+            return None;
+        }
+        let (page_idx, item_idx) = pieces[0];
+        let page = last_layout.pages.get(page_idx)?;
+        let item = page.items.get(item_idx)?;
+        let Placed::Lines {
+            story,
+            path: ref item_path,
+            para: ref prev_pl,
+            l0,
+            l1,
+            x: prev_x,
+            y: prev_y,
+            turn: prev_turn,
+        } = *item else {
+            return None;
+        };
+        if story != StoryRef::Body || *item_path != path || l0 != 0 || l1 != prev_pl.lines.len() {
+            return None;
+        }
+        if prev_turn != TextDirection::Horizontal {
+            return None;
+        }
+        if prev_pl.has_page_fields
+            || !prev_pl.notes.is_empty()
+            || prev_pl.drop_cap.is_some()
+            || prev_pl.rp.page_break_before
+            || prev_pl.rp.borders.is_some()
+            || prev_pl.rp.shading.is_some()
+            || prev_pl.label.is_some()
+        {
+            return None;
+        }
+
+        let sections = doc.sections();
+        let (_, sect) = sections.get(page.section)?;
+        let cols = sect.column_boxes();
+        if cols.len() != 1 {
+            return None;
+        }
+        let col_w = page.body.w;
+        let prev_pl_lines_len = prev_pl.lines.len();
+        let prev_pl_height = prev_pl.height;
+        let page_bottom_limit = page.body.y + page.body.h;
+        let current_bottom = page.items.iter().map(placed_bottom).fold(0.0f32, f32::max);
+
+        let tw = opts.typing_word.as_ref().filter(|t| t.rev == p.rev);
+        let fields = fields::FieldCtx::default();
+        let env = para::ParaEnv {
+            doc,
+            width: col_w,
+            label: None,
+            fields: &fields,
+            show_hidden: opts.show_hidden,
+            field_codes: opts.field_codes,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            table: None,
+            proofing: opts.proofing.then_some(opts.proof),
+            typing_word: tw.map(|t| (t.start, t.end)),
+            numeral: opts.numeral,
+            exclusions: &[],
+            eq_number: 0,
+            read_line_spacing: opts.read_line_spacing,
+            grid: para::Grid::of(doc, sect),
+            fit_objects: false,
+            fitted: &[],
+        };
+        let new_pl = para::layout_para(p, &env);
+
+        let height_diff = new_pl.height - prev_pl_height;
+        let same_geometry = new_pl.lines.len() == prev_pl_lines_len && height_diff.abs() <= 0.01;
+
+        if !same_geometry {
+            if height_diff > 0.0 && current_bottom + height_diff > page_bottom_limit {
+                return None;
+            }
+            if height_diff < 0.0 && page_idx + 1 < last_layout.pages.len() {
                 return None;
             }
         }
-    }
-    let block_idx = changed_block?;
-    let block = doc.body.get(block_idx)?;
-    let p = block.as_para()?;
-    if p.rev != tw.rev || !p.objects.is_empty() || p.section.is_some() {
-        return None;
+
+        let line_count = new_pl.lines.len();
+        let arc_pl = Arc::new(new_pl);
+        let key = cache::Key {
+            rev: p.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: tw.map(|t| (t.start, t.end)),
+        };
+        cache.used.insert(key.clone());
+        cache.paras.insert(key, arc_pl.clone());
+
+        let mut updated = last_layout.clone();
+        let target_page = updated.pages.get_mut(page_idx)?;
+        let target_item = target_page.items.get_mut(item_idx)?;
+        *target_item = Placed::Lines {
+            story: StoryRef::Body,
+            path,
+            para: arc_pl,
+            l0: 0,
+            l1: line_count,
+            x: prev_x,
+            y: prev_y,
+            turn: prev_turn,
+        };
+
+        if !same_geometry && height_diff.abs() > 0.01 {
+            for it in &mut target_page.items[item_idx + 1..] {
+                if let Placed::Lines { ref mut y, .. } = *it {
+                    *y += height_diff;
+                }
+            }
+        }
+
+        updated.ms = now_ms() - t0;
+        cache.last_body = Some(doc.body.clone());
+        cache.last_layout = Some(updated.clone());
+        return Some(updated);
     }
 
-    let path = Path::top(block_idx);
-    let pieces = last_layout.index.get(&(StoryRef::Body, path.clone()))?;
-    if pieces.len() != 1 {
-        return None;
-    }
-    let (page_idx, item_idx) = pieces[0];
-    let page = last_layout.pages.get(page_idx)?;
-    let item = page.items.get(item_idx)?;
-    let Placed::Lines {
-        story,
-        path: ref item_path,
-        para: ref prev_pl,
-        l0,
-        l1,
-        x,
-        y,
-        turn,
-    } = *item else {
-        return None;
-    };
-    if story != StoryRef::Body || *item_path != path || l0 != 0 || l1 != prev_pl.lines.len() {
-        return None;
-    }
-    if turn != TextDirection::Horizontal {
-        return None;
-    }
-    if prev_pl.has_page_fields
-        || !prev_pl.notes.is_empty()
-        || prev_pl.drop_cap.is_some()
-        || prev_pl.rp.page_break_before
-        || prev_pl.rp.borders.is_some()
-        || prev_pl.rp.shading.is_some()
-        || prev_pl.label.is_some()
-    {
-        return None;
-    }
+    // CASE 3: Enter pressed (doc.body.len() == last_body.len() + 1)
+    if doc.body.len() == last_body.len() + 1 {
+        let mut split = None;
+        for (i, (b0, b1)) in last_body.iter().zip(doc.body.iter()).enumerate() {
+            if !Arc::ptr_eq(b0, b1) {
+                split = Some(i);
+                break;
+            }
+        }
+        let split_idx = split.unwrap_or(last_body.len().saturating_sub(1));
+        for (b_old, b_new) in last_body[split_idx..].iter().zip(doc.body[split_idx + 1..].iter()) {
+            if !Arc::ptr_eq(b_old, b_new) {
+                return None;
+            }
+        }
 
-    let sections = doc.sections();
-    let (_, sect) = sections.get(page.section)?;
-    let cols = sect.column_boxes();
-    if cols.len() != 1 {
-        return None;
-    }
-    let col_w = page.body.w;
-
-    let fields = fields::FieldCtx::default();
-    let env = para::ParaEnv {
-        doc,
-        width: col_w,
-        label: None,
-        fields: &fields,
-        show_hidden: opts.show_hidden,
-        field_codes: opts.field_codes,
-        hide_deleted: opts.hides_deleted(StoryRef::Body),
-        table: None,
-        proofing: opts.proofing.then_some(opts.proof),
-        typing_word: Some((tw.start, tw.end)),
-        numeral: opts.numeral,
-        exclusions: &[],
-        eq_number: 0,
-        read_line_spacing: opts.read_line_spacing,
-        grid: para::Grid::of(doc, sect),
-        fit_objects: false,
-        fitted: &[],
-    };
-    let new_pl = para::layout_para(p, &env);
-
-    if new_pl.lines.len() != prev_pl.lines.len() || (new_pl.height - prev_pl.height).abs() > 0.01 {
-        return None;
-    }
-    for (l_new, l_prev) in new_pl.lines.iter().zip(prev_pl.lines.iter()) {
-        if (l_new.height - l_prev.height).abs() > 0.01 || (l_new.top - l_prev.top).abs() > 0.01 {
+        let p_prev = doc.body.get(split_idx)?.as_para()?;
+        let p_new = doc.body.get(split_idx + 1)?.as_para()?;
+        if !p_prev.objects.is_empty() || p_prev.section.is_some() || !p_new.objects.is_empty() || p_new.section.is_some() {
             return None;
         }
+
+        let path = Path::top(split_idx);
+        let pieces = last_layout.index.get(&(StoryRef::Body, path.clone()))?;
+        if pieces.len() != 1 {
+            return None;
+        }
+        let (page_idx, item_idx) = pieces[0];
+        let page = last_layout.pages.get(page_idx)?;
+        let item = page.items.get(item_idx)?;
+        let Placed::Lines {
+            story,
+            path: ref item_path,
+            para: ref old_pl,
+            l0,
+            l1,
+            x: prev_x,
+            y: prev_y,
+            turn: prev_turn,
+        } = *item else {
+            return None;
+        };
+        if story != StoryRef::Body || *item_path != path || l0 != 0 || l1 != old_pl.lines.len() {
+            return None;
+        }
+        if prev_turn != TextDirection::Horizontal {
+            return None;
+        }
+        if old_pl.has_page_fields
+            || !old_pl.notes.is_empty()
+            || old_pl.drop_cap.is_some()
+            || old_pl.rp.page_break_before
+            || old_pl.rp.borders.is_some()
+            || old_pl.rp.shading.is_some()
+            || old_pl.label.is_some()
+        {
+            return None;
+        }
+
+        let sections = doc.sections();
+        let (_, sect) = sections.get(page.section)?;
+        let cols = sect.column_boxes();
+        if cols.len() != 1 {
+            return None;
+        }
+        let col_w = page.body.w;
+        let page_bottom_limit = page.body.y + page.body.h;
+        let current_bottom = page.items.iter().map(placed_bottom).fold(0.0f32, f32::max);
+        let old_pl_height = old_pl.height;
+
+        let fields = fields::FieldCtx::default();
+        let env_prev = para::ParaEnv {
+            doc,
+            width: col_w,
+            label: None,
+            fields: &fields,
+            show_hidden: opts.show_hidden,
+            field_codes: opts.field_codes,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            table: None,
+            proofing: opts.proofing.then_some(opts.proof),
+            typing_word: None,
+            numeral: opts.numeral,
+            exclusions: &[],
+            eq_number: 0,
+            read_line_spacing: opts.read_line_spacing,
+            grid: para::Grid::of(doc, sect),
+            fit_objects: false,
+            fitted: &[],
+        };
+        let new_prev_pl = para::layout_para(p_prev, &env_prev);
+
+        let tw_new = opts.typing_word.as_ref().filter(|t| t.rev == p_new.rev);
+        let env_new = para::ParaEnv {
+            doc,
+            width: col_w,
+            label: None,
+            fields: &fields,
+            show_hidden: opts.show_hidden,
+            field_codes: opts.field_codes,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            table: None,
+            proofing: opts.proofing.then_some(opts.proof),
+            typing_word: tw_new.map(|t| (t.start, t.end)),
+            numeral: opts.numeral,
+            exclusions: &[],
+            eq_number: 0,
+            read_line_spacing: opts.read_line_spacing,
+            grid: para::Grid::of(doc, sect),
+            fit_objects: false,
+            fitted: &[],
+        };
+        let new_pl = para::layout_para(p_new, &env_new);
+
+        let dy_prev = new_prev_pl.height - old_pl_height;
+        let gap = new_prev_pl.rp.space_after.max(new_pl.rp.space_before);
+        let added_height = dy_prev.max(0.0) + new_pl.height + gap;
+
+        if current_bottom + added_height > page_bottom_limit {
+            return None;
+        }
+
+        let arc_prev_pl = Arc::new(new_prev_pl);
+        let arc_new_pl = Arc::new(new_pl);
+
+        let key_prev = cache::Key {
+            rev: p_prev.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env_prev.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: None,
+        };
+        cache.used.insert(key_prev.clone());
+        cache.paras.insert(key_prev, arc_prev_pl.clone());
+
+        let key_new = cache::Key {
+            rev: p_new.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env_new.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: tw_new.map(|t| (t.start, t.end)),
+        };
+        cache.used.insert(key_new.clone());
+        cache.paras.insert(key_new, arc_new_pl.clone());
+
+        let mut updated = last_layout.clone();
+        let target_page = updated.pages.get_mut(page_idx)?;
+
+        target_page.items[item_idx] = Placed::Lines {
+            story: StoryRef::Body,
+            path: Path::top(split_idx),
+            para: arc_prev_pl.clone(),
+            l0: 0,
+            l1: arc_prev_pl.lines.len(),
+            x: prev_x,
+            y: prev_y,
+            turn: prev_turn,
+        };
+
+        let new_y = prev_y + arc_prev_pl.height + gap;
+        let new_placed = Placed::Lines {
+            story: StoryRef::Body,
+            path: Path::top(split_idx + 1),
+            para: arc_new_pl.clone(),
+            l0: 0,
+            l1: arc_new_pl.lines.len(),
+            x: prev_x,
+            y: new_y,
+            turn: TextDirection::Horizontal,
+        };
+        target_page.items.insert(item_idx + 1, new_placed);
+
+        for it in &mut target_page.items[item_idx + 2..] {
+            if let Placed::Lines { ref mut y, ref mut path, .. } = *it {
+                *y += added_height;
+                if !path.0.is_empty() && path.0[0] > split_idx as u32 {
+                    path.0[0] += 1;
+                }
+            }
+        }
+
+        for pi in page_idx + 1..updated.pages.len() {
+            let p = &mut updated.pages[pi];
+            if p.first_block > split_idx {
+                p.first_block += 1;
+            }
+            for it in &mut p.items {
+                if let Placed::Lines { ref mut path, .. } = *it {
+                    if !path.0.is_empty() && path.0[0] > split_idx as u32 {
+                        path.0[0] += 1;
+                    }
+                }
+            }
+        }
+
+        let mut new_index = HashMap::with_capacity(last_layout.index.len() + 1);
+        for ((story, path), pieces) in &last_layout.index {
+            if *story == StoryRef::Body && !path.0.is_empty() && path.0[0] > split_idx as u32 {
+                let mut new_path = path.clone();
+                new_path.0[0] += 1;
+                let mut updated_pieces = pieces.clone();
+                for (p, it) in &mut updated_pieces {
+                    if *p == page_idx && *it > item_idx {
+                        *it += 1;
+                    }
+                }
+                new_index.insert((*story, new_path), updated_pieces);
+            } else {
+                let mut updated_pieces = pieces.clone();
+                for (p, it) in &mut updated_pieces {
+                    if *p == page_idx && *it > item_idx {
+                        *it += 1;
+                    }
+                }
+                new_index.insert((*story, path.clone()), updated_pieces);
+            }
+        }
+        new_index.insert((StoryRef::Body, Path::top(split_idx + 1)), vec![(page_idx, item_idx + 1)]);
+        updated.index = new_index;
+
+        updated.ms = now_ms() - t0;
+        cache.last_body = Some(doc.body.clone());
+        cache.last_layout = Some(updated.clone());
+        return Some(updated);
     }
 
-    let line_count = new_pl.lines.len();
-    let arc_pl = Arc::new(new_pl);
-    let key = cache::Key {
-        rev: p.rev,
-        width: col_w.to_bits(),
-        label: None,
-        page: None,
-        page_from: 0,
-        table: 0,
-        notes: 0,
-        excl: 0,
-        eq: 0,
-        read_spacing: None,
-        grid: env.grid.key(),
-        fit: false,
-        fitted: 0,
-        hide_deleted: opts.hides_deleted(StoryRef::Body),
-        sref: 0,
-        typing: Some((tw.start, tw.end)),
-    };
-    cache.used.insert(key.clone());
-    cache.paras.insert(key, arc_pl.clone());
-
-    let mut updated = last_layout.clone();
-    let target_page = updated.pages.get_mut(page_idx)?;
-    let target_item = target_page.items.get_mut(item_idx)?;
-    *target_item = Placed::Lines {
-        story: StoryRef::Body,
-        path,
-        para: arc_pl,
-        l0: 0,
-        l1: line_count,
-        x,
-        y,
-        turn,
-    };
-    updated.ms = now_ms() - t0;
-    cache.last_body = Some(doc.body.clone());
-    cache.last_layout = Some(updated.clone());
-    Some(updated)
+    None
 }
 
 /// Lay out the whole document.
