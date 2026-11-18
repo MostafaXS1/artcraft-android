@@ -23,25 +23,33 @@ for cargo in src_root.rglob('Cargo.toml'):
 
 entry_path = 'arboard = { path = "vendor/arboard" }'
 
-if uses_workspace:
-    # Replace arboard in [workspace.dependencies] to point to vendored path
-    def repl_ws(m):
-        inner = m.group(0)
-        features = re.search(r'features\s*=\s*\[([^\]]+)\]', inner)
-        if features:
-            return f'arboard = {{ path = "vendor/arboard", features = [{features.group(1)}] }}'
-        return 'arboard = { path = "vendor/arboard" }'
-    s2 = re.sub(r'^\s*arboard\s*=\s*\{[^}]*\}\s*(?:#.*)?$', repl_ws, s, flags=re.M)
-    if s2 == s:
-        s2 = re.sub(r'^\s*arboard\s*=.*$', 'arboard = { path = "vendor/arboard" }', s, flags=re.M)
-    s = s2
+def repl_arboard(m):
+    inner = m.group(0)
+    features = re.search(r'features\s*=\s*\[([^\]]+)\]', inner)
+    default_feats = re.search(r'default-features\s*=\s*(false|true)', inner)
+    parts = ['path = "vendor/arboard"']
+    if default_feats:
+        parts.append(f'default-features = {default_feats.group(1)}')
+    if features:
+        parts.append(f'features = [{features.group(1)}]')
+    joined = ", ".join(parts)
+    return f'arboard = {{ {joined} }}'
+
+# Replace any direct arboard dependency in the root Cargo.toml (in [dependencies], [target...dependencies], or [workspace.dependencies])
+s = re.sub(r'^\s*arboard\s*=\s*\{[^}]*\}\s*(?:#.*)?$', repl_arboard, s, flags=re.M)
+s = re.sub(r'^\s*arboard\s*=\s*"[^"]*"\s*(?:#.*)?$', 'arboard = { path = "vendor/arboard" }', s, flags=re.M)
+
+# Also ensure [patch.crates-io] has arboard = { path = "vendor/arboard" }
+header = "[patch.crates-io]"
+if header in s:
+    parts = s.split(header, 1)
+    next_sec = re.search(r'\n\[', parts[1])
+    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
+    rest = parts[1][next_sec.start():] if next_sec else ""
+    patch_sec = re.sub(r'^\s*arboard\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
+    s = parts[0] + header + "\n" + entry_path + "\n" + patch_sec.lstrip('\n') + rest
 else:
-    s = re.sub(r'^\s*arboard\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-    s = re.sub(r'^\s*arboard\s*=.*\n?', '', s, flags=re.M)
-    header = "[patch.crates-io]"
-    if entry_path not in s:
-        s = (s.replace(header, header + "\n" + entry_path, 1) if header in s
-             else s.rstrip() + "\n\n" + header + "\n" + entry_path + "\n")
+    s = s.rstrip() + "\n\n" + header + "\n" + entry_path + "\n"
 
 try:
     tomllib.loads(s)

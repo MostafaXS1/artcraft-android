@@ -7245,11 +7245,13 @@ PY
 # lost — the app coming back from a file picker, for instance — died with it. Vendor the builder's
 # patched egui-wgpu, which releases the old surface first, and patch it into the workspace.
 echo "Vendoring the surface-fixing egui-wgpu for $TITLE..."
-if [[ "$APP" == "solidcraft" && -d "$SRC/vendor/egui-wgpu" ]]; then
+if [[ "$APP" == "solidcraft" && (-d "$SRC/vendor/egui/crates/egui-wgpu" || -d "$SRC/vendor/egui-wgpu") ]]; then
     # Upstream already vendors egui-wgpu with its own custom additions (e.g. SolidCraft's CAD
     # pipelines, blur shaders, FrameCompositor, and DeviceLost). Keep its custom APIs intact
     # and patch the Android surface-loss recovery in-place in its winit.rs.
-    python3 - "$SRC/vendor/egui-wgpu" <<'PY'
+    wgpu_target="$SRC/vendor/egui/crates/egui-wgpu"
+    [[ -d "$wgpu_target" ]] || wgpu_target="$SRC/vendor/egui-wgpu"
+    python3 - "$wgpu_target" <<'PY'
 from pathlib import Path
 import sys
 winit_rs = Path(sys.argv[1]) / "src" / "winit.rs"

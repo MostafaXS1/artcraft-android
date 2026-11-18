@@ -170,8 +170,10 @@ if lib_rs.is_file():
         txt = txt.replace(time_stmt, time_stmt + "\n" + ime_poll, 1)
     lib_rs.write_text(txt)
 
-# Patch vendor/egui-wgpu/src/winit.rs
-wgpu_winit = src / "vendor/egui-wgpu/src/winit.rs"
+# Patch vendor/egui/crates/egui-wgpu/src/winit.rs
+wgpu_winit = src / "vendor/egui/crates/egui-wgpu/src/winit.rs"
+if not wgpu_winit.is_file():
+    wgpu_winit = src / "vendor/egui-wgpu/src/winit.rs"
 if wgpu_winit.is_file():
     txt = wgpu_winit.read_text()
     if 'cfg!(target_os = "android")' not in txt:
@@ -223,7 +225,7 @@ if git_header in s:
     s = before + after
 
 # Fix workspace.dependencies
-# - egui-wgpu should point to local vendor/egui-wgpu (SolidCraft's custom version)
+# - egui-wgpu should point to local vendor/egui/crates/egui-wgpu (SolidCraft's custom version)
 # - egui-winit should point to git fork (has clipboard_image())
 s = re.sub(
     r'^\s*egui-winit\s*=\s*\{[^}]*git\s*=\s*"https://github.com/storytold/egui.git"[^}]*\}',
@@ -233,14 +235,13 @@ s = re.sub(
 )
 s = re.sub(
     r'^\s*egui-wgpu\s*=\s*\{[^}]*git\s*=\s*"https://github.com/storytold/egui.git"[^}]*\}',
-    'egui-wgpu = { path = "vendor/egui-wgpu" }',
+    'egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }',
     s,
     flags=re.M
 )
-# Also fix egui-wgpu pointing to wrong local path (from fork)
 s = re.sub(
-    r'^\s*egui-wgpu\s*=\s*\{[^}]*path\s*=\s*"vendor/egui/crates/egui-wgpu"[^}]*\}',
-    'egui-wgpu = { path = "vendor/egui-wgpu" }',
+    r'^\s*egui-wgpu\s*=\s*\{[^}]*path\s*=\s*"vendor/egui-wgpu"[^}]*\}',
+    'egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }',
     s,
     flags=re.M
 )
@@ -256,7 +257,7 @@ epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6
 egui = { path = "vendor/egui/crates/egui" }
 egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui-wgpu = { path = "vendor/egui-wgpu" }
+egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }
 egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }'''
 
@@ -285,13 +286,13 @@ else:
     s = s.rstrip() + "\n\n" + patch_crates_io + '\n' + new_entries.strip() + "\n"
 
 # Now add the correct local path overrides to [patch."https://github.com/storytold/egui.git"]
-# This section contains path overrides for egui-wgpu (vendor/egui-wgpu) and egui-winit (vendor/egui/crates/egui-winit)
+# This section contains path overrides for egui-wgpu (vendor/egui/crates/egui-wgpu) and egui-winit (vendor/egui/crates/egui-winit)
 # And also egui and epaint themselves so the git repo's internal deps use the local copy
 git_entries = '''egui = { path = "vendor/egui/crates/egui" }
 epaint = { path = "vendor/egui/crates/epaint" }
 ecolor = { path = "vendor/egui/crates/ecolor" }
 emath = { path = "vendor/egui/crates/emath" }
-egui-wgpu = { path = "vendor/egui-wgpu" }
+egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }
 egui-winit = { path = "vendor/egui/crates/egui-winit" }'''
 s = s.rstrip() + "\n\n" + git_header + "\n" + git_entries.strip() + "\n"
 
