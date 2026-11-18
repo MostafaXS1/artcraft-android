@@ -6894,6 +6894,10 @@ fi
 # adapters use android-activity's native IME.
 bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 
+# WordCraft typing lag and large-file performance optimizations (joined typing fast-path,
+# zero-allocation page fingerprinting, and line indexing capacity). Only WordCraft is touched.
+bash "$ROOT/lib/wordcraft_opt.sh" "$SRC" "$APP" "$TITLE"
+
 # egui-winit's stock Android build gates its `arboard` clipboard backend behind
 # `cfg(not(target_os = "android"))`, so on Android its `Clipboard` is only an in-app
 # `String` — copy/paste never reaches the system clipboard. Vendor the builder's
