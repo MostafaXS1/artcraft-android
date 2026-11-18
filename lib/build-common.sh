@@ -7141,23 +7141,28 @@ if "fn reset_ime_with_request" not in text:
         mod_rs.write_text(text)
         changed = True
 
-# Also ensure any fork egui-winit copy present covers ImeResetCompleted in its match
+# Also ensure any egui-winit copy present covers ImeResetCompleted in its match statements
 for ew_path in (
     src / "vendor" / "egui" / "crates" / "egui-winit" / "src" / "lib.rs",
     src / "vendor" / "egui-winit" / "src" / "lib.rs",
 ):
     if ew_path.is_file():
         ew = ew_path.read_text()
-        if "ImeResetCompleted" in ew:
-            fn_marker = "pub fn short_window_event_description"
-            idx = ew.find(fn_marker)
-            if idx >= 0 and 'WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",' not in ew[idx:]:
-                arm = '        WindowEvent::Ime { .. } => "WindowEvent::Ime",\n'
-                aidx = ew.find(arm, idx)
-                if aidx >= 0:
-                    ew = ew[:aidx+len(arm)] + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n' + ew[aidx+len(arm):]
-                    ew_path.write_text(ew)
-                    changed = True
+        if "ImeResetCompleted" not in ew:
+            target1 = "WindowEvent::DoubleTapGesture { .. } => EventResponse {"
+            repl1 = "WindowEvent::DoubleTapGesture { .. }\\n            | WindowEvent::ImeResetCompleted { .. } => EventResponse {"
+            if target1 in ew:
+                ew = ew.replace(target1, repl1, 1)
+                changed = True
+
+            target2 = 'WindowEvent::ActivationTokenDone { .. } => "WindowEvent::ActivationTokenDone",\\n'
+            repl2 = target2 + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\\n'
+            if target2 in ew:
+                ew = ew.replace(target2, repl2, 1)
+                changed = True
+
+            if changed:
+                ew_path.write_text(ew)
 
 if changed:
     print("  Synced winit IME-reset support with fork egui-winit")

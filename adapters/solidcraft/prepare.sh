@@ -157,6 +157,18 @@ if lib_rs.is_file():
     time_stmt = "self.egui_input.time = Some(self.start_time.elapsed().as_secs_f64());\n"
     if ime_poll.strip() not in txt and time_stmt in txt:
         txt = txt.replace(time_stmt, time_stmt + "\n" + ime_poll, 1)
+
+    if "ImeResetCompleted" not in txt:
+        target1 = "WindowEvent::DoubleTapGesture { .. } => EventResponse {"
+        repl1 = "WindowEvent::DoubleTapGesture { .. }\n            | WindowEvent::ImeResetCompleted { .. } => EventResponse {"
+        if target1 in txt:
+            txt = txt.replace(target1, repl1, 1)
+
+        target2 = 'WindowEvent::ActivationTokenDone { .. } => "WindowEvent::ActivationTokenDone",\n'
+        repl2 = target2 + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n'
+        if target2 in txt:
+            txt = txt.replace(target2, repl2, 1)
+
     lib_rs.write_text(txt)
 
 # Patch vendor/egui/crates/egui-wgpu/src/winit.rs
