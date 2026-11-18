@@ -9,8 +9,13 @@ ADAPTER="$ROOT/adapters/solidcraft"
 DEST="$SRC_ABS/apps/$APP-android"
 
 # Vendor the storytold egui fork so egui-winit has clipboard_image() and correct process_viewport_commands()
+# Preserve SolidCraft's custom egui-wgpu which has FrameCompositor, DeviceLost, capture_errors
 if [[ ! -d "$SRC_ABS/vendor/egui/.git" ]]; then
     echo "Vendoring storytold egui fork..."
+    if [[ -d "$SRC_ABS/vendor/egui/crates/egui-wgpu" ]]; then
+        rm -rf "$SRC_ABS/vendor/solidcraft-wgpu-orig"
+        cp -a "$SRC_ABS/vendor/egui/crates/egui-wgpu" "$SRC_ABS/vendor/solidcraft-wgpu-orig"
+    fi
     rm -rf "$SRC_ABS/vendor/egui"
     mkdir -p "$SRC_ABS/vendor/egui"
     cd "$SRC_ABS/vendor/egui"
@@ -19,6 +24,11 @@ if [[ ! -d "$SRC_ABS/vendor/egui/.git" ]]; then
     git fetch --depth 1 origin 6d518fc799681571963842f95b55a6b68431b15a
     git checkout FETCH_HEAD
     cd "$SRC_ABS"
+    if [[ -d "$SRC_ABS/vendor/solidcraft-wgpu-orig" ]]; then
+        rm -rf "$SRC_ABS/vendor/egui/crates/egui-wgpu"
+        cp -a "$SRC_ABS/vendor/solidcraft-wgpu-orig" "$SRC_ABS/vendor/egui/crates/egui-wgpu"
+        rm -rf "$SRC_ABS/vendor/solidcraft-wgpu-orig"
+    fi
 fi
 
 # Inject Android activity, IME bridge, and dependencies into vendored egui-winit
@@ -179,14 +189,32 @@ if wgpu_winit.is_file():
     if 'cfg!(target_os = "android")' not in txt:
         target = "let Some(old_state) = self.surfaces.remove(&viewport_id) else {\n            return Ok(());\n        };\n"
         replacement = target + """
+        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
+
+        if cfg!(target_os = "android") {
+            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            return Ok(());
+        }
+
+        self.instance.poll_all(true);
+
+        drop(old_state);
+"""
+        old_retry = "let mut retry = old_state.retry;\n        retry.recreated();\n        self.install_surface(\n            surface,\n            viewport_id,\n            old_state.requested.0,\n            old_state.requested.1,\n            old_state.resizing,\n            retry,"
+        new_retry = "retry.recreated();\n        self.install_surface(\n            surface,\n            viewport_id,\n            requested.0,\n            requested.1,\n            resizing,\n            retry,"
+        if target in txt and old_retry in txt:
+            txt = txt.replace(target, replacement, 1)
+            txt = txt.replace(old_retry, new_retry, 1)
+            wgpu_winit.write_text(txt)
+        elif target in txt:
+            fallback = target + """
         if cfg!(target_os = "android") {
             log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
             drop(old_state);
             return Ok(());
         }
 """
-        if target in txt:
-            txt = txt.replace(target, replacement, 1)
+            txt = txt.replace(target, fallback, 1)
             wgpu_winit.write_text(txt)
 PY
 
