@@ -205,7 +205,7 @@ PY
 # - workspace.dependencies points to local vendor/egui-wgpu for egui-wgpu, and git for egui-winit
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
-import sys, re
+import sys, re, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 
@@ -245,11 +245,23 @@ s = re.sub(
     flags=re.M
 )
 
-# Remove any existing egui git entries from [patch.crates-io] (we'll re-add them)
+# Remove any existing egui git or path entries from [patch.crates-io] (we'll re-add them)
 patch_crates_io = '[patch.crates-io]'
 egui_crates = ['ecolor', 'emath', 'epaint', 'epaint_default_fonts', 'egui', 'egui_glow', 'egui_extras', 'egui-wgpu', 'egui-winit', 'eframe']
+
+new_entries = '''ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { path = "vendor/egui/crates/epaint" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { path = "vendor/egui/crates/egui" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-wgpu = { path = "vendor/egui-wgpu" }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }'''
+
 if patch_crates_io in s:
-    parts = s.split(patch_crates_io)
+    parts = s.split(patch_crates_io, 1)
     before = parts[0]
     after = parts[1]
     # Find end of patch.crates-io section
@@ -260,40 +272,16 @@ if patch_crates_io in s:
     else:
         patch_section = after
         rest = ''
-    # Remove existing egui git entries
+    # Remove existing egui entries (both git and path)
     for crate in egui_crates:
-        pattern = r'^\s*' + re.escape(crate) + r'\s*=\s*\{[^}]*git\s*=\s*"https://github.com/storytold/egui.git"[^}]*\}\s*\n?'
+        pattern = r'^\s*' + re.escape(crate) + r'\s*=\s*\{.*?\}\s*(?:#.*)?\n?'
         patch_section = re.sub(pattern, '', patch_section, flags=re.M)
-    # Also remove any local path entries for egui, epaint, egui-wgpu and egui-winit from patch.crates-io
-    patch_section = re.sub(r'^\s*egui\s*=\s*\{[^}]*path\s*=\s*"[^"]*"[^}]*\}\s*\n?', '', patch_section, flags=re.M)
-    patch_section = re.sub(r'^\s*epaint\s*=\s*\{[^}]*path\s*=\s*"[^"]*"[^}]*\}\s*\n?', '', patch_section, flags=re.M)
-    patch_section = re.sub(r'^\s*egui-wgpu\s*=\s*\{[^}]*path\s*=\s*"[^"]*"[^}]*\}\s*\n?', '', patch_section, flags=re.M)
-    patch_section = re.sub(r'^\s*egui-winit\s*=\s*\{[^}]*path\s*=\s*"[^"]*"[^}]*\}\s*\n?', '', patch_section, flags=re.M)
-    # Add all egui git entries (using hyphens for egui-wgpu and egui-winit as they appear in the git repo)
-    # BUT egui-wgpu, egui, epaint point to local vendor (SolidCraft's custom version)
-    new_entries = '''
-ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-epaint = { path = "vendor/egui/crates/epaint" }
-epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui = { path = "vendor/egui/crates/egui" }
-egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui-wgpu = { path = "vendor/egui-wgpu" }
-egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }'''
-    s = before + patch_crates_io + '\n' + patch_section.lstrip('\n') + new_entries.strip() + '\n' + rest
+    patch_clean = patch_section.strip()
+    if patch_clean:
+        s = before + patch_crates_io + '\n' + new_entries.strip() + '\n' + patch_clean + '\n' + rest
+    else:
+        s = before + patch_crates_io + '\n' + new_entries.strip() + '\n' + rest
 else:
-    new_entries = '''ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-epaint = { path = "vendor/egui/crates/epaint" }
-epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui = { path = "vendor/egui/crates/egui" }
-egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-egui-wgpu = { path = "vendor/egui-wgpu" }
-egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
-eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }'''
     s = s.rstrip() + "\n\n" + patch_crates_io + '\n' + new_entries.strip() + "\n"
 
 # Now add the correct local path overrides to [patch."https://github.com/storytold/egui.git"]
@@ -307,13 +295,14 @@ egui-wgpu = { path = "vendor/egui-wgpu" }
 egui-winit = { path = "vendor/egui/crates/egui-winit" }'''
 s = s.rstrip() + "\n\n" + git_header + "\n" + git_entries.strip() + "\n"
 
+tomllib.loads(s)
 p.write_text(s)
 print("Added storytold egui fork patches to Cargo.toml")
 PY
 
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
-import re, sys
+import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
@@ -325,6 +314,7 @@ if m:
             new_inner += ','
         new_inner += ' "apps/solidcraft-android"'
         s = s[:m.start(1)] + new_inner + s[m.end(1):]
+        tomllib.loads(s)
         p.write_text(s)
 PY
 

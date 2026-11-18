@@ -160,7 +160,7 @@ else
     rm -rf "$FFMPEG_DIR"
     mkdir -p "$FFMPEG_DIR"
     cd "$FFMPEG_DIR"
-    local ffmpeg_archive="$WORK/ffmpeg.tar.xz"
+    ffmpeg_archive="$WORK/ffmpeg.tar.xz"
     curl -fsSL --retry 3 -o "$ffmpeg_archive" "$FFMPEG_URL"
     if [[ -n "$FFMPEG_SHA256" ]]; then
         echo "$FFMPEG_SHA256  $ffmpeg_archive" | sha256sum -c - || { echo "ERROR: Checksum mismatch for ffmpeg" >&2; exit 1; }
