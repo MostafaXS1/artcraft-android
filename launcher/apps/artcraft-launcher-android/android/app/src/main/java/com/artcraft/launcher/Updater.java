@@ -33,6 +33,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -72,6 +73,7 @@ final class Updater {
         String apkUrl;
         long apkSize;
         int[] version;
+        String expectedSha256;
     }
 
     Updater(Activity activity) {
@@ -145,10 +147,12 @@ final class Updater {
                 HttpURLConnection c = open(apkUrl);
                 long total = c.getContentLengthLong();
                 long done = 0;
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
                 try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
                     byte[] buf = new byte[65536];
                     for (int n; (n = in.read(buf)) > 0; ) {
                         out.write(buf, 0, n);
+                        md.update(buf, 0, n);
                         done += n;
                         if (total > 0) {
                             // Progress could be sent via bridge
@@ -157,7 +161,12 @@ final class Updater {
                 } finally {
                     c.disconnect();
                 }
-                // TODO: verify SHA256
+                if (expectedSha256 != null && !expectedSha256.trim().isEmpty()) {
+                    String actualSha256 = bytesToHex(md.digest());
+                    if (!actualSha256.equalsIgnoreCase(expectedSha256.trim())) {
+                        throw new SecurityException("SHA-256 mismatch for " + appId + ": expected " + expectedSha256 + ", got " + actualSha256);
+                    }
+                }
             } catch (Exception e) {
                 Log.w(TAG, "app download " + appId, e);
                 error = e.getMessage();
@@ -404,6 +413,11 @@ final class Updater {
                     r.apkUrl = a.getString("browser_download_url");
                     r.apkSize = a.optLong("size", -1);
                     r.version = v;
+                    String apkName = a.optString("name");
+                    Matcher m = Pattern.compile("(?i)([a-f0-9]{64})\\s+" + Pattern.quote(apkName)).matcher(r.notes);
+                    if (m.find()) {
+                        r.expectedSha256 = m.group(1);
+                    }
                     best = r;
                     break;
                 }
@@ -496,6 +510,7 @@ final class Updater {
                 HttpURLConnection c = open(r.apkUrl);
                 long total = r.apkSize > 0 ? r.apkSize : c.getContentLengthLong();
                 long done = 0;
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
                 try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
                     byte[] buf = new byte[65536];
                     for (int n; (n = in.read(buf)) > 0; ) {
@@ -503,6 +518,7 @@ final class Updater {
                             throw new IOException("cancelled");
                         }
                         out.write(buf, 0, n);
+                        md.update(buf, 0, n);
                         done += n;
                         if (total > 0) {
                             final int p = (int) (done * 1000 / total);
@@ -514,6 +530,12 @@ final class Updater {
                 }
                 if (r.apkSize > 0 && done != r.apkSize) {
                     throw new IOException("the download was incomplete");
+                }
+                if (r.expectedSha256 != null && !r.expectedSha256.trim().isEmpty()) {
+                    String actualSha256 = bytesToHex(md.digest());
+                    if (!actualSha256.equalsIgnoreCase(r.expectedSha256.trim())) {
+                        throw new SecurityException("SHA-256 mismatch for launcher update: expected " + r.expectedSha256 + ", got " + actualSha256);
+                    }
                 }
             } catch (Exception e) {
                 Log.w(TAG, "launcher update download", e);
@@ -601,5 +623,13 @@ final class Updater {
 
     private void toast(String text) {
         Toast.makeText(activity, text, Toast.LENGTH_LONG).show();
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 }

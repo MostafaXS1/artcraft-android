@@ -339,9 +339,21 @@ bootstrap_gradle_jdk() {
     esac
     mkdir -p "$cache"
     tmp="$(mktemp -d "$cache/jdk-download.XXXXXX")"
-    curl -fL --retry 3 -o "$tmp/jdk.tar.gz" \
-        "https://api.adoptium.net/v3/binary/latest/21/ga/linux/$arch/jdk/hotspot/normal/eclipse" \
+    local jdk_url="https://api.adoptium.net/v3/binary/latest/21/ga/linux/$arch/jdk/hotspot/normal/eclipse"
+    curl -fL --retry 3 -o "$tmp/jdk.tar.gz" "$jdk_url" \
         || { rm -rf "$tmp"; fail "Could not download the Temurin JDK 21 Gradle needs. Install a JDK 17-23 manually."; }
+    local expected_sha256="${JDK_SHA256:-}"
+    if [[ -z "$expected_sha256" ]]; then
+        local loc
+        loc="$(curl -fsSL --retry 3 "$jdk_url" -I 2>/dev/null | grep -i '^location:' | head -n1 | tr -d '\r' | awk '{print $2}')"
+        if [[ -n "$loc" && "$loc" == http* ]]; then
+            expected_sha256="$(curl -fsSL --retry 3 "${loc}.sha256.txt" 2>/dev/null | awk '{print $1}')"
+        fi
+    fi
+    if [[ -n "$expected_sha256" ]]; then
+        echo "$expected_sha256  $tmp/jdk.tar.gz" | sha256sum -c - \
+            || { rm -rf "$tmp"; fail "Cryptographic SHA-256 checksum verification failed for downloaded JDK."; }
+    fi
     tar -xzf "$tmp/jdk.tar.gz" -C "$tmp" || { rm -rf "$tmp"; fail "The downloaded JDK archive could not be extracted."; }
     extracted="$(find "$tmp" -maxdepth 1 -mindepth 1 -type d -name 'jdk-*' | head -n1)"
     [[ -n "$extracted" && -x "$extracted/bin/javac" ]] || { rm -rf "$tmp"; fail "The downloaded JDK archive is missing bin/javac."; }

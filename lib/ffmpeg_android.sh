@@ -30,6 +30,12 @@ VPX_URL="https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz"
 OPUS_URL="https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz"
 FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 
+# Pinned SHA-256 cryptographic digests for third-party tarballs
+VPX_SHA256="${VPX_SHA256:-901747254d80a7937c933d03bd7c5d41e8e6c883e0665fadcb172542167c7977}"
+OPUS_SHA256="${OPUS_SHA256:-65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1}"
+FFMPEG_7_1_1_SHA256="733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
+FFMPEG_SHA256="${FFMPEG_SHA256:-$FFMPEG_7_1_1_SHA256}"
+
 if [[ -x "$PREFIX/bin/ffmpeg" ]]; then
     echo "ffmpeg for Android is already built: $PREFIX/bin/ffmpeg"
 else
@@ -77,7 +83,7 @@ else
 
     # --- One library at a time ----------------------------------------------
     build_lib() {
-        local name="$1" url="$2" version="$3" configure_args="${4:-}"
+        local name="$1" url="$2" version="$3" configure_args="${4:-}" expected_sha256="${5:-}"
         local build_dir="$WORK/$name"
         echo "Building $name for Android..."
         rm -rf "$build_dir"
@@ -85,10 +91,18 @@ else
         cd "$build_dir"
         if [[ "$url" == *.git ]]; then
             git clone --depth 1 --branch "$version" "$url" .
-        elif [[ "$url" == *.tar.xz ]]; then
-            curl -fsSL "$url" | tar xJ --strip-components=1
         else
-            curl -fsSL "$url" | tar xz --strip-components=1
+            local archive="$WORK/$name.archive"
+            curl -fsSL --retry 3 -o "$archive" "$url"
+            if [[ -n "$expected_sha256" ]]; then
+                echo "$expected_sha256  $archive" | sha256sum -c - || { echo "ERROR: Checksum mismatch for $name" >&2; exit 1; }
+            fi
+            if [[ "$url" == *.tar.xz ]]; then
+                tar xJf "$archive" --strip-components=1
+            else
+                tar xzf "$archive" --strip-components=1
+            fi
+            rm -f "$archive"
         fi
         export CFLAGS="-fPIC -O2"
         export CXXFLAGS="-fPIC -O2"
@@ -136,9 +150,9 @@ else
         cd "$ROOT"
     }
 
-    build_lib "x264" "$X264_URL" "stable" ""
-    build_lib "libvpx" "$VPX_URL" "v1.14.1" ""
-    build_lib "opus" "$OPUS_URL" "v1.5.2" ""
+    build_lib "x264" "$X264_URL" "stable" "" "${X264_SHA256:-}"
+    build_lib "libvpx" "$VPX_URL" "v1.14.1" "" "$VPX_SHA256"
+    build_lib "opus" "$OPUS_URL" "v1.5.2" "" "$OPUS_SHA256"
 
     # --- ffmpeg itself, with the program ------------------------------------
     echo "Building ffmpeg $FFMPEG_VERSION for Android..."
@@ -146,7 +160,13 @@ else
     rm -rf "$FFMPEG_DIR"
     mkdir -p "$FFMPEG_DIR"
     cd "$FFMPEG_DIR"
-    curl -fsSL "$FFMPEG_URL" | tar xJ --strip-components=1
+    local ffmpeg_archive="$WORK/ffmpeg.tar.xz"
+    curl -fsSL --retry 3 -o "$ffmpeg_archive" "$FFMPEG_URL"
+    if [[ -n "$FFMPEG_SHA256" ]]; then
+        echo "$FFMPEG_SHA256  $ffmpeg_archive" | sha256sum -c - || { echo "ERROR: Checksum mismatch for ffmpeg" >&2; exit 1; }
+    fi
+    tar xJf "$ffmpeg_archive" --strip-components=1
+    rm -f "$ffmpeg_archive"
     export CFLAGS="-fPIC -O2"
     export CXXFLAGS="-fPIC -O2"
     export LDFLAGS=""
