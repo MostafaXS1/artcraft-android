@@ -334,6 +334,10 @@ pub fn layout(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions) -> 
         Placed::Rule { y0, y1, .. } => (*y0).max(*y1),
         Placed::Image { rect, .. } => rect.y + rect.h,
         Placed::Shape { rect, .. } => rect.y + rect.h,
+        Placed::Graphic { rect, .. } => rect.y + rect.h,
+        Placed::Clip { rect, .. } => rect.y + rect.h,
+        Placed::Cell { rect, .. } => rect.y + rect.h,
+        Placed::Object { rect, .. } => rect.y + rect.h,
     }
 }
 
