@@ -179,23 +179,14 @@ if wgpu_winit.is_file():
     if 'cfg!(target_os = "android")' not in txt:
         target = "let Some(old_state) = self.surfaces.remove(&viewport_id) else {\n            return Ok(());\n        };\n"
         replacement = target + """
-        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
-
         if cfg!(target_os = "android") {
             log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
+            drop(old_state);
             return Ok(());
         }
-
-        self.instance.poll_all(true);
-
-        drop(old_state);
 """
         if target in txt:
             txt = txt.replace(target, replacement, 1)
-            old_retry = "let mut retry = old_state.retry;\n        retry.recreated();\n        self.install_surface(\n            surface,\n            viewport_id,\n            old_state.requested.0,\n            old_state.requested.1,\n            old_state.resizing,\n            retry,"
-            new_retry = "retry.recreated();\n        self.install_surface(\n            surface,\n            viewport_id,\n            requested.0,\n            requested.1,\n            resizing,\n            retry,"
-            if old_retry in txt:
-                txt = txt.replace(old_retry, new_retry, 1)
             wgpu_winit.write_text(txt)
 PY
 

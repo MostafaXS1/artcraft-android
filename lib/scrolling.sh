@@ -235,7 +235,7 @@ if app == "wordcraft":
         "                || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select\n"
         "                || app.canvas.table_tool.is_some();\n"
         "            let is_scrolling = app.canvas.auto_scroll.blocks_input()\n"
-        "                || ui.input(|i| i.raw_scroll_delta.y.abs() > 4.0 || i.raw_scroll_delta.x.abs() > 4.0);\n"
+        "                || ui.input(|i| i.smooth_scroll_delta.y.abs() > 4.0 || i.smooth_scroll_delta.x.abs() > 4.0);\n"
         "            let is_drawing_action = is_drawing || app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();\n"
         "            let has_gesture = (is_scrolling || is_drawing_action) && !resp.drag_started();\n"
         "            if has_gesture {\n"
@@ -244,6 +244,11 @@ if app == "wordcraft":
         "                app.request_ime_hide = true; // tell shell to hide IME\n"
         "            }\n"
         "        }\n"
+    )
+    fix(
+        "crates/ui-egui/src/canvas.rs",
+        "i.raw_scroll_delta.y.abs() > 4.0 || i.raw_scroll_delta.x.abs() > 4.0",
+        "i.smooth_scroll_delta.y.abs() > 4.0 || i.smooth_scroll_delta.x.abs() > 4.0",
     )
     if fix(
         "crates/ui-egui/src/canvas.rs",
