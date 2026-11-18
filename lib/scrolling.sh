@@ -228,27 +228,32 @@ if app == "wordcraft":
     # a draw, or any other non-text drag is not text editing: the canvas gives the keyboard up
     # and asks the shell to hide it, and the frame's IME output stands down.
     gesture_surrender = (
-        "        // On Android: if there's an active touch scroll or draw gesture (not text selection),\n"
+        "        // On Android: if there's an active touch scroll/drag (not text selection),\n"
         "        // surrender focus immediately so the soft keyboard doesn't show during scroll.\n"
         '        if cfg!(target_os = "android") {\n'
+        "            let middle_gesture = app.canvas.auto_scroll.blocks_input();\n"
         "            let is_drawing = app.canvas.ink.is_some()\n"
         "                || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select\n"
         "                || app.canvas.table_tool.is_some();\n"
-        "            let is_scrolling = app.canvas.auto_scroll.blocks_input()\n"
-        "                || ui.input(|i| i.smooth_scroll_delta.y.abs() > 4.0 || i.smooth_scroll_delta.x.abs() > 4.0);\n"
+        "            let is_text_drag = resp.drag_started()\n"
+        "                && !app.canvas.auto_scroll.blocks_input()\n"
+        "                && !is_drawing\n"
+        "                && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));\n"
+        "            let is_scrolling = app.canvas.auto_scroll.blocks_input();\n"
         "            let is_drawing_action = is_drawing || app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();\n"
-        "            let has_gesture = (is_scrolling || is_drawing_action) && !resp.drag_started();\n"
+        "            let active_touch_gesture = if cfg!(target_os = \"android\") {\n"
+        "                ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. })))\n"
+        "            } else {\n"
+        "                false\n"
+        "            };\n"
+        "            let has_gesture = (is_scrolling || is_drawing_action || active_touch_gesture)\n"
+        "                && !is_text_drag;\n"
         "            if has_gesture {\n"
         "                resp.surrender_focus();\n"
         "                app.canvas.surrendered_focus = true; // suppress IME output this frame\n"
         "                app.request_ime_hide = true; // tell shell to hide IME\n"
         "            }\n"
         "        }\n"
-    )
-    fix(
-        "crates/ui-egui/src/canvas.rs",
-        "i.raw_scroll_delta.y.abs() > 4.0 || i.raw_scroll_delta.x.abs() > 4.0",
-        "i.smooth_scroll_delta.y.abs() > 4.0 || i.smooth_scroll_delta.x.abs() > 4.0",
     )
     if fix(
         "crates/ui-egui/src/canvas.rs",
@@ -375,63 +380,7 @@ if app == "wordcraft":
         "        resp.surrender_focus();\n"
         "    }\n"
     )
-    focus_old_modal = (
-        "    let focus_click = pointer_click || accesskit_click || resp.drag_started();\n"
-        "    if focus_click {\n"
-        "        ui.memory_mut(|memory| memory.interrupt_ime());\n"
-        "    }\n"
-        "    // Not while a modal dialog is open: it has the keyboard, and the page takes it when it closes.\n"
-        "    let wants = app.canvas.want_focus && !app.modal_open();\n"
-        "    if focus_click || (wants && !resp.has_focus()) {\n"
-        "        resp.request_focus();\n"
-        "    }\n"
-        "    if focus_click || wants {\n"
-        "        app.canvas.want_focus = false;\n"
-        "    }\n"
-    )
-    focus_new_modal = (
-        "    // click, an accessibility click, or a text-selection drag takes focus. But drags for\n"
-        "    // scrolling (middle-button), drawing (table pen), or panning must NOT take focus —\n"
-        "    // they would show the soft keyboard and interrupt composition.\n"
-        "    let middle_gesture = app.canvas.auto_scroll.blocks_input();\n"
-        "    let is_drawing = app.canvas.ink.is_some()\n"
-        "        || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select\n"
-        "        || app.canvas.table_tool.is_some();\n"
-        "    let is_text_drag = resp.drag_started()\n"
-        "        && !middle_gesture\n"
-        "        && !is_drawing\n"
-        "        && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));\n"
-        "    let focus_click = (pointer_click && !is_drawing) || accesskit_click || is_text_drag;\n"
-        "    if focus_click {\n"
-        "        ui.memory_mut(|memory| memory.interrupt_ime());\n"
-        "    }\n"
-        "\n"
-        "    // On Android, the canvas should ONLY get keyboard focus from an explicit user\n"
-        "    // tap (focus_click). Programmatic want_focus (e.g. closing a dialog) must not\n"
-        "    // show the soft keyboard — it would appear during scroll/draw/transitions.\n"
-        "    let wants = app.canvas.want_focus && !app.modal_open();\n"
-        "    let want_focus_honored = if cfg!(target_os = \"android\") {\n"
-        "        false // Only focus_click takes focus on Android\n"
-        "    } else {\n"
-        "        wants\n"
-        "    };\n"
-        "    if focus_click || (want_focus_honored && !resp.has_focus()) {\n"
-        "        resp.request_focus();\n"
-        "        app.canvas.user_focused = true;\n"
-        "    }\n"
-        "    if focus_click || wants {\n"
-        "        app.canvas.want_focus = false;\n"
-        "    }\n"
-        "    let initial_surrender = !app.canvas.user_focused && resp.has_focus();\n"
-        "    if initial_surrender {\n"
-        "        resp.surrender_focus();\n"
-        "    }\n"
-    )
     if fix(
-        "crates/ui-egui/src/canvas.rs",
-        focus_old_modal,
-        focus_new_modal,
-    ) or fix(
         "crates/ui-egui/src/canvas.rs",
         focus_old_interrupt,
         focus_new_interrupt,
