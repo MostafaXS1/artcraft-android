@@ -183,13 +183,10 @@ fix_source(
     """                Placed::Fill { rect, color } => format!("{rect:?}{color:?}").hash(&mut h),
                 Placed::Rule { x0, y0, x1, y1, border } => format!("{x0}{y0}{x1}{y1}{border:?}").hash(&mut h),""",
     """                Placed::Fill { rect, color } => {
-                    (rect.x.to_bits(), rect.y.to_bits(), rect.w.to_bits(), rect.h.to_bits(), color.0).hash(&mut h);
+                    (rect.x.to_bits(), rect.y.to_bits(), rect.w.to_bits(), rect.h.to_bits(), color.0, color.1, color.2).hash(&mut h);
                 }
                 Placed::Rule { x0, y0, x1, y1, border } => {
-                    (x0.to_bits(), y0.to_bits(), x1.to_bits(), y1.to_bits()).hash(&mut h);
-                    if let Some(b) = border {
-                        (b.color.0, b.sz, b.val as u8).hash(&mut h);
-                    }
+                    (x0.to_bits(), y0.to_bits(), x1.to_bits(), y1.to_bits(), border.style as usize, border.width.to_bits(), border.color.map(|c| (c.0, c.1, c.2)), border.space.to_bits()).hash(&mut h);
                 }""",
 )
 
