@@ -5209,6 +5209,7 @@ icon = "@mipmap/ic_launcher"
             java_src.replace("__PACKAGE__", pkg)
             .replace("__CLASS__", saf["activity"])
             .replace("__TAG__", saf["activity"])
+            .replace("__LIB_NAME__", f"{app.replace('-', '_')}_android")
         )
         java_dir = staging_dir / "java" / Path(*pkg.split("."))
         java_dir.mkdir(parents=True, exist_ok=True)
@@ -6884,7 +6885,7 @@ fi
 IME_DIR="$ANDROID_DIR/java/com/artcraft/ime"
 if [[ -d "$ANDROID_DIR/java" ]]; then
     mkdir -p "$IME_DIR"
-    cp "$ROOT/templates/android/ArtCraftIme.java" "$IME_DIR/ArtCraftIme.java"
+    sed "s/__LIB_NAME__/${APP//-/_}_android/g" "$ROOT/templates/android/ArtCraftIme.java" > "$IME_DIR/ArtCraftIme.java"
 fi
 
 

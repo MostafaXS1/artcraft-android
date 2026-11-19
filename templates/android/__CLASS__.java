@@ -87,6 +87,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class __CLASS__ extends NativeActivity {
     private static final String TAG = "__TAG__";
+
+    static {
+        try {
+            System.loadLibrary("__LIB_NAME__");
+        } catch (Throwable ignored) {}
+    }
     private static final int REQ_OPEN = 0x5043;
     private static final int REQ_SAVE = 0x5044;
     private static final int REQ_FOLDER = 0x5046;
@@ -120,6 +126,7 @@ public final class __CLASS__ extends NativeActivity {
     private void wakeNativeLoop() {
         try {
             com.artcraft.ime.ArtCraftIme.wake();
+            return;
         } catch (Throwable ignored) {}
         Runnable r = () -> {
             try {
@@ -314,8 +321,8 @@ public final class __CLASS__ extends NativeActivity {
 
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-            outAttrs.inputType = InputType.TYPE_CLASS_TEXT;
-            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_ACTION_NONE;
             return new BaseInputConnection(this, true) {
                 @Override
                 public Editable getEditable() {

@@ -514,12 +514,19 @@ fn try_fast_typing_layout(
     };
     let new_pl = para::layout_para(p, &env);
 
-    if new_pl.lines.len() != prev_pl.lines.len() || (new_pl.height - prev_pl.height).abs() > 0.01 {
-        return None;
-    }
-    for (l_new, l_prev) in new_pl.lines.iter().zip(prev_pl.lines.iter()) {
-        if (l_new.height - l_prev.height).abs() > 0.01 || (l_new.top - l_prev.top).abs() > 0.01 {
+    let height_diff = (new_pl.height - prev_pl.height).abs();
+    if new_pl.lines.len() != prev_pl.lines.len() || height_diff > 0.01 {
+        let is_last_item_on_page = item_idx + 1 == page.items.len();
+        let fits_page = y + new_pl.height <= page.body.h + 0.1;
+        let is_last_page = page_idx + 1 == last_layout.pages.len();
+        if !(is_last_item_on_page && fits_page && is_last_page) {
             return None;
+        }
+    } else {
+        for (l_new, l_prev) in new_pl.lines.iter().zip(prev_pl.lines.iter()) {
+            if (l_new.height - l_prev.height).abs() > 0.01 || (l_new.top - l_prev.top).abs() > 0.01 {
+                return None;
+            }
         }
     }
 
