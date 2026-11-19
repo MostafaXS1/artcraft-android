@@ -12,7 +12,7 @@ use egui::{Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Ui, vec
 use crate::app::{Dialog, LauncherUi, TitleBar};
 use crate::i18n::{current, fmt, t, tn, tr_ctx};
 use crate::model::{self, AppEntry};
-use crate::settings::{Filter, SortKey, ViewMode};
+use crate::settings::{Filter, SortKey};
 use crate::theme::{self, Tokens, rgb, tint};
 use crate::widgets::{self, Kind};
 
@@ -200,10 +200,6 @@ impl LauncherUi {
             if bar == TitleBar::MacOs {
                 ui.add_space(TRAFFIC_LIGHTS_W);
             }
-            // The ArtCraft wordmark exactly as supplied, in its own cell.
-            let logo = vec2(6.0 * crate::icons::ARTCRAFT_LOGO_ASPECT, 6.0);
-            let (cell, _) = ui.allocate_exact_size(vec2(logo.x + 30.0, h), Sense::hover());
-            egui::Image::new(crate::icons::artcraft_logo(t.dark)).alt_text(tl!("ArtCraft")).paint_at(ui, Rect::from_center_size(cell.center(), logo));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if bar == TitleBar::Custom {
                     widgets::window_buttons(ui, h);
@@ -729,6 +725,10 @@ impl LauncherUi {
     // ---- table ---------------------------------------------------------------------------
 
     pub(crate) fn table(&mut self, ui: &mut Ui, ids: &[&'static str]) {
+        if ui.available_width() < 680.0 {
+            self.mobile_list_view(ui, ids);
+            return;
+        }
         use egui_extras::{Column, TableBuilder};
         let t = Tokens::get(ui.ctx());
         let now = self.backend.now();
@@ -764,6 +764,74 @@ impl LauncherUi {
                 self.settings.sort_descending = k.starts_descending();
             }
         }
+    }
+
+    /// Responsive mobile list view used when screen width is constrained (< 680px).
+    fn mobile_list_view(&mut self, ui: &mut Ui, ids: &[&'static str]) {
+        let t = Tokens::get(ui.ctx());
+        let last = ids.len().saturating_sub(1);
+        egui::Frame::new()
+            .fill(t.bg)
+            .stroke(t.hairline())
+            .inner_margin(egui::Margin::symmetric(12, 6))
+            .show(ui, |ui| {
+                for (i, id) in ids.iter().enumerate() {
+                    let Some(entry) = self.entry(id).cloned() else { continue };
+                    let status = entry.status(self.platform, self.caps.manage_apps);
+                    let installed = status.is_installed();
+
+                    ui.push_id(*id, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 10.0;
+                            // App Icon
+                            if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
+                                ui.add(icon.fit_to_exact_size(vec2(40.0, 40.0)));
+                            }
+
+                            // Title & Version / Status
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                let name_label = egui::Label::new(
+                                    RichText::new(entry.app.name).size(15.0).strong().color(t.ink_strong)
+                                ).sense(Sense::click());
+                                if ui.add(name_label).clicked() {
+                                    if AppDetails::by_id(id).is_some() {
+                                        self.detail = Some(id.to_string());
+                                    }
+                                }
+
+                                let ver_text = match (status == AppStatus::UpdateAvailable).then(|| entry.installed_label().zip(entry.latest_label())).flatten() {
+                                    Some((from, to)) => format!("v{from} \u{2192} v{to}"),
+                                    None => match (entry.installed_label(), entry.latest_label()) {
+                                        (Some(installed), _) => format!("v{installed}"),
+                                        (None, Some(latest)) => format!("v{latest}"),
+                                        (None, None) => String::new(),
+                                    },
+                                };
+                                if !ver_text.is_empty() {
+                                    ui.label(RichText::new(ver_text).size(12.0).color(t.muted));
+                                }
+                            });
+
+                            // Right side: Action button and menu
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let action_w = 140.0f32.min(ui.available_width());
+                                self.actions_in(ui, &entry, &status, action_w, Place::Row);
+                            });
+                        });
+                    });
+
+                    if i < last {
+                        ui.add_space(4.0);
+                        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                        ui.painter().line_segment(
+                            [rect.left_top(), rect.right_top()],
+                            t.hairline(),
+                        );
+                        ui.add_space(4.0);
+                    }
+                }
+            });
     }
 
     /// The table's hairline under the row `ui` is drawing, across the table's full width.

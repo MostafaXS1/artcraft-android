@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -52,10 +53,10 @@ import java.util.regex.Pattern;
 final class Updater {
     private static final String TAG = "ArtCraftLauncher";
     /** The repository for launcher self-updates. */
-    static final String LAUNCHER_REPO = "storytold/craft-launcher";
+    static final String LAUNCHER_REPO = "MostafaXS1/artcraft-android";
     private static final String LAUNCHER_API = "https://api.github.com/repos/" + LAUNCHER_REPO + "/releases?per_page=20";
-    private static final Pattern LAUNCHER_TAG_VERSION = Pattern.compile("^android-v(\\d+)\\.(\\d+)\\.(\\d+)(?:-(\\d+))?$");
-    private static final Pattern NAME_VERSION = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)(?:-(\\d+))?(?:-android)?");
+    private static final Pattern LAUNCHER_TAG_VERSION = Pattern.compile("^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-(\\d+))?$");
+    private static final Pattern NAME_VERSION = Pattern.compile("^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-(\\d+))?(?:-android)?");
     private static final String INSTALL_ACTION = "ai.storyteller.artcraftlauncher.APP_INSTALLED";
 
     private final Activity activity;
@@ -83,9 +84,7 @@ final class Updater {
 
     /** Whether the startup check is on (Help > Check for Updates at Startup). */
     boolean checkAtStartup() {
-        // Disabled: the Rust backend handles all release checks including launcher updates.
-        // This avoids duplicate GitHub API calls that exhaust the unauthenticated rate limit.
-        return false;
+        return prefs().getBoolean("check_updates_startup", true);
     }
 
     /**
@@ -200,7 +199,10 @@ final class Updater {
             try {
                 PackageInstaller installer = activity.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                // Install as a new package (not update)
+                params.setSize(apk.length());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    params.setInstallReason(PackageManager.INSTALL_REASON_USER);
+                }
                 int id = installer.createSession(params);
                 try (PackageInstaller.Session session = installer.openSession(id)) {
                     try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite(appId + ".apk", 0, apk.length())) {
@@ -405,7 +407,8 @@ final class Updater {
             JSONArray assets = rel.optJSONArray("assets");
             for (int j = 0; assets != null && j < assets.length(); j++) {
                 JSONObject a = assets.getJSONObject(j);
-                if (a.optString("name").endsWith(".apk")) {
+                String apkName = a.optString("name");
+                if (apkName.equalsIgnoreCase("Artcraft-launcher.apk") || apkName.toLowerCase().contains("launcher")) {
                     Release r = new Release();
                     r.tag = tag;
                     r.title = rel.optString("name", tag);
@@ -413,7 +416,6 @@ final class Updater {
                     r.apkUrl = a.getString("browser_download_url");
                     r.apkSize = a.optLong("size", -1);
                     r.version = v;
-                    String apkName = a.optString("name");
                     Matcher m = Pattern.compile("(?i)([a-f0-9]{64})\\s+" + Pattern.quote(apkName)).matcher(r.notes);
                     if (m.find()) {
                         r.expectedSha256 = m.group(1);
@@ -458,7 +460,7 @@ final class Updater {
     // ---- Asking -----------------------------------------------------------------------------
 
     private void offerLauncherUpdate(Release r) {
-        String name = r.tag.replace("android-v", "");
+        String name = r.tag.replaceFirst("^v", "").replace("android-v", "");
         new AlertDialog.Builder(activity, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
                 .setTitle("ArtCraft Launcher " + name + " is available")
                 .setMessage("You have " + currentName() + ".\n\n" + summary(r.notes) + "\n\nDownload and install it now? Save your work first: the launcher closes to update.")
@@ -497,7 +499,7 @@ final class Updater {
         bar.setPadding(48, 24, 48, 0);
         cancelled = new boolean[]{false};
         AlertDialog dialog = new AlertDialog.Builder(activity, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Downloading ArtCraft Launcher " + r.tag.replace("android-v", ""))
+                .setTitle("Downloading ArtCraft Launcher " + r.tag.replaceFirst("^v", "").replace("android-v", ""))
                 .setView(bar)
                 .setCancelable(false)
                 .setNegativeButton("Cancel", (d, w) -> cancelled[0] = true)
@@ -572,6 +574,10 @@ final class Updater {
                 PackageInstaller installer = activity.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 params.setAppPackageName(activity.getPackageName());
+                params.setSize(apk.length());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    params.setInstallReason(PackageManager.INSTALL_REASON_USER);
+                }
                 int id = installer.createSession(params);
                 try (PackageInstaller.Session session = installer.openSession(id)) {
                     try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("launcher.apk", 0, apk.length())) {

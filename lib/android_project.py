@@ -111,7 +111,7 @@ def version_code(version):
         raise SystemExit(
             f"Cannot derive a versionCode from {version!r}: components must be numbers."
         ) from None
-    return (1 << 24) | (major << 16) | (minor << 8) | patch
+    return (2 << 24) | (major << 16) | (minor << 8) | patch
 
 
 def manifest_xml(android_meta):
@@ -251,6 +251,10 @@ android {{
                 storePassword System.getenv('ARTCRAFT_KEYSTORE_PASSWORD')
                 keyAlias System.getenv('ARTCRAFT_KEY_ALIAS')
                 keyPassword System.getenv('ARTCRAFT_KEY_PASSWORD')
+                v1SigningEnabled true
+                v2SigningEnabled true
+                enableV3Signing true
+                enableV4Signing true
             }}
         }}
     }}

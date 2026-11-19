@@ -69,7 +69,7 @@ name = ".SubCraftActivity"
 config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
 label = "SubCraft"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 # The MAIN/LAUNCHER filter that gives the APK a launcher icon; lib/file_associations.py may
 # append VIEW/SEND filters for the app's document types by rewriting this single line.

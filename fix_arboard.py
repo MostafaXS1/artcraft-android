@@ -58,3 +58,19 @@ except Exception as e:
     sys.exit(1)
 
 root_toml.write_text(s)
+
+# Synchronize vendor/arboard version with Cargo.lock if locked
+lock_path = src_root / "Cargo.lock"
+if lock_path.exists():
+    try:
+        lock_text = lock_path.read_text()
+        m = re.search(r'\[\[package\]\]\s*name\s*=\s*"arboard"\s*version\s*=\s*"([^"]+)"', lock_text)
+        if m:
+            lock_ver = m.group(1)
+            vendored_toml = src_root / "vendor" / "arboard" / "Cargo.toml"
+            if vendored_toml.exists():
+                vtext = vendored_toml.read_text()
+                vtext = re.sub(r'(name\s*=\s*"arboard"\s*\nversion\s*=\s*)"[^"]+"', rf'\g<1>"{lock_ver}"', vtext, count=1)
+                vendored_toml.write_text(vtext)
+    except Exception as e:
+        print(f"WARNING: failed to sync arboard version with lockfile: {e}", file=sys.stderr)

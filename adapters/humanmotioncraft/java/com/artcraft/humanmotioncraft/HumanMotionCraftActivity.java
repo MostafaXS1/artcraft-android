@@ -317,10 +317,53 @@ public final class HumanMotionCraftActivity extends NativeActivity {
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
             outAttrs.inputType = InputType.TYPE_CLASS_TEXT;
             outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+            outAttrs.contentMimeTypes = new String[] {
+                "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/*"
+            };
             return new BaseInputConnection(this, true) {
                 @Override
                 public Editable getEditable() {
                     return editable;
+                }
+
+                @Override
+                public boolean commitContent(android.view.inputmethod.InputContentInfo inputContentInfo, int flags, Bundle opts) {
+                    if (Build.VERSION.SDK_INT >= 25) {
+                        if ((flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+                            try {
+                                inputContentInfo.requestPermission();
+                            } catch (Exception e) {
+                                Log.e(TAG, "InputContentInfo requestPermission failed", e);
+                                return false;
+                            }
+                        }
+                        Uri uri = inputContentInfo.getContentUri();
+                        if (uri != null) {
+                            io.execute(() -> {
+                                try {
+                                    File stage = newStageFile(displayName(uri), uri);
+                                    copyUriToFile(uri, stage);
+                                    rememberUri(stage, uri);
+                                    intentPaths.offer(stage.getAbsolutePath());
+                                    try {
+                                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                                        if (clipboard != null) {
+                                            ClipData clip = ClipData.newUri(getContentResolver(), "Image", uri);
+                                            clipboard.setPrimaryClip(clip);
+                                        }
+                                    } catch (Throwable ignored) {}
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Could not stage committed content: " + uri, e);
+                                } finally {
+                                    try {
+                                        inputContentInfo.releasePermission();
+                                    } catch (Throwable ignored) {}
+                                }
+                            });
+                            return true;
+                        }
+                    }
+                    return super.commitContent(inputContentInfo, flags, opts);
                 }
 
                 @Override
@@ -461,8 +504,24 @@ public final class HumanMotionCraftActivity extends NativeActivity {
      * the internal directory otherwise.
      */
     private File appStorageDir() {
+        try {
+            File[] mediaDirs = getExternalMediaDirs();
+            if (mediaDirs != null && mediaDirs.length > 0 && mediaDirs[0] != null) {
+                if (mediaDirs[0].exists() || mediaDirs[0].mkdirs()) {
+                    return mediaDirs[0];
+                }
+            }
+        } catch (Throwable ignored) {}
         File external = getExternalFilesDir(null);
-        return external != null ? external : getFilesDir();
+        if (external != null) {
+            String path = external.getAbsolutePath().replace("/Android/data/", "/Android/media/");
+            File mediaDir = new File(path);
+            if (mediaDir.exists() || mediaDir.mkdirs()) {
+                return mediaDir;
+            }
+            return external;
+        }
+        return getFilesDir();
     }
 
     /**

@@ -305,8 +305,14 @@ impl Backend for AndroidBackend {
                     });
                 });
             }
+            Command::UpdateLauncher => {
+                let bridge = self.bridge.clone();
+                std::thread::spawn(move || {
+                    bridge.update_launcher();
+                });
+            }
             // No folders to replace, no in-place self-update, no release feed options.
-            Command::Replace { .. } | Command::UpdateLauncher | Command::Configure(_) => {}
+            Command::Replace { .. } | Command::Configure(_) => {}
         }
     }
 

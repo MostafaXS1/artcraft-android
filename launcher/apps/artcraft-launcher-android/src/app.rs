@@ -138,10 +138,13 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
             // every app the builder ports, including the community ones.
             ui.entries = crate::catalog::SUITE_ANDROID.iter().map(artcraft_launcher_ui_egui::model::AppEntry::new).collect();
 
+            let last_saved_settings = ui.settings.clone();
+
             Ok(Box::new(Shell {
                 ui,
                 waker: waker.clone(),
                 settings_path,
+                last_saved_settings,
                 host: AndroidHost { bridge: bridge.clone() },
                 android: android.clone(),
                 keyboard_shown: false,
@@ -243,6 +246,7 @@ struct Shell {
     host: AndroidHost,
     waker: Arc<Waker>,
     settings_path: std::path::PathBuf,
+    last_saved_settings: artcraft_launcher_ui_egui::Settings,
     /// The live activity handle: queried for the native window size while resizing.
     #[cfg(target_os = "android")]
     android: AndroidApp,
@@ -263,6 +267,11 @@ impl eframe::App for Shell {
 
         // Drain events from backend and run logic
         self.ui.logic(ctx, &mut self.host);
+
+        if self.last_saved_settings != self.ui.settings {
+            self.last_saved_settings = self.ui.settings.clone();
+            let _ = save(&self.settings_path, &self.ui.settings);
+        }
 
         // The soft keyboard is shown and hidden by egui-winit itself (through
         // `set_ime_allowed`): the manual bridge used to fight it and leave a keyboard up with

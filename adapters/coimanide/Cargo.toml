@@ -79,7 +79,7 @@ name = ".CoimanIdActivity"
 config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
 label = "Coiman IDE"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 # The soft keyboard must push the window up instead of covering it: Coiman keeps its terminal
 # (and its panels) at the bottom, and a keyboard on top of them makes the terminal unusable.

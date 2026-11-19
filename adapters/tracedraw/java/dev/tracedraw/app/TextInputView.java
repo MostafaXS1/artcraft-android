@@ -42,6 +42,9 @@ final class TextInputView extends View {
                 | EditorInfo.IME_ACTION_NONE;
         out.initialSelStart = 0;
         out.initialSelEnd = 0;
+        out.contentMimeTypes = new String[] {
+            "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/*"
+        };
         Log.i("tracedraw", "keyboard: the input method connects to the editor");
         return new Connection();
     }
@@ -57,6 +60,38 @@ final class TextInputView extends View {
 
         Connection() {
             super(TextInputView.this, true);
+        }
+
+        @Override
+        public boolean commitContent(android.view.inputmethod.InputContentInfo inputContentInfo, int flags, android.os.Bundle opts) {
+            if (android.os.Build.VERSION.SDK_INT >= 25) {
+                if ((flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+                    try {
+                        inputContentInfo.requestPermission();
+                    } catch (Exception e) {
+                        Log.e("tracedraw", "InputContentInfo requestPermission failed", e);
+                        return false;
+                    }
+                }
+                android.net.Uri uri = inputContentInfo.getContentUri();
+                if (uri != null) {
+                    try {
+                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                        if (clipboard != null) {
+                            android.content.ClipData clip = android.content.ClipData.newUri(activity.getContentResolver(), "Image", uri);
+                            clipboard.setPrimaryClip(clip);
+                        }
+                    } catch (Throwable t) {
+                        Log.w("tracedraw", "Could not set clipboard uri", t);
+                    } finally {
+                        try {
+                            inputContentInfo.releasePermission();
+                        } catch (Throwable ignored) {}
+                    }
+                    return true;
+                }
+            }
+            return super.commitContent(inputContentInfo, flags, opts);
         }
 
         @Override

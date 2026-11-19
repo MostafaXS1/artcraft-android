@@ -328,6 +328,8 @@ pub fn app_icon_png(id: &str) -> Option<&'static [u8]> {
         "tracedraw" => include_bytes!("../../../assets/app-icons/tracedraw.png"),
         "transit" => include_bytes!("../../../assets/app-icons/transit.png"),
         "coimanide" => include_bytes!("../../../assets/app-icons/coimanide.png"),
+        "pcbcraft" => include_bytes!("../../../assets/app-icons/pcbcraft.png"),
+        "fieldcraft" => include_bytes!("../../../assets/app-icons/fieldcraft.png"),
         "keydeck" => include_bytes!("../../../assets/app-icons/keydeck.png"),
         "values" => include_bytes!("../../../assets/app-icons/values.png"),
         "letters" => include_bytes!("../../../assets/app-icons/letters.png"),

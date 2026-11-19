@@ -56,7 +56,19 @@ static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 /// stored under Android/data/com.artcraft.subcraft/files, where the user can access them via MTP.
 #[allow(unused_unsafe)]
 fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
-    let Some(base) = app.external_data_path().or_else(|| app.internal_data_path()) else {
+    let base = if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            media_path
+        } else {
+            path
+        }
+    } else if let Some(path) = app.internal_data_path() {
+        path
+    } else {
         return None;
     };
     let config = base.join("config");

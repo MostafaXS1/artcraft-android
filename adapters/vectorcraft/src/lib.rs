@@ -450,7 +450,17 @@ fn write_mobile(bridge: &AndroidFileBridge, path: &str, bytes: &[u8]) -> Result<
 /// documents are actually findable; the internal directory is the fallback for the rare device where
 /// external storage is unmounted or unavailable.
 fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
-    app.external_data_path().or_else(|| app.internal_data_path())
+    if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = std::path::PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            return Some(media_path);
+        }
+        return Some(path);
+    }
+    app.internal_data_path()
 }
 
 /// Where the app keeps its settings, preferences and recent-file list: the app's private files
@@ -739,6 +749,17 @@ fn android_clipboard_get(app: &AndroidApp) -> String {
                 &[],
             )?
             .l()?;
+        let text = if !text.is_null() {
+            text
+        } else {
+            env.call_method(
+                &item,
+                jni_str!("coerceToText"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                &[JValue::Object(&*activity)],
+            )?
+            .l()?
+        };
         if text.is_null() {
             return Ok(String::new());
         }

@@ -33,7 +33,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft
 
 Examples:
   bash build.sh -photocraft
@@ -170,6 +170,8 @@ case "$APP" in
     transit) TITLE="Transit" ;;
     anicraft) TITLE="AniCraft" ;;
     coimanide) TITLE="Coiman IDE" ;;
+    pcbcraft) TITLE="PCBCraft" ;;
+    fieldcraft) TITLE="FieldCraft" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -229,6 +231,12 @@ elif [[ "$APP" == "anicraft" ]]; then
 elif [[ "$APP" == "coimanide" ]]; then
     REPO="https://github.com/ManuelCoimbra/coiman-ide.git"
     APP_ORIGIN="https://github.com/ManuelCoimbra/coiman-ide"
+elif [[ "$APP" == "pcbcraft" ]]; then
+    REPO="https://github.com/tangency-labs/pcbcraft.git"
+    APP_ORIGIN="https://github.com/tangency-labs/pcbcraft"
+elif [[ "$APP" == "fieldcraft" ]]; then
+    REPO="https://github.com/tangency-labs/fieldcraft.git"
+    APP_ORIGIN="https://github.com/tangency-labs/fieldcraft"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -284,7 +292,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -567,9 +575,14 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
+        fi
+        ;;
+    fieldcraft)
+        if [[ "$BUILD_SOURCE" == "stable" ]]; then
+            BUILD_SOURCE="v0.8.1"
         fi
         ;;
 esac
@@ -4633,7 +4646,17 @@ PERSIST_SUPPORT = r'''
 /// documents are actually findable; the internal directory is the fallback for the rare device where
 /// external storage is unmounted or unavailable. Both survive restarts and app updates.
 fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
-    app.external_data_path().or_else(|| app.internal_data_path())
+    if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = std::path::PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            return Some(media_path);
+        }
+        return Some(path);
+    }
+    app.internal_data_path()
 }
 
 /// The app's private files directory plus a `config` subfolder, where the settings, preferences and
@@ -5133,7 +5156,7 @@ name = ".{saf['activity']}"
 config_changes = "{config_changes}"
 label = "{title}"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 # The MAIN/LAUNCHER filter that gives the APK a launcher icon; the remaining filters register
 # the app for its document types so the system can open and share them with it. Keep it inline:
@@ -5149,7 +5172,7 @@ value = "{app}_android"
 config_changes = "{config_changes}"
 label = "{title}"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 intent_filter = {intent_filter_value}
 '''
@@ -5642,6 +5665,17 @@ fn android_clipboard_get(app: &AndroidApp) -> String {
                 &[],
             )?
             .l()?;
+        let text = if !text.is_null() {
+            text
+        } else {
+            env.call_method(
+                &item,
+                jni_str!("coerceToText"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                &[JValue::Object(&*activity)],
+            )?
+            .l()?
+        };
         if text.is_null() {
             return Ok(String::new());
         }
@@ -6947,18 +6981,19 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 # platform-gated, so desktop builds are unaffected.
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
-rm -rf "$SRC/vendor/egui-winit"
 if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
+    rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
-elif [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft uses its upstream vendored egui crates at vendor/egui/crates/egui-winit
-    # Do not copy builder's egui-winit - prepare.sh patches upstream's vendored egui-winit for Android
+elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+    # SolidCraft, PCBCraft and FieldCraft use upstream vendored egui crates
+    # Do not delete or overwrite with builder's egui-winit - prepare.sh patches upstream's vendored egui-winit for Android
     echo "Skipping builder egui-winit copy for $APP (uses upstream vendored egui)"
 else
+    rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
-if [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft prepare.sh handles all egui/egui-winit/egui-wgpu patching
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+    # SolidCraft, PCBCraft and FieldCraft prepare.sh handle all egui/egui-winit/egui-wgpu patching
     echo "Skipping egui patching for $APP (handled by prepare.sh)"
 else
 python3 - "$SRC/Cargo.toml" <<'PY'
@@ -7026,7 +7061,7 @@ fi
 # cannot compile for `aarch64-linux-android`. Vendor the builder's Android-compatible stub (a
 # no-op clipboard) and patch it in. If crates use `arboard = { workspace = true }`, we must
 # replace the workspace dependency; otherwise we add it via `[patch.crates-io]`.
-if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src 2>/dev/null; then
+if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src "$SRC"/Cargo.lock "$SRC"/Cargo.toml 2>/dev/null; then
     echo "Vendoring an Android-compatible arboard for $TITLE (clipboard access becomes a no-op)..."
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/arboard"
@@ -7295,7 +7330,7 @@ PY
 # lost — the app coming back from a file picker, for instance — died with it. Vendor the builder's
 # patched egui-wgpu, which releases the old surface first, and patch it into the workspace.
 echo "Vendoring the surface-fixing egui-wgpu for $TITLE..."
-if [[ "$APP" == "solidcraft" && (-d "$SRC/vendor/egui/crates/egui-wgpu" || -d "$SRC/vendor/egui-wgpu") ]]; then
+if [[ ("$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft") && (-d "$SRC/vendor/egui/crates/egui-wgpu" || -d "$SRC/vendor/egui-wgpu") ]]; then
     # Upstream already vendors egui-wgpu with its own custom additions (e.g. SolidCraft's CAD
     # pipelines, blur shaders, FrameCompositor, and DeviceLost). Keep its custom APIs intact
     # and patch the Android surface-loss recovery in-place in its winit.rs.
@@ -7348,10 +7383,10 @@ else:
     winit_rs.write_text(text)
     print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
 PY
-elif [[ "$APP" == "solidcraft" ]]; then
-    # SolidCraft uses its own vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
-    # Do not copy builder's egui-wgpu - keep SolidCraft's original
-    echo "Skipping builder egui-wgpu copy for SolidCraft (uses its own vendor/egui-wgpu with custom APIs)"
+elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" ]]; then
+    # SolidCraft, FieldCraft and PCBCraft use SolidCraft's vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
+    # Do not copy builder's egui-wgpu - keep their original
+    echo "Skipping builder egui-wgpu copy for $APP (uses SolidCraft vendor/egui-wgpu with custom APIs)"
 elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
@@ -7360,8 +7395,8 @@ else
     cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
 fi
 
-# Skip egui-wgpu patching for SolidCraft - prepare.sh handles it
-if [[ "$APP" != "solidcraft" ]]; then
+# Skip egui-wgpu patching for SolidCraft, FieldCraft and PCBCraft - prepare.sh handles it
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -7805,11 +7840,11 @@ fi
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
 
-# For SolidCraft, cargo-ndk must run from the workspace root
+# For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
-if [[ "$APP" == "solidcraft" ]]; then
-    NDK_PACKAGE="solidcraft-android"
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+    NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then
         if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then

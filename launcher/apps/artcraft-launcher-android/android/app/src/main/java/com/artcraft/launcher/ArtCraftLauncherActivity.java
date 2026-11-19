@@ -373,6 +373,14 @@ public class ArtCraftLauncherActivity extends GameActivity {
                 answer(new JSONObject().put("id", id).put("success", false));
             }
             return;
+        } else if ("update_launcher".equals(kind)) {
+            runOnUiThread(() -> updater.check(true));
+            try {
+                answer(new JSONObject().put("id", id).put("success", true));
+            } catch (Exception e) {
+                Log.e(TAG, "update_launcher answer", e);
+            }
+            return;
         } else {
             answerError(id, "unknown request " + kind);
             return;

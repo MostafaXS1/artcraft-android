@@ -249,7 +249,7 @@ unsafe impl Send for HumanMotionCraftMcpServer {}
 
 impl HumanMotionCraftMcpServer {
     pub fn new() -> Option<Self> {
-        let assets = std::path::PathBuf::from("/sdcard/Android/data/com.artcraft.humanmotioncraft/files/assets");
+        let assets = std::path::PathBuf::from("/sdcard/Android/media/com.artcraft.humanmotioncraft/files/assets");
         let lib = std::env::temp_dir().join("ac-lib");
         let session = ac_cli::session(&assets, &lib).unwrap_or_else(|_| {
             let skel = ac_core::Skeleton::from_json(include_str!("../../../assets/rig/default_rig.json")).expect("default rig parses");

@@ -76,7 +76,7 @@ name = ".SolidCraftActivity"
 config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
 label = "SolidCraft"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 # The MAIN/LAUNCHER filter that gives the APK a launcher icon; the remaining filters register
 # the app for its document types so the system can open and share them with it. Keep it inline:

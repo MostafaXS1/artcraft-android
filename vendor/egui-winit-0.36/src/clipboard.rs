@@ -219,6 +219,17 @@ fn android_clipboard_get_text() -> Option<String> {
                 &[],
             )?
             .l()?;
+        let text = if !text.is_null() {
+            text
+        } else {
+            env.call_method(
+                &item,
+                jni_str!("coerceToText"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                &[JValue::Object(&*context)],
+            )?
+            .l()?
+        };
         if text.is_null() {
             return Ok(None);
         }

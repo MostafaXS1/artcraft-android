@@ -574,6 +574,36 @@
       "package": "com.jackharvest.shapecraft",
       "image": "shapecraft.png",
       "discord": "https://discord.gg/qHW22aC8Rn"
+    },
+    {
+      "id": "pcbcraft",
+      "name": "PCBCraft",
+      "tagline": "Printed circuit board design and layout",
+      "color": [
+        24,
+        138,
+        68
+      ],
+      "repo": "tangency-labs/pcbcraft",
+      "publisher": "Tangency Labs",
+      "site": "https://github.com/tangency-labs/pcbcraft",
+      "bundle": "io.tangencylabs.pcbcraft",
+      "image": "pcbcraft.png"
+    },
+    {
+      "id": "fieldcraft",
+      "name": "FieldCraft",
+      "tagline": "Finite element analysis and physics simulation",
+      "color": [
+        38,
+        110,
+        215
+      ],
+      "repo": "tangency-labs/fieldcraft",
+      "publisher": "Tangency Labs",
+      "site": "https://github.com/tangency-labs/fieldcraft",
+      "bundle": "io.tangencylabs.fieldcraft",
+      "image": "fieldcraft.png"
     }
   ]
 }

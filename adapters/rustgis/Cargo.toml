@@ -58,7 +58,7 @@ name = ".RustGISActivity"
 config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
 label = "RustGIS"
 launch_mode = "singleTask"
-orientation = "sensor"
+orientation = "unspecified"
 exported = true
 intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
 

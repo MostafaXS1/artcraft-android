@@ -342,6 +342,32 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
+    AppDetails {
+        id: "pcbcraft",
+        headline: "Modern printed circuit board design and layout, local-first and open source.",
+        about: "An open-source PCB design and layout tool by Tangency Labs. Schematic capture, multi-layer board layout, DRC rules and Gerber/KiCad interoperability. Written in Rust with high-performance graphics and MCP automation support.",
+        features: &[
+            Feature { title: "Schematic and layout", text: "Integrated schematic capture and multi-layer printed circuit board routing." },
+            Feature { title: "Interoperability", text: "Import and export packed projects (.pc), KiCad files (.kicad_pcb, .kicad_sch), and manufacturing outputs." },
+            Feature { title: "Local-first", text: "Fast, private, and offline. Everything stays on your local device." },
+            Feature { title: "Cross-platform", text: "Identical experience across desktop and Android." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
+    AppDetails {
+        id: "fieldcraft",
+        headline: "Finite element analysis and physics simulation on your device.",
+        about: "An open-source multiphysics finite element simulation environment by Tangency Labs. Structural mechanics, thermal analysis, and fluid dynamics with intuitive 3D visualization, GPU-accelerated solvers, and SolidCraft CAD integration.",
+        features: &[
+            Feature { title: "Multiphysics simulation", text: "Structural stress, modal analysis, thermal distribution, and fluid flow." },
+            Feature { title: "CAD integration", text: "Directly loads FieldCraft models, SolidCraft designs, 3MF and Gmsh meshes." },
+            Feature { title: "GPU acceleration", text: "Fast meshing and iterative solvers accelerated by hardware graphics." },
+            Feature { title: "Complete privacy", text: "All simulations run entirely on your hardware with zero data collection." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

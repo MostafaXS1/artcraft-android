@@ -58,7 +58,7 @@ def minor = versionParts.size() > 1 ? versionParts[1] as int : 0
 def patch = versionParts.size() > 2 ? versionParts[2].split('-')[0] as int : 0
 def releaseBuild = (System.getenv('RELEASE_BUILD') ?: '0') as int
 def appVersionName = String.format("%d.%d.%d%s-android", major, minor, patch, releaseBuild > 0 ? "-" + releaseBuild : "") as String
-def computedVersionCode = major * 10000 + minor * 100 + patch * 10 + releaseBuild
+def computedVersionCode = 200000 + major * 10000 + minor * 100 + patch * 10 + releaseBuild
 
 android {
     namespace 'com.artcraft.launcher'
@@ -84,6 +84,10 @@ android {
 
     signingConfigs {
         release {
+            v1SigningEnabled true
+            v2SigningEnabled true
+            enableV3Signing true
+            enableV4Signing true
             def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
             if (keystorePath && file(keystorePath).exists()) {
                 storeFile file(keystorePath)

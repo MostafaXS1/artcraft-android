@@ -140,6 +140,9 @@ pub struct Settings {
     /// Whether the Community Apps section is collapsed in the grid view.
     #[serde(default)]
     pub community_collapsed: bool,
+    /// Whether the user has acknowledged the unofficial port disclaimer on first launch.
+    #[serde(default)]
+    pub disclaimer_acknowledged: bool,
 }
 
 impl Settings {
@@ -293,6 +296,7 @@ impl Default for Settings {
             launch_flags: BTreeMap::new(),
             suite_collapsed: false,
             community_collapsed: false,
+            disclaimer_acknowledged: false,
         }
     }
 }

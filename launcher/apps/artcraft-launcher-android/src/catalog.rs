@@ -114,7 +114,7 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 39] = [
+pub static SUITE_ANDROID: [CraftApp; 41] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
@@ -383,6 +383,28 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         Some("https://jackharvest.com/shapecraft/"),
         None,
         Some("https://discord.gg/qHW22aC8Rn"),
+    ),
+    community(
+        "pcbcraft",
+        "PCBCraft",
+        "Printed circuit board design and layout",
+        [24, 138, 68],
+        "tangency-labs/pcbcraft",
+        "Tangency Labs",
+        Some("https://github.com/tangency-labs/pcbcraft"),
+        Some("io.tangencylabs.pcbcraft"),
+        None,
+    ),
+    community(
+        "fieldcraft",
+        "FieldCraft",
+        "Finite element analysis and physics simulation",
+        [38, 110, 215],
+        "tangency-labs/fieldcraft",
+        "Tangency Labs",
+        Some("https://github.com/tangency-labs/fieldcraft"),
+        Some("io.tangencylabs.fieldcraft"),
+        None,
     ),
 ];
 

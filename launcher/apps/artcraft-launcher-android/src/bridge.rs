@@ -37,6 +37,7 @@ enum RequestKind {
     AppInfo { package: String },
     InstallApk { package: String, apk_path: String },
     MoveToBackground,
+    UpdateLauncher,
 }
 
 /// What Java answered. Every field is optional: the answer to each request kind fills in a
@@ -133,6 +134,11 @@ impl Bridge {
     /// Sends the task to the background, like pressing Home.
     pub fn move_to_background(&self) {
         let _ = self.ask(RequestKind::MoveToBackground, Duration::from_secs(5));
+    }
+
+    /// Triggers launcher self-update check in Java.
+    pub fn update_launcher(&self) {
+        let _ = self.ask(RequestKind::UpdateLauncher, Duration::from_secs(5));
     }
 
     /// Asks Java to show or hide the soft keyboard. This is a plain file the Activity polls, not

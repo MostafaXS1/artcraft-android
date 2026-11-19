@@ -16,14 +16,30 @@ fi
 sed -i 's/^mod android;/pub mod android;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
 sed -i 's/^mod app;/pub mod app;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
 sed -i 's/^mod mcp;/pub mod mcp;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
-python3 - "$SRC_ABS/apps/tracedraw/src/android.rs" <<'PY'
+python3 - "$SRC_ABS/apps/tracedraw/src/android.rs" "$SRC_ABS/apps/tracedraw/src/settings.rs" "$SRC_ABS/apps/tracedraw/src/ui/mod.rs" <<'PY'
 import sys
 from pathlib import Path
-p = Path(sys.argv[1])
-s = p.read_text()
+p_android, p_settings, p_ui = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+s = p_android.read_text()
 s = s.replace("#[no_mangle]\nfn android_main(", "pub fn android_main(")
 s = s.replace("#[no_mangle]\r\nfn android_main(", "pub fn android_main(")
-p.write_text(s)
+if "settings.follow_text_size = false;" not in s:
+    s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    settings.save();")
+p_android.write_text(s)
+
+s_set = p_settings.read_text()
+if "fn default_false() -> bool {\n    false\n}" not in s_set:
+    s_set = s_set.replace("fn default_true() -> bool {\n    true\n}", "fn default_true() -> bool {\n    true\n}\n\nfn default_false() -> bool {\n    false\n}")
+s_set = s_set.replace('#[serde(default = "default_true")]\n    pub follow_text_size: bool,', '#[serde(default = "default_false")]\n    pub follow_text_size: bool,')
+s_set = s_set.replace('follow_text_size: true,', 'follow_text_size: false,')
+if '#[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }' not in s_set:
+    s_set = s_set.replace('pub fn effective_ui_size_with(s: &Settings, sys: crate::system_prefs::SystemPrefs) -> f32 {', 'pub fn effective_ui_size_with(s: &Settings, sys: crate::system_prefs::SystemPrefs) -> f32 {\n    #[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }')
+p_settings.write_text(s_set)
+
+s_ui = p_ui.read_text()
+if '#[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }' not in s_ui:
+    s_ui = s_ui.replace('pub(crate) fn ui_zoom(size: f32) -> f32 {', 'pub(crate) fn ui_zoom(size: f32) -> f32 {\n    #[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }')
+p_ui.write_text(s_ui)
 PY
 
 mkdir -p "$DEST"

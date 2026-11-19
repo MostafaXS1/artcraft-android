@@ -281,6 +281,17 @@ fn android_clipboard_get(app: &AndroidApp) -> String {
                 &[],
             )?
             .l()?;
+        let text = if !text.is_null() {
+            text
+        } else {
+            env.call_method(
+                &item,
+                jni_str!("coerceToText"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                &[JValue::Object(&*activity)],
+            )?
+            .l()?
+        };
         if text.is_null() {
             return Ok(String::new());
         }
@@ -1134,7 +1145,17 @@ impl InputProbe {
 /// documents are actually findable; the internal directory is the fallback for the rare device where
 /// external storage is unmounted or unavailable. Both survive restarts and app updates.
 fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
-    app.external_data_path().or_else(|| app.internal_data_path())
+    if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = std::path::PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            return Some(media_path);
+        }
+        return Some(path);
+    }
+    app.internal_data_path()
 }
 
 /// The app's private files directory plus a `config` subfolder, where the settings, preferences and

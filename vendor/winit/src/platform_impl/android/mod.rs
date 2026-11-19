@@ -121,7 +121,7 @@ fn android_mouse_button(button: android_activity::input::Button) -> event::Mouse
         Button::Primary => event::MouseButton::Left,
         Button::Secondary => event::MouseButton::Right,
         Button::Tertiary => event::MouseButton::Middle,
-        Button::Back => event::MouseButton::Back,
+        Button::Back => event::MouseButton::Right,
         Button::Forward => event::MouseButton::Forward,
         // Not mappable to a named button; egui ignores `Other` buttons anyway.
         _ => event::MouseButton::Other(0),
@@ -1296,16 +1296,29 @@ impl<T: 'static> EventLoop<T> {
                                 | MotionAction::PointerUp
                         );
                         let button_state = motion_event.button_state().0;
+                        let is_secondary = (button_state & 0x2 != 0) || (button_state & 0x8 != 0);
+                        let is_tertiary = button_state & 0x4 != 0;
+                        let target_button = if is_secondary {
+                            event::MouseButton::Right
+                        } else if is_tertiary {
+                            event::MouseButton::Middle
+                        } else {
+                            event::MouseButton::Left
+                        };
                         let state = match motion_event.action() {
                             MotionAction::Down | MotionAction::PointerDown => {
-                                if device_kind::primary_button_on_down(&mut self.primary_pointer_down, button_state) {
+                                if is_secondary || is_tertiary {
+                                    Some(event::ElementState::Pressed)
+                                } else if device_kind::primary_button_on_down(&mut self.primary_pointer_down, button_state) {
                                     Some(event::ElementState::Pressed)
                                 } else {
                                     None
                                 }
                             }
                             MotionAction::Up | MotionAction::PointerUp => {
-                                if device_kind::primary_button_on_up(&mut self.primary_pointer_down, button_state) {
+                                if is_secondary || is_tertiary {
+                                    Some(event::ElementState::Released)
+                                } else if device_kind::primary_button_on_up(&mut self.primary_pointer_down, button_state) {
                                     Some(event::ElementState::Released)
                                 } else {
                                     None
@@ -1313,7 +1326,9 @@ impl<T: 'static> EventLoop<T> {
                             }
                             // A cancelled gesture must not leave a button logically held.
                             MotionAction::Cancel => {
-                                if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
+                                if is_secondary || is_tertiary {
+                                    Some(event::ElementState::Released)
+                                } else if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
                                     Some(event::ElementState::Released)
                                 } else {
                                     None
@@ -1354,7 +1369,7 @@ impl<T: 'static> EventLoop<T> {
                                             event: event::WindowEvent::MouseInput {
                                                 device_id,
                                                 state,
-                                                button: event::MouseButton::Left,
+                                                button: target_button,
                                             },
                                         },
                                         self.window_target(),
