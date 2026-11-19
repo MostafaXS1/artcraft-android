@@ -858,7 +858,7 @@ fn try_fast_typing_layout(
         };
         let new_pl0 = para::layout_para(p0, &env);
 
-        let space_between = prev_pl1.rp.space_before.unwrap_or(0.0);
+        let space_between = prev_pl1.rp.space_before;
         let delta = new_pl0.height - (prev_pl0.height + space_between + prev_pl1.height);
 
         if delta > 0.0 {
