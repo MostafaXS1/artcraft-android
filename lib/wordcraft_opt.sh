@@ -52,10 +52,48 @@ fix_source(
         if spec.mutates && !typing {
             self.typing_open = false;
         }""",
-    """        let typing = spec.id == "text.insert" || spec.id == "equation.type" || spec.id == "text.newParagraph";
+    """        let typing = spec.id == "text.insert"
+            || spec.id == "equation.type"
+            || spec.id == "text.backspace"
+            || spec.id == "text.delete"
+            || spec.id == "text.newParagraph"
+            || spec.id == "equation.backspace";
         if spec.mutates && !typing {
             self.typing_open = false;
         }""",
+)
+
+# 1b. Gated proofing in session layout: debounce spelling/grammar during active typing session
+fix_source(
+    "crates/engine/src/session/layout.rs",
+    """        let rev = (self.rev, wordcraft_proof::dictionary_generation());
+        let (proofing, numeral) = (self.view.proofing, self.view.numeral);""",
+    """        let rev = (self.rev, wordcraft_proof::dictionary_generation());
+        let (proofing, numeral) = (self.view.proofing && !self.typing_open, self.view.numeral);""",
+)
+
+fix_source(
+    "crates/engine/src/session/layout.rs",
+    """            hide_marked: deleted.1,
+            deletions_in_balloons: deleted.2,
+            proofing: self.view.proofing,
+            numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),""",
+    """            hide_marked: deleted.1,
+            deletions_in_balloons: deleted.2,
+            proofing,
+            numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),""",
+)
+
+fix_source(
+    "crates/engine/src/session/layout.rs",
+    """        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        let [newest, _] = std::mem::take(&mut self.layout);
+        self.layout =
+            [Some((rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing, shown)), newest];""",
+    """        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        let [newest, _] = std::mem::take(&mut self.layout);
+        self.layout =
+            [Some((rev, width, height, mode, spacing, l.clone(), proofing, outline, deleted, self.view.numeral, typing, shown)), newest];""",
 )
 
 fix_source(
@@ -352,13 +390,6 @@ fix_source(
                 }""",
 )
 
-# 3b. Debounce proofing (spelling and grammar) during active typing
-fix_source(
-    "crates/layout/src/para/paragraph.rs",
-    """        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),""",
-    """        issues: env.proofing.filter(|_| env.typing_word.is_none()).map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),""",
-)
-
 # 4. Pre-allocate line indexing capacity in pagination pass (index_lines)
 fix_source(
     "crates/layout/src/pass.rs",
@@ -480,18 +511,79 @@ fn try_fast_typing_layout(
         Placed::Rule { y1, .. } => *y1,
     };
 
-    // Fast-path: appending an empty paragraph on Enter at the end of the document
+    // Case 1: Fast-path for Enter / paragraph split (doc.body.len() == last_body.len() + 1)
     if doc.body.len() == last_body.len() + 1 {
-        for (b0, b1) in last_body.iter().zip(doc.body.iter()) {
-            if !Arc::ptr_eq(b0, b1) {
+        let mut split_idx = None;
+        for i in 0..last_body.len() {
+            if !Arc::ptr_eq(&last_body[i], &doc.body[i]) {
+                split_idx = Some(i);
+                break;
+            }
+        }
+        let split_idx = split_idx.unwrap_or(last_body.len() - 1);
+        for k in (split_idx + 1)..last_body.len() {
+            if !Arc::ptr_eq(&last_body[k], &doc.body[k + 1]) {
                 return None;
             }
         }
-        let block_idx = doc.body.len() - 1;
-        let block = doc.body.get(block_idx)?;
-        let p = block.as_para()?;
-        if !p.objects.is_empty() || p.section.is_some() {
+
+        let p0 = doc.body.get(split_idx)?.as_para()?;
+        let p1 = doc.body.get(split_idx + 1)?.as_para()?;
+        if !p0.objects.is_empty() || p0.section.is_some() || !p1.objects.is_empty() || p1.section.is_some() {
             return None;
+        }
+        if p0.props.page_break_before.unwrap_or(false) || p1.props.page_break_before.unwrap_or(false) {
+            return None;
+        }
+
+        let path0 = Path::top(split_idx);
+        let pieces0 = last_layout.index.get(&(StoryRef::Body, path0.clone()))?;
+        if pieces0.len() != 1 {
+            return None;
+        }
+        let (page_idx, item_idx) = pieces0[0];
+        if page_idx + 1 != last_layout.pages.len() {
+            return None;
+        }
+        let page = last_layout.pages.get(page_idx)?;
+        let item0 = page.items.get(item_idx)?;
+        let Placed::Lines {
+            story,
+            path: ref item_path0,
+            para: ref prev_pl0,
+            l0,
+            l1,
+            x: item_x,
+            y: item_y,
+            turn,
+        } = *item0 else {
+            return None;
+        };
+        if story != StoryRef::Body || *item_path0 != path0 || l0 != 0 || l1 != prev_pl0.lines.len() {
+            return None;
+        }
+        if turn != TextDirection::Horizontal {
+            return None;
+        }
+        if prev_pl0.has_page_fields
+            || !prev_pl0.notes.is_empty()
+            || prev_pl0.drop_cap.is_some()
+            || prev_pl0.rp.page_break_before
+            || prev_pl0.rp.borders.is_some()
+            || prev_pl0.rp.shading.is_some()
+            || prev_pl0.rp.keep_next
+            || prev_pl0.label.is_some()
+            || p0.props.numbering.is_some()
+            || p1.props.numbering.is_some()
+        {
+            return None;
+        }
+
+        for j in (item_idx + 1)..page.items.len() {
+            match &page.items[j] {
+                Placed::Lines { story, .. } if *story == StoryRef::Body => {}
+                _ => return None,
+            }
         }
 
         let fields = fields::FieldCtx::default();
@@ -514,38 +606,358 @@ fn try_fast_typing_layout(
             fit_objects: false,
             fitted: &[],
         };
-        let new_pl = para::layout_para(p, &env);
+        let new_pl0 = para::layout_para(p0, &env);
+        let new_pl1 = para::layout_para(p1, &env);
 
-        let prev_bottom = last_page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
-        let y = prev_bottom + p.props.space_before.unwrap_or(0.0);
-        if y + new_pl.height > last_page.body.h + 0.1 {
+        let space_between = p1.props.space_before.unwrap_or(0.0);
+        let total_new_height = new_pl0.height + space_between + new_pl1.height;
+        let delta = total_new_height - prev_pl0.height;
+
+        let max_bottom = page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
+        if max_bottom + delta > page.body.bottom() + 0.1 {
             return None;
         }
 
-        let line_count = new_pl.lines.len();
-        let arc_pl = Arc::new(new_pl);
-        let path = Path::top(block_idx);
+        let arc_pl0 = Arc::new(new_pl0);
+        let arc_pl1 = Arc::new(new_pl1);
+        let path1 = Path::top(split_idx + 1);
+
+        let key0 = cache::Key {
+            rev: p0.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: None,
+        };
+        cache.used.insert(key0.clone());
+        cache.paras.insert(key0, arc_pl0.clone());
+
+        let key1 = cache::Key {
+            rev: p1.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: None,
+        };
+        cache.used.insert(key1.clone());
+        cache.paras.insert(key1, arc_pl1.clone());
 
         let mut updated = last_layout.clone();
-        let target_page = updated.pages.get_mut(last_page_idx)?;
-        let new_item_idx = target_page.items.len();
-        target_page.items.push(Placed::Lines {
+        let target_page = updated.pages.get_mut(page_idx)?;
+
+        target_page.items[item_idx] = Placed::Lines {
             story: StoryRef::Body,
-            path: path.clone(),
-            para: arc_pl,
+            path: path0.clone(),
+            para: arc_pl0.clone(),
             l0: 0,
-            l1: line_count,
-            x: 0.0,
-            y,
+            l1: arc_pl0.lines.len(),
+            x: item_x,
+            y: item_y,
             turn: TextDirection::Horizontal,
-        });
-        updated.index.entry((StoryRef::Body, path)).or_default().push((last_page_idx, new_item_idx));
+        };
+
+        let p1_y = item_y + arc_pl0.height + space_between;
+        target_page.items.insert(
+            item_idx + 1,
+            Placed::Lines {
+                story: StoryRef::Body,
+                path: path1.clone(),
+                para: arc_pl1.clone(),
+                l0: 0,
+                l1: arc_pl1.lines.len(),
+                x: item_x,
+                y: p1_y,
+                turn: TextDirection::Horizontal,
+            },
+        );
+
+        for j in (item_idx + 2)..target_page.items.len() {
+            match &mut target_page.items[j] {
+                Placed::Lines { y, path, .. } => {
+                    *y += delta;
+                    if let Some(first) = path.0.first_mut() {
+                        *first += 1;
+                    }
+                }
+                Placed::Fill { rect, .. }
+                | Placed::Image { rect, .. }
+                | Placed::Shape { rect, .. }
+                | Placed::Graphic { rect, .. }
+                | Placed::Clip { rect, .. }
+                | Placed::Cell { rect, .. }
+                | Placed::Object { rect, .. } => rect.y += delta,
+                Placed::Rule { y0, y1, .. } => {
+                    *y0 += delta;
+                    *y1 += delta;
+                }
+            }
+        }
+
+        let mut new_index = HashMap::with_capacity(updated.index.len() + 1);
+        for ((sref, p), list) in updated.index {
+            if sref == StoryRef::Body && p.0.len() == 1 {
+                let old_idx = p.0[0] as usize;
+                if old_idx < split_idx {
+                    new_index.insert((sref, p), list);
+                } else if old_idx == split_idx {
+                    new_index.insert((sref, path0.clone()), vec![(page_idx, item_idx)]);
+                    new_index.insert((sref, path1.clone()), vec![(page_idx, item_idx + 1)]);
+                } else {
+                    let shifted_list: Vec<(usize, usize)> = list
+                        .into_iter()
+                        .map(|(pi, ii)| if pi == page_idx && ii > item_idx { (pi, ii + 1) } else { (pi, ii) })
+                        .collect();
+                    new_index.insert((sref, Path::top(old_idx + 1)), shifted_list);
+                }
+            } else {
+                new_index.insert((sref, p), list);
+            }
+        }
+        updated.index = new_index;
+
         updated.ms = now_ms() - t0;
         cache.last_body = Some(doc.body.clone());
         cache.last_layout = Some(updated.clone());
         return Some(updated);
     }
 
+    // Case 2: Fast-path for Backspace / paragraph merge (doc.body.len() + 1 == last_body.len())
+    if doc.body.len() + 1 == last_body.len() {
+        let mut merge_idx = None;
+        for i in 0..doc.body.len() {
+            if !Arc::ptr_eq(&last_body[i], &doc.body[i]) {
+                merge_idx = Some(i);
+                break;
+            }
+        }
+        let merge_idx = merge_idx.unwrap_or(doc.body.len() - 1);
+        for k in (merge_idx + 1)..doc.body.len() {
+            if !Arc::ptr_eq(&doc.body[k], &last_body[k + 1]) {
+                return None;
+            }
+        }
+
+        let p0 = doc.body.get(merge_idx)?.as_para()?;
+        if !p0.objects.is_empty() || p0.section.is_some() || p0.props.page_break_before.unwrap_or(false) {
+            return None;
+        }
+
+        let path0 = Path::top(merge_idx);
+        let pieces0 = last_layout.index.get(&(StoryRef::Body, path0.clone()))?;
+        if pieces0.len() != 1 {
+            return None;
+        }
+        let (page_idx, item_idx0) = pieces0[0];
+        if page_idx + 1 != last_layout.pages.len() {
+            return None;
+        }
+        let page = last_layout.pages.get(page_idx)?;
+        let item0 = page.items.get(item_idx0)?;
+        let Placed::Lines {
+            story,
+            path: ref item_path0,
+            para: ref prev_pl0,
+            l0,
+            l1,
+            x: item_x,
+            y: item_y,
+            turn,
+        } = *item0 else {
+            return None;
+        };
+        if story != StoryRef::Body || *item_path0 != path0 || l0 != 0 || l1 != prev_pl0.lines.len() {
+            return None;
+        }
+        if turn != TextDirection::Horizontal {
+            return None;
+        }
+
+        let path1 = Path::top(merge_idx + 1);
+        let pieces1 = last_layout.index.get(&(StoryRef::Body, path1.clone()))?;
+        if pieces1.len() != 1 {
+            return None;
+        }
+        let (page_idx1, item_idx1) = pieces1[0];
+        if page_idx1 != page_idx || item_idx1 != item_idx0 + 1 {
+            return None;
+        }
+        let item1 = page.items.get(item_idx1)?;
+        let Placed::Lines { para: ref prev_pl1, .. } = *item1 else {
+            return None;
+        };
+
+        if prev_pl0.has_page_fields
+            || !prev_pl0.notes.is_empty()
+            || prev_pl0.drop_cap.is_some()
+            || prev_pl0.rp.page_break_before
+            || prev_pl0.rp.borders.is_some()
+            || prev_pl0.rp.shading.is_some()
+            || prev_pl0.rp.keep_next
+            || prev_pl0.label.is_some()
+            || prev_pl1.has_page_fields
+            || !prev_pl1.notes.is_empty()
+            || prev_pl1.drop_cap.is_some()
+            || prev_pl1.rp.page_break_before
+            || prev_pl1.rp.borders.is_some()
+            || prev_pl1.rp.shading.is_some()
+            || prev_pl1.rp.keep_next
+            || prev_pl1.label.is_some()
+            || p0.props.numbering.is_some()
+        {
+            return None;
+        }
+
+        for j in (item_idx1 + 1)..page.items.len() {
+            match &page.items[j] {
+                Placed::Lines { story, .. } if *story == StoryRef::Body => {}
+                _ => return None,
+            }
+        }
+
+        let fields = fields::FieldCtx::default();
+        let env = para::ParaEnv {
+            doc,
+            width: col_w,
+            label: None,
+            fields: &fields,
+            show_hidden: opts.show_hidden,
+            field_codes: opts.field_codes,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            table: None,
+            proofing: opts.proofing.then_some(opts.proof),
+            typing_word: None,
+            numeral: opts.numeral,
+            exclusions: &[],
+            eq_number: 0,
+            read_line_spacing: opts.read_line_spacing,
+            grid: para::Grid::of(doc, sect),
+            fit_objects: false,
+            fitted: &[],
+        };
+        let new_pl0 = para::layout_para(p0, &env);
+
+        let space_between = prev_pl1.rp.space_before.unwrap_or(0.0);
+        let delta = new_pl0.height - (prev_pl0.height + space_between + prev_pl1.height);
+
+        if delta > 0.0 {
+            let max_bottom = page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
+            if max_bottom + delta > page.body.bottom() + 0.1 {
+                return None;
+            }
+        }
+
+        let arc_pl0 = Arc::new(new_pl0);
+        let key0 = cache::Key {
+            rev: p0.rev,
+            width: col_w.to_bits(),
+            label: None,
+            page: None,
+            page_from: 0,
+            table: 0,
+            notes: 0,
+            excl: 0,
+            eq: 0,
+            read_spacing: None,
+            grid: env.grid.key(),
+            fit: false,
+            fitted: 0,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            sref: 0,
+            typing: None,
+        };
+        cache.used.insert(key0.clone());
+        cache.paras.insert(key0, arc_pl0.clone());
+
+        let mut updated = last_layout.clone();
+        let target_page = updated.pages.get_mut(page_idx)?;
+
+        target_page.items[item_idx0] = Placed::Lines {
+            story: StoryRef::Body,
+            path: path0.clone(),
+            para: arc_pl0.clone(),
+            l0: 0,
+            l1: arc_pl0.lines.len(),
+            x: item_x,
+            y: item_y,
+            turn: TextDirection::Horizontal,
+        };
+
+        target_page.items.remove(item_idx1);
+
+        for j in item_idx1..target_page.items.len() {
+            match &mut target_page.items[j] {
+                Placed::Lines { y, path, .. } => {
+                    *y += delta;
+                    if let Some(first) = path.0.first_mut() {
+                        *first = first.saturating_sub(1);
+                    }
+                }
+                Placed::Fill { rect, .. }
+                | Placed::Image { rect, .. }
+                | Placed::Shape { rect, .. }
+                | Placed::Graphic { rect, .. }
+                | Placed::Clip { rect, .. }
+                | Placed::Cell { rect, .. }
+                | Placed::Object { rect, .. } => rect.y += delta,
+                Placed::Rule { y0, y1, .. } => {
+                    *y0 += delta;
+                    *y1 += delta;
+                }
+            }
+        }
+
+        let mut new_index = HashMap::with_capacity(updated.index.len());
+        for ((sref, p), list) in updated.index {
+            if sref == StoryRef::Body && p.0.len() == 1 {
+                let old_idx = p.0[0] as usize;
+                if old_idx < merge_idx {
+                    new_index.insert((sref, p), list);
+                } else if old_idx == merge_idx {
+                    new_index.insert((sref, path0.clone()), vec![(page_idx, item_idx0)]);
+                } else if old_idx == merge_idx + 1 {
+                    // Removed block
+                } else {
+                    let shifted_list: Vec<(usize, usize)> = list
+                        .into_iter()
+                        .map(|(pi, ii)| if pi == page_idx && ii > item_idx1 { (pi, ii - 1) } else { (pi, ii) })
+                        .collect();
+                    new_index.insert((sref, Path::top(old_idx - 1)), shifted_list);
+                }
+            } else {
+                new_index.insert((sref, p), list);
+            }
+        }
+        updated.index = new_index;
+
+        updated.ms = now_ms() - t0;
+        cache.last_body = Some(doc.body.clone());
+        cache.last_layout = Some(updated.clone());
+        return Some(updated);
+    }
+
+    // Case 3: In-line typing and editing existing line (doc.body.len() == last_body.len())
     if last_body.len() != doc.body.len() {
         return None;
     }
@@ -599,6 +1011,7 @@ fn try_fast_typing_layout(
         || prev_pl.rp.page_break_before
         || prev_pl.rp.borders.is_some()
         || prev_pl.rp.shading.is_some()
+        || prev_pl.rp.keep_next
         || prev_pl.label.is_some()
     {
         return None;
@@ -639,7 +1052,7 @@ fn try_fast_typing_layout(
             return None;
         }
         let max_bottom = page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
-        if max_bottom + delta > page.body.h + 0.1 {
+        if max_bottom + delta > page.body.bottom() + 0.1 {
             return None;
         }
     } else {
@@ -648,6 +1061,15 @@ fn try_fast_typing_layout(
                 if !is_last_page {
                     return None;
                 }
+            }
+        }
+    }
+
+    if delta.abs() > 0.001 {
+        for j in (item_idx + 1)..page.items.len() {
+            match &page.items[j] {
+                Placed::Lines { story, .. } if *story == StoryRef::Body => {}
+                _ => return None,
             }
         }
     }
