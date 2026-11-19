@@ -1,7 +1,7 @@
 # UNOFFICIAL ArtCraft Android
 
 # We were banned from ArtCraft, statement coming soon.
-(I love you, Benandez)
+### Join the unofficial [Artcraft Android discord](https://discord.gg/J8GhXx8tCD) for updates. All android project maintainers are welcomed to join and apply for their own channel.
 
 > [!NOTE]
 > **About this project:** We are an independent group of people who love ArtCraft very much and want to make these apps available on Android. We are not affiliated with, related to, or endorsed by ArtCraft / Storytold, and all our ports are completely unofficial.
