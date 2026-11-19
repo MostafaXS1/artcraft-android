@@ -517,7 +517,7 @@ fn try_fast_typing_layout(
         let new_pl = para::layout_para(p, &env);
 
         let prev_bottom = last_page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
-        let y = prev_bottom + p.props.space_before;
+        let y = prev_bottom + p.props.space_before.unwrap_or(0.0);
         if y + new_pl.height > last_page.body.h + 0.1 {
             return None;
         }
