@@ -174,13 +174,15 @@ public final class __CLASS__ extends NativeActivity {
         runOnUiThread(() -> {
             try {
                 if (inputView != null) {
+                    if (inputView.getVisibility() == View.VISIBLE && inputView.isFocused()) {
+                        return;
+                    }
                     inputView.setVisibility(View.VISIBLE);
                     inputView.setFocusable(true);
                     inputView.setFocusableInTouchMode(true);
                     inputView.requestFocus();
                     InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                     if (imm != null) {
-                        imm.restartInput(inputView);
                         imm.showSoftInput(inputView, 0);
                     }
                 }

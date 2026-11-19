@@ -48,6 +48,18 @@ def fix_source(rel: str, old: str, new: str) -> None:
 # 1. Fast typing in Session::run: avoid history/redo cloning and skip full-doc comparison
 fix_source(
     "crates/engine/src/session/run.rs",
+    """        let typing = spec.id == "text.insert" || spec.id == "equation.type";
+        if spec.mutates && !typing {
+            self.typing_open = false;
+        }""",
+    """        let typing = spec.id == "text.insert" || spec.id == "equation.type" || spec.id == "text.newParagraph";
+        if spec.mutates && !typing {
+            self.typing_open = false;
+        }""",
+)
+
+fix_source(
+    "crates/engine/src/session/run.rs",
     """        // The undo stacks are snapshotted whole, not as a length: commands run nested commands,
         // whose checkpoints, undos and redos (and evictions at the limit) must be put back too.
         let ime_epoch_before = spec.mutates.then_some(self.ime_body_epoch);
@@ -315,7 +327,19 @@ fix_source(
     }""",
 )
 
-# 3. Zero-allocation page fingerprinting for fills and rules in page_content_key
+# 3. Zero-allocation page fingerprinting for fills and rules in page_content_key and view_key
+fix_source(
+    "crates/ui-egui/src/canvas/pages.rs",
+    """    format!("{:?}{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.page_picture, app.session.doc.settings.watermark)
+        .hash(&mut h);""",
+    """    (
+        app.session.doc.settings.page_color.map(|c| (c.0, c.1, c.2)),
+        app.session.doc.settings.page_picture.as_ref().map(|p| (p.media.as_str(), p.fill_type.as_str(), p.title.as_str())),
+        app.session.doc.settings.watermark.as_ref().map(|w| (w.text.as_str(), w.font.as_str(), w.color.0, w.color.1, w.color.2, w.diagonal, w.semitransparent, w.size.map(|s| (s[0].to_bits(), s[1].to_bits())))),
+    )
+        .hash(&mut h);""",
+)
+
 fix_source(
     "crates/ui-egui/src/canvas/pages.rs",
     """                Placed::Fill { rect, color } => format!("{rect:?}{color:?}").hash(&mut h),
@@ -326,6 +350,13 @@ fix_source(
                 Placed::Rule { x0, y0, x1, y1, border } => {
                     (x0.to_bits(), y0.to_bits(), x1.to_bits(), y1.to_bits(), border.style as usize, border.width.to_bits(), border.color.map(|c| (c.0, c.1, c.2)), border.space.to_bits()).hash(&mut h);
                 }""",
+)
+
+# 3b. Debounce proofing (spelling and grammar) during active typing
+fix_source(
+    "crates/layout/src/para/paragraph.rs",
+    """        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),""",
+    """        issues: env.proofing.filter(|_| env.typing_word.is_none()).map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),""",
 )
 
 # 4. Pre-allocate line indexing capacity in pagination pass (index_lines)
@@ -423,7 +454,99 @@ fn try_fast_typing_layout(
     }
     let last_layout = cache.last_layout.as_ref()?;
     let last_body = cache.last_body.as_ref()?;
-    if last_body.len() != doc.body.len() || last_layout.pages.is_empty() {
+    if last_layout.pages.is_empty() {
+        return None;
+    }
+
+    let last_page_idx = last_layout.pages.len() - 1;
+    let last_page = last_layout.pages.get(last_page_idx)?;
+    let sections = doc.sections();
+    let (_, sect) = sections.get(last_page.section)?;
+    let cols = sect.column_boxes();
+    if cols.len() != 1 {
+        return None;
+    }
+    let col_w = last_page.body.w;
+
+    let item_bottom = |item: &Placed| match item {
+        Placed::Lines { y, para, .. } => *y + para.height,
+        Placed::Fill { rect, .. }
+        | Placed::Image { rect, .. }
+        | Placed::Shape { rect, .. }
+        | Placed::Graphic { rect, .. }
+        | Placed::Clip { rect, .. }
+        | Placed::Cell { rect, .. }
+        | Placed::Object { rect, .. } => rect.y + rect.h,
+        Placed::Rule { y1, .. } => *y1,
+    };
+
+    // Fast-path: appending an empty paragraph on Enter at the end of the document
+    if doc.body.len() == last_body.len() + 1 {
+        for (b0, b1) in last_body.iter().zip(doc.body.iter()) {
+            if !Arc::ptr_eq(b0, b1) {
+                return None;
+            }
+        }
+        let block_idx = doc.body.len() - 1;
+        let block = doc.body.get(block_idx)?;
+        let p = block.as_para()?;
+        if !p.objects.is_empty() || p.section.is_some() {
+            return None;
+        }
+
+        let fields = fields::FieldCtx::default();
+        let env = para::ParaEnv {
+            doc,
+            width: col_w,
+            label: None,
+            fields: &fields,
+            show_hidden: opts.show_hidden,
+            field_codes: opts.field_codes,
+            hide_deleted: opts.hides_deleted(StoryRef::Body),
+            table: None,
+            proofing: opts.proofing.then_some(opts.proof),
+            typing_word: None,
+            numeral: opts.numeral,
+            exclusions: &[],
+            eq_number: 0,
+            read_line_spacing: opts.read_line_spacing,
+            grid: para::Grid::of(doc, sect),
+            fit_objects: false,
+            fitted: &[],
+        };
+        let new_pl = para::layout_para(p, &env);
+
+        let prev_bottom = last_page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
+        let y = prev_bottom + p.props.space_before;
+        if y + new_pl.height > last_page.body.h + 0.1 {
+            return None;
+        }
+
+        let line_count = new_pl.lines.len();
+        let arc_pl = Arc::new(new_pl);
+        let path = Path::top(block_idx);
+
+        let mut updated = last_layout.clone();
+        let target_page = updated.pages.get_mut(last_page_idx)?;
+        let new_item_idx = target_page.items.len();
+        target_page.items.push(Placed::Lines {
+            story: StoryRef::Body,
+            path: path.clone(),
+            para: arc_pl,
+            l0: 0,
+            l1: line_count,
+            x: 0.0,
+            y,
+            turn: TextDirection::Horizontal,
+        });
+        updated.index.entry((StoryRef::Body, path)).or_default().push((last_page_idx, new_item_idx));
+        updated.ms = now_ms() - t0;
+        cache.last_body = Some(doc.body.clone());
+        cache.last_layout = Some(updated.clone());
+        return Some(updated);
+    }
+
+    if last_body.len() != doc.body.len() {
         return None;
     }
 
@@ -481,14 +604,7 @@ fn try_fast_typing_layout(
         return None;
     }
 
-    let sections = doc.sections();
-    let (_, sect) = sections.get(page.section)?;
-    let cols = sect.column_boxes();
-    if cols.len() != 1 {
-        return None;
-    }
     let col_w = page.body.w;
-
     let tw = opts.typing_word.as_ref().filter(|t| t.rev == p.rev);
     let typing_range = tw.map(|t| (t.start, t.end));
 
@@ -515,17 +631,23 @@ fn try_fast_typing_layout(
     let new_pl = para::layout_para(p, &env);
 
     let height_diff = (new_pl.height - prev_pl.height).abs();
+    let delta = new_pl.height - prev_pl.height;
+    let is_last_page = page_idx + 1 == last_layout.pages.len();
+
     if new_pl.lines.len() != prev_pl.lines.len() || height_diff > 0.01 {
-        let is_last_item_on_page = item_idx + 1 == page.items.len();
-        let fits_page = y + new_pl.height <= page.body.h + 0.1;
-        let is_last_page = page_idx + 1 == last_layout.pages.len();
-        if !(is_last_item_on_page && fits_page && is_last_page) {
+        if !is_last_page {
+            return None;
+        }
+        let max_bottom = page.items.iter().map(item_bottom).fold(0.0_f32, f32::max);
+        if max_bottom + delta > page.body.h + 0.1 {
             return None;
         }
     } else {
         for (l_new, l_prev) in new_pl.lines.iter().zip(prev_pl.lines.iter()) {
             if (l_new.height - l_prev.height).abs() > 0.01 || (l_new.top - l_prev.top).abs() > 0.01 {
-                return None;
+                if !is_last_page {
+                    return None;
+                }
             }
         }
     }
@@ -566,6 +688,24 @@ fn try_fast_typing_layout(
         y,
         turn,
     };
+    if delta.abs() > 0.001 {
+        for j in (item_idx + 1)..target_page.items.len() {
+            match &mut target_page.items[j] {
+                Placed::Lines { y, .. } => *y += delta,
+                Placed::Fill { rect, .. }
+                | Placed::Image { rect, .. }
+                | Placed::Shape { rect, .. }
+                | Placed::Graphic { rect, .. }
+                | Placed::Clip { rect, .. }
+                | Placed::Cell { rect, .. }
+                | Placed::Object { rect, .. } => rect.y += delta,
+                Placed::Rule { y0, y1, .. } => {
+                    *y0 += delta;
+                    *y1 += delta;
+                }
+            }
+        }
+    }
     updated.ms = now_ms() - t0;
     cache.last_body = Some(doc.body.clone());
     cache.last_layout = Some(updated.clone());
