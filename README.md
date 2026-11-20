@@ -75,6 +75,7 @@ The Android build process uses templates, adapters, vendored changes, and compat
 - **ArtCraft website:** [getartcraft.com](https://getartcraft.com/)
 - **Explore the apps:** [getartcraft.com/apps](https://getartcraft.com/apps)
 - **Source code:** [ArtCraft Android repository](https://github.com/MostafaXS1/artcraft-android)
+- **Ported Applications:** [`docs/ported-apps.md`](docs/ported-apps.md)
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)
 - **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
