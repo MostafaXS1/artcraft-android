@@ -4,7 +4,7 @@
 
 use android_activity::AndroidApp;
 use dc_ui::app::App as DcApp;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 

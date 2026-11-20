@@ -2533,6 +2533,10 @@ elif app == "pdfcraft":
         fixed.append("crates/ui-egui/src/lib.rs (print_handler)")
     if fix(
         "crates/ui-egui/src/workflows/print_ui.rs",
+        "        let spooler = self.spooler.clone();\n        std::thread::spawn(move || {\n",
+        "        let spooler = self.spooler.clone();\n        let handler = self.print_handler.clone();\n        std::thread::spawn(move || {\n",
+    ) or fix(
+        "crates/ui-egui/src/workflows/print_ui.rs",
         "        let ctx = self.ctx.clone();\n        std::thread::spawn(move || {\n",
         "        let ctx = self.ctx.clone();\n        let handler = self.print_handler.clone();\n        std::thread::spawn(move || {\n",
     ):

@@ -52,6 +52,7 @@ m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
 if m:
     inner = m.group(1)
     inner = re.sub(r'["\']android["\']\s*,?', '', inner)
+    new_inner = inner
     if '"apps/notecraft-android"' not in inner:
         new_inner = inner.rstrip()
         if not new_inner.endswith(','):
