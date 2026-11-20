@@ -174,7 +174,7 @@ If upstream changes in one app cause a compilation failure, `fail-fast: false` e
 
 ### Source Resolution (Stable Releases vs. Main)
 The step passes `BUILD_SOURCE: ${{ inputs.source_version || 'stable' }}` to `build.sh`:
-* When `BUILD_SOURCE == "stable"`: Queries the latest release tag (`git ls-remote --tags --sort=-v:refname <repo> 'v*'`) and checks out that release tag (e.g. `soundcraft` -> `v0.12.1`). This isolates CI builds from broken commits or unfinished merges on upstream `main`.
+* When `BUILD_SOURCE == "stable"`: Resolves the latest official release tag via GitHub releases (`/releases/latest`) with a clean semver `git ls-remote` fallback, and checks out that release tag (e.g. `soundcraft` -> `v0.12.1`). This isolates CI builds from broken commits, unfinished merges on upstream `main`, or unreleased/aborted CI tags.
 * When `BUILD_SOURCE == "main"`: Clones the head of the default upstream branch.
 
 ### Atomic Output & Integrity Verification

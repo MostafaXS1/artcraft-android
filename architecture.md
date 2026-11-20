@@ -208,7 +208,7 @@ If missing:
 - Clone to scratch `source/.clone-$APP.$$`, verify complete, move into place
 - Disk space check: >= 1GB free in `source/`
 - Ref selection:
-  - `-stable` (default): find latest tag matching `v*` via `git ls-remote --tags --sort=-v:refname`, checkout tag if found else default branch
+  - `-stable` (default): resolve latest published release tag via GitHub releases redirect (`/releases/latest`) with `git ls-remote` semver fallback, checkout tag if found else default branch
   - `-main|-latest`: default branch
   - `-tag=...` or `-branch=...`: use specified ref
 - Clone with `--depth 1`

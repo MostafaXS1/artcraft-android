@@ -596,6 +596,51 @@ source_tree_is_complete() {
     [[ -z "$missing" ]]
 }
 
+# Query the latest published release tag for a repository.
+# Prioritizes GitHub's published release redirect (/releases/latest), which ensures we only pick
+# official, published releases — avoiding stranded tags from failed/cancelled CI runs (like NoteCraft v0.0.16),
+# correctly picking up releases without a 'v' prefix (like CapsuleCraft 2.12.5), and ignoring pre-releases
+# and release candidates (like SolidCraft v0.45.0-rc.4).
+# Falls back to git ls-remote filtered for clean semver tags if the GitHub redirect cannot be reached.
+resolve_latest_stable_tag() {
+    local origin="$1" repo="$2"
+    local tag=""
+
+    # 1. Check GitHub's /releases/latest redirect
+    if [[ "$origin" =~ ^https://github\.com/([^/]+)/([^/]+)/?$ ]]; then
+        local gh_org="${BASH_REMATCH[1]}"
+        local gh_repo="${BASH_REMATCH[2]%.git}"
+        local latest_url="https://github.com/$gh_org/$gh_repo/releases/latest"
+        local effective_url
+        effective_url="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 5 --max-time 10 "$latest_url" 2>/dev/null || true)"
+        if [[ "$effective_url" =~ /releases/tag/([^/?#]+) ]]; then
+            tag="${BASH_REMATCH[1]}"
+        fi
+    fi
+
+    # 2. Fallback: query git remote tags, excluding pre-releases (-rc, -alpha, -beta, -nightly, etc.)
+    # and matching standard semver tags
+    if [[ -z "$tag" ]]; then
+        tag="$(git ls-remote --tags --sort=-v:refname "$repo" 2>/dev/null | \
+            grep -v '\^{}' | \
+            awk '{print $2}' | \
+            sed 's|refs/tags/||' | \
+            grep -E '^v?[0-9]+(\.[0-9]+)+$' | \
+            head -n 1 || true)"
+    fi
+
+    # 3. Final fallback: traditional v* glob
+    if [[ -z "$tag" ]]; then
+        tag="$(git ls-remote --tags --sort=-v:refname "$repo" 'v*' 2>/dev/null | \
+            grep -v '\^{}' | \
+            head -n 1 | \
+            awk '{print $2}' | \
+            sed 's|refs/tags/||' || true)"
+    fi
+
+    printf '%s' "$tag"
+}
+
 if [[ -e "$SRC" ]]; then
     if [[ -d "$SRC" && ! -d "$SRC/.git" && -z "$(ls -A "$SRC" 2>/dev/null)" ]]; then
         rmdir "$SRC" 2>/dev/null || true
@@ -616,7 +661,7 @@ if [[ -e "$SRC" ]]; then
         echo "Checking for upstream source updates for $TITLE ($REPO)..."
         LATEST_REF=""
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
-            LATEST_TAG="$(git ls-remote --tags --sort=-v:refname "$REPO" 'v*' 2>/dev/null | grep -v '\^{}' | head -n 1 | awk '{print $2}' | sed 's|refs/tags/||' || true)"
+            LATEST_TAG="$(resolve_latest_stable_tag "$APP_ORIGIN" "$REPO")"
             if [[ -n "$LATEST_TAG" ]]; then
                 LATEST_REF="$LATEST_TAG"
             fi
@@ -673,12 +718,12 @@ else
     TARGET_REF=""
     if [[ "$BUILD_SOURCE" == "stable" ]]; then
         echo "Looking up latest stable release tag for $TITLE ($REPO)..."
-        LATEST_TAG="$(git ls-remote --tags --sort=-v:refname "$REPO" 'v*' 2>/dev/null | grep -v '\^{}' | head -n 1 | awk '{print $2}' | sed 's|refs/tags/||' || true)"
+        LATEST_TAG="$(resolve_latest_stable_tag "$APP_ORIGIN" "$REPO")"
         if [[ -n "$LATEST_TAG" ]]; then
             TARGET_REF="$LATEST_TAG"
             echo "  -> Found latest stable release tag: $TARGET_REF"
         else
-            echo "  -> No 'v*' release tag found; falling back to default branch."
+            echo "  -> No stable release tag found; falling back to default branch."
         fi
     elif [[ "$BUILD_SOURCE" != "main" && "$BUILD_SOURCE" != "master" && "$BUILD_SOURCE" != "latest" && -n "$BUILD_SOURCE" ]]; then
         TARGET_REF="$BUILD_SOURCE"

@@ -210,7 +210,7 @@ If missing:
 2. Clone to scratch `source/.clone-$APP.$$`, verify complete, move into place
 3. Clone with `--depth 1`
 4. Ref selection based on flags:
-   - `-stable` (default): find latest tag matching `v*` via `git ls-remote --tags --sort=-v:refname`, checkout tag if found else default branch
+   - `-stable` (default): resolve latest published release tag via GitHub releases redirect (`/releases/latest`) with `git ls-remote` semver fallback, checkout tag if found else default branch
    - `-main|-latest`: default branch
    - `-tag=<tag>` or `-branch=<branch>`: use specified ref
 
