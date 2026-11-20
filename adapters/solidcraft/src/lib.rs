@@ -1322,7 +1322,7 @@ persist_write(dir, "prefs.json", inner.prefs().as_bytes());
 /// cleared when the shell is dropped, which happens before the native thread returns.
 static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<solidcraft_control::ControlRequest>> = std::sync::OnceLock::new();
+pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<solidcraft_control::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 struct AndroidShell {
@@ -1542,9 +1542,7 @@ impl Drop for AndroidShell {
 impl eframe::App for AndroidShell {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
         self.watch_incoming(ctx);
         self.poll_incoming_files();
@@ -1634,7 +1632,7 @@ fn android_main(android_app: android_activity::AndroidApp) {
     let saf_inbox = SafInbox::default();
     let platform_services = saf_services(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone());
     let (control_tx, control_rx) = std::sync::mpsc::channel();
-    let _ = CONTROL_TX.set(control_tx);
+    if let Ok(mut g) = CONTROL_TX.lock() { *g = Some(control_tx); }
     let inner = SolveApp::new(Session::default(), platform_services).with_control(control_rx);
     let _mcp_endpoint = mcp_http::start_mcp_service("SolidCraft".into(), "0.40.0-rc.3".into(), Arc::new(|| ALIVE.load(Ordering::Relaxed)));
     let mut shell = AndroidShell::new(inner, android_app.clone(), saf_bridge, saf_state, saf_inbox);
@@ -1694,6 +1692,7 @@ fn android_main(android_app: android_activity::AndroidApp) {
         "SolidCraft",
         options,
         Box::new(move |cc| {
+            if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             cc.egui_ctx.set_theme(egui::ThemePreference::System);
             solidcraft_ui_egui::fonts::setup_bundled_fonts(&cc.egui_ctx);
             if let Some(rs) = &cc.wgpu_render_state {

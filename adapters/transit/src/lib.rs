@@ -15,7 +15,7 @@ mod touch_gestures;
 mod saf;
 mod mcp_http;
 
-pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<transit_ui_studio::ControlRequest>> = std::sync::OnceLock::new();
+pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<transit_ui_studio::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_TRANSIT_SAF_BRIDGE_V1";
@@ -327,9 +327,7 @@ impl Drop for TransitAndroidApp {
 impl EframeApp for TransitAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
         saf_poll(&self.bridge, &self.state);
         watch_incoming(&self.bridge, ctx);
@@ -449,9 +447,10 @@ fn android_main(android_app: AndroidApp) {
     let result = eframe::run_native(
         "Transit",
         native,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             let (control_tx, control_rx) = std::sync::mpsc::channel();
-            let _ = CONTROL_TX.set(control_tx);
+            if let Ok(mut g) = CONTROL_TX.lock() { *g = Some(control_tx); }
             let app = StudioApp::new(transit_engine::Engine::default(), None, services).with_control(control_rx);
             let _mcp = mcp_http::start_mcp_service(
                 "Transit".to_string(),

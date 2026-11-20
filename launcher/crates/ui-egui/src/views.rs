@@ -789,15 +789,7 @@ impl LauncherUi {
                             ui.spacing_mut().item_spacing.x = 10.0;
                             // App Icon
                             if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-                                let icon_img = icon.fit_to_exact_size(vec2(40.0, 40.0)).sense(Sense::click());
-                                let icon_resp = ui.add(icon_img);
-                                if icon_resp.clicked() {
-                                    if installed {
-                                        self.launch_app(id);
-                                    } else if AppDetails::by_id(id).is_some() {
-                                        self.detail = Some(id.to_string());
-                                    }
-                                }
+                                ui.add(icon.fit_to_exact_size(vec2(40.0, 40.0)));
                             }
 
                             // Title & Version / Status
@@ -861,15 +853,7 @@ impl LauncherUi {
                             ui.spacing_mut().item_spacing.x = 12.0;
                             // App Icon
                             if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-                                let icon_img = icon.fit_to_exact_size(vec2(38.0, 38.0)).sense(Sense::click());
-                                let icon_resp = ui.add(icon_img);
-                                if icon_resp.clicked() {
-                                    if installed {
-                                        self.launch_app(id);
-                                    } else if AppDetails::by_id(id).is_some() {
-                                        self.detail = Some(id.to_string());
-                                    }
-                                }
+                                ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)));
                             }
 
                             // App name and author
@@ -1081,14 +1065,8 @@ impl LauncherUi {
         }
         let installed = entry.status(self.platform, self.caps.manage_apps).is_installed();
         if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-            let icon_resp = ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)).sense(Sense::click()));
-            if icon_resp.clicked() {
-                if installed {
-                    self.launch_app(id);
-                } else if AppDetails::by_id(id).is_some() {
-                    self.detail = Some(id.to_string());
-                }
-            }
+            // Decorative: the wordmark beside it carries the app name.
+            ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)));
         }
         ui.add_space(4.0);
         ui.vertical(|ui| {

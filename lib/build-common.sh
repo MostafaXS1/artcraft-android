@@ -4225,11 +4225,12 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
 struct SafServices {
     bridge: saf::Bridge,
     state: Arc<SafState>,
+    app: AndroidApp,
 }
 
 impl SafServices {
-    fn new(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> Self {
-        Self { bridge, state }
+    fn new(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox, app: AndroidApp) -> Self {
+        Self { bridge, state, app }
     }
 }
 
@@ -4256,6 +4257,16 @@ impl Services for SafServices {
             saf_folder_path(&bridge, &state).map(std::path::PathBuf::from)
         })
     }
+    fn clipboard_get_text(&mut self) -> Option<String> {
+        let t = android_clipboard_get(&self.app);
+        if t.is_empty() { None } else { Some(t) }
+    }
+    fn clipboard_get_html(&mut self) -> Option<String> {
+        android_clipboard_get_html(&self.app)
+    }
+    fn clipboard_set_text(&mut self, s: &str) {
+        android_clipboard_set(&self.app, s);
+    }
     fn open_url(&mut self, url: &str) {
         #[cfg(target_os = "android")]
         egui_winit::open_url::open_url(url);
@@ -4263,7 +4274,7 @@ impl Services for SafServices {
 }
 ''',
         "poll": SYNC_SAF_POLL,
-        "construct_expr": "FigApp::new(Session::new(), Box::new(SafServices::new(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone())))",
+        "construct_expr": "FigApp::new(Session::new(), Box::new(SafServices::new(saf_bridge.clone_ref(), std::sync::Arc::clone(&saf_state), saf_inbox.clone(), android_app.clone())))",
     },
     "solidcraft": {
         "activity": "SolidCraftActivity",
@@ -5088,33 +5099,33 @@ control_tx_def = ""
 control_init = ""
 ctx_store = ""
 if app in ("cadcraft", "wordcraft", "deckcraft", "designcraft", "lightcraft", "soundcraft"):
-    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 """
     control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
-        let _ = CONTROL_TX.set(control_tx);
+        if let Ok(mut g) = CONTROL_TX.lock() {
+            *g = Some(control_tx);
+        }
         inner = inner.with_control(control_rx);
 """
     ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
 """
 elif app == "gridcraft":
-    control_tx_def = f"""pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>> = std::sync::OnceLock::new();
+    control_tx_def = f"""pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<{ui_ident}::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 """
     control_init = """        let (control_tx, control_rx) = std::sync::mpsc::channel();
-        let _ = CONTROL_TX.set(control_tx);
+        if let Ok(mut g) = CONTROL_TX.lock() {
+            *g = Some(control_tx);
+        }
         inner.control_rx = Some(control_rx);
 """
     ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
 """
 elif app == "figcraft":
@@ -5124,9 +5135,7 @@ pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex:
 """
     control_init = ""
     ctx_store = """        if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
         if let Ok(mut q) = crate::CONTROL_QUEUE.lock() {
             self.inner.control_queue.extend(q.drain(..));
@@ -5867,6 +5876,125 @@ fn android_clipboard_set(app: &AndroidApp, text: &str) {
         log::error!("Could not write the Android clipboard: {error}");
     }
 }
+
+/// Read HTML text from the Android system clipboard (None when there is none).
+fn android_clipboard_get_html(app: &AndroidApp) -> Option<String> {
+    let app = app.clone();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<Option<String>> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(None);
+        }
+        let clip = env
+            .call_method(
+                &manager,
+                jni_str!("getPrimaryClip"),
+                jni_sig!("()Landroid/content/ClipData;"),
+                &[],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(None);
+        }
+        let count = env
+            .call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?
+            .i()?;
+        if count <= 0 {
+            return Ok(None);
+        }
+        let item = env
+            .call_method(
+                &clip,
+                jni_str!("getItemAt"),
+                jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                &[JValue::Int(0)],
+            )?
+            .l()?;
+        if item.is_null() {
+            return Ok(None);
+        }
+        let html = env
+            .call_method(
+                &item,
+                jni_str!("getHtmlText"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+        if html.is_null() {
+            return Ok(None);
+        }
+        let html = JString::cast_local(env, html)?;
+        let s = html.try_to_string(env)?;
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(s))
+        }
+    });
+    result.unwrap_or_else(|error| {
+        log::error!("Could not read HTML from Android clipboard: {error}");
+        None
+    })
+}
+
+/// Set HTML and plain text to the Android clipboard.
+fn android_clipboard_set_html(app: &AndroidApp, text: &str, html: &str) -> bool {
+    let app = app.clone();
+    let text = text.to_owned();
+    let html = html.to_owned();
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<bool> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        let service = JObject::from(env.new_string("clipboard")?);
+        let manager = env
+            .call_method(
+                &*activity,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service)],
+            )?
+            .l()?;
+        if manager.is_null() {
+            return Ok(false);
+        }
+        let label = JObject::from(env.new_string("egui")?);
+        let text_obj = JObject::from(env.new_string(&text)?);
+        let html_obj = JObject::from(env.new_string(&html)?);
+        let clip = env.call_static_method(
+            jni_str!("android/content/ClipData"),
+            jni_str!("newHtmlText"),
+            jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;Ljava/lang/String;)Landroid/content/ClipData;"),
+            &[JValue::Object(&label), JValue::Object(&text_obj), JValue::Object(&html_obj)],
+        )?.l()?;
+        if clip.is_null() {
+            return Ok(false);
+        }
+        env.call_method(
+            &manager,
+            jni_str!("setPrimaryClip"),
+            jni_sig!("(Landroid/content/ClipData;)V"),
+            &[JValue::Object(&clip)],
+        )?;
+        Ok(true)
+    });
+    result.unwrap_or_else(|error| {
+        log::error!("Could not write HTML to Android clipboard: {error}");
+        false
+    })
+}
 '''.replace("MARKER_PLACEHOLDER", shell_marker)
 
     # CADCraft's file-format hooks. The engine stays I/O-agnostic on purpose: the *host* installs
@@ -6021,6 +6149,100 @@ fn install_cadcraft_io() {
             f"        );\n"
         )
 
+    app_clipboard_init = ""
+    if app == "wordcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+        let app_clip_html = app.clone();
+        inner.services.clipboard_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+        let app_clip_set_rich = app.clone();
+        inner.services.set_clipboard_rich = Some(Box::new({
+            let app = app_clip_set_rich.clone();
+            move |text, html, _rtf, _mathml| {
+                if !html.is_empty() {
+                    android_clipboard_set_html(&app, text, html)
+                } else {
+                    android_clipboard_set(&app, text);
+                    true
+                }
+            }
+        }));
+"""
+    elif app == "designcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+"""
+    elif app == "effectcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.hooks.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+"""
+    elif app == "gridcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.paste_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+        let app_clip_html = app.clone();
+        inner.services.paste_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+"""
+    elif app == "deckcraft":
+        app_clipboard_init = """        let app_clip_html = app.clone();
+        inner.services.clipboard_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+        let app_clip_set_html = app.clone();
+        inner.services.clipboard_set_html = Some(Box::new({
+            let app = app_clip_set_html.clone();
+            move |html, text| {
+                android_clipboard_set_html(&app, text, html)
+            }
+        }));
+"""
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -6104,7 +6326,7 @@ impl AndroidShell {{
         mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
         let app_clip_set = app.clone();
         mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+{app_clipboard_init}        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
@@ -6269,6 +6491,7 @@ impl eframe::App for AndroidShell {{
             }
 """,
     }.get(app, "")
+    egui_ctx_store = "            if let Ok(mut g) = EGUI_CTX.lock() {\n                *g = Some(cc.egui_ctx.clone());\n            }\n" if control_tx_def else ""
     theme_line = (
         "            cc.egui_ctx.set_theme(egui::ThemePreference::System);\n"
     )
@@ -6276,6 +6499,7 @@ impl eframe::App for AndroidShell {{
     if needs_cc:
         creator = (
             "Box::new(move |cc| {\n"
+            + egui_ctx_store
             + theme_line
             + create_hook
             + f"            {inner_decl} = {construct_expr};\n"
@@ -6287,6 +6511,7 @@ impl eframe::App for AndroidShell {{
     else:
         creator = (
             "Box::new(move |cc| {\n"
+            + egui_ctx_store
             + theme_line
             + create_hook
             + "            Ok(Box::new(shell))\n        })"
@@ -6521,8 +6746,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl cadcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("CadApp UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "CadApp UI not initialized".to_string())?
         };
         let (req, pending) = cadcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6564,8 +6790,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl wordcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("WordCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "WordCraft UI not initialized".to_string())?
         };
         let (req, rx) = wordcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6647,8 +6874,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl gridcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("GridCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "GridCraft UI not initialized".to_string())?
         };
         let (req, rx) = gridcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6690,8 +6918,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl deckcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("DeckCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "DeckCraft UI not initialized".to_string())?
         };
         let (req, rx) = deckcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6733,8 +6962,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl designcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("DesignCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "DesignCraft UI not initialized".to_string())?
         };
         let (req, rx) = designcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6776,8 +7006,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl lightcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("LightCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "LightCraft UI not initialized".to_string())?
         };
         let (req, rx) = lightcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6832,8 +7063,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl soundcraft_automation::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("SoundCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "SoundCraft UI not initialized".to_string())?
         };
         let (req, rx) = soundcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;

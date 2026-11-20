@@ -35,7 +35,7 @@ mod mcp_http;
 mod mobile_text_bar;
 mod touch_gestures;
 
-pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<vectorcraft_ui_egui::ControlRequest>> = std::sync::OnceLock::new();
+pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<vectorcraft_ui_egui::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 /// Emitted at startup so the builder can confirm the bridge is present in the packaged `.so`.
@@ -1200,9 +1200,7 @@ impl Drop for VectorCraftAndroidApp {
 impl eframe::App for VectorCraftAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
         // Deliver picker answers before the app's own logic runs, so `picks::poll` resumes the
         // entry that asked in this same frame.
@@ -1313,13 +1311,14 @@ fn android_main(android_app: AndroidApp) {
     let result = eframe::run_native(
         "VectorCraft",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             let mut app = VectorcraftApp::new(
                 Session::new(),
                 services(app_bridge.clone_for_services(), app_picks.clone(), app_intent_inbox.clone()),
             );
             let (control_tx, control_rx) = std::sync::mpsc::channel();
-            let _ = CONTROL_TX.set(control_tx);
+            if let Ok(mut g) = CONTROL_TX.lock() { *g = Some(control_tx); }
             app = app.with_control(control_rx);
             if egui_winit::system_theme::system_theme() == Some(egui::Theme::Light) {
                 app.ui.brightness = vectorcraft_ui_egui::theme::Brightness::Light;

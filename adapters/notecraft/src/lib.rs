@@ -15,7 +15,7 @@ mod touch_gestures;
 mod saf;
 mod mcp_http;
 
-pub static CONTROL_TX: std::sync::OnceLock<std::sync::mpsc::Sender<notecraft_ui_egui::control::ControlRequest>> = std::sync::OnceLock::new();
+pub static CONTROL_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<notecraft_ui_egui::control::ControlRequest>>> = std::sync::Mutex::new(None);
 pub static EGUI_CTX: std::sync::Mutex<Option<egui::Context>> = std::sync::Mutex::new(None);
 
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_NOTECRAFT_SAF_BRIDGE_V1";
@@ -241,9 +241,7 @@ impl Drop for NoteCraftAndroidApp {
 impl eframe::App for NoteCraftAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Ok(mut g) = EGUI_CTX.lock() {
-            if g.is_none() {
-                *g = Some(ctx.clone());
-            }
+            *g = Some(ctx.clone());
         }
         self.state.mirror.sync(&self.bridge);
         watch_incoming(&self.bridge, ctx);
@@ -376,7 +374,8 @@ fn android_main(android_app: AndroidApp) {
     let result = eframe::run_native(
         "NoteCraft",
         native,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             let internal_dir = app_bridge.android_app().internal_data_path().unwrap_or_else(|| PathBuf::from("/data/data/com.artcraft.notecraft/files"));
             let notebooks = match std::env::var("NOTECRAFT_NOTEBOOKS") {
                 Ok(p) => PathBuf::from(p),
@@ -386,7 +385,7 @@ fn android_main(android_app: AndroidApp) {
             let session = Session::new(&notebooks, notecraft_store::settings::Settings::default_location())
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to initialize NoteCraft session: {e}")))?;
             let (control_tx, control_rx) = std::sync::mpsc::channel();
-            let _ = CONTROL_TX.set(control_tx);
+            if let Ok(mut g) = CONTROL_TX.lock() { *g = Some(control_tx); }
             let control_server = notecraft_ui_egui::control::ControlServer {
                 port: 0,
                 key_file: PathBuf::new(),

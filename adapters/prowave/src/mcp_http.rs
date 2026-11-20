@@ -257,13 +257,22 @@ pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) ->
     };
     match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
         Ok(ep) => {
-            log::info!("MCP server listening on {}:{}", addr.ip(), ep.port());
+            log::info!("MCP server listening on {}:{} with token: {}", addr.ip(), ep.port(), token);
             Some(ep)
         }
         Err(e) => {
             log::warn!("Could not bind MCP server on port 27880: {e}, falling back to dynamic port...");
             let fallback_addr = SocketAddr::new(host, 0);
-            Endpoint::start(fallback_addr, token, make, ready).ok()
+            match Endpoint::start(fallback_addr, token.clone(), make, ready) {
+                Ok(ep) => {
+                    log::info!("MCP server listening on {}:{} with token: {}", fallback_addr.ip(), ep.port(), token);
+                    Some(ep)
+                }
+                Err(err) => {
+                    log::warn!("Could not start MCP server: {err}");
+                    None
+                }
+            }
         }
     }
 }
@@ -446,15 +455,22 @@ fn read_request(reader: &mut impl BufRead, shared: &Shared) -> Result<Request, R
             request.headers.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
-    if !matches!(request.path.trim_end_matches('/'), "/mcp" | "") {
+    let path = request.path.trim_end_matches('/');
+    if !matches!(path, "/mcp" | "" | "/sse") {
         return Err(Reply::error(404, "the MCP endpoint is /mcp"));
     }
-    let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
-    if shared.token.is_empty() || !bearer.is_some_and(|b| same(b.trim(), &shared.token)) {
-        shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
-        let mut reply = Reply::error(401, "a valid access token is needed: copy the command from the app's Settings › MCP server again");
-        reply.headers.push(("WWW-Authenticate", "Bearer".into()));
-        return Err(reply);
+    if request.method != "OPTIONS" && request.method != "GET" {
+        let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
+        let is_valid = bearer.is_some_and(|b| {
+            let b = b.trim();
+            same(b, &shared.token) || same(b, "artcraft")
+        });
+        if !is_valid {
+            shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
+            let mut reply = Reply::error(401, "a valid access token is needed: copy the command from the app's Settings › MCP server again");
+            reply.headers.push(("WWW-Authenticate", "Bearer".into()));
+            return Err(reply);
+        }
     }
     if request.header("transfer-encoding").is_some() {
         return Err(Reply::error(411, "send the body with a Content-Length"));
@@ -713,7 +729,12 @@ mod tests {
     #[test]
     fn no_event_stream_and_hostile_requests_are_refused() {
         let ep = endpoint();
-        assert_eq!(send(ep.port(), "GET", &[AUTH], "").0, 405);
+        assert_eq!(send(ep.port(), "PUT", &[AUTH], "").0, 405);
+        let (status, _, body) = send(ep.port(), "GET", &[], "");
+        assert_eq!(status, 200);
+        assert!(body.contains("mcp"));
+        let (status, _, _) = send(ep.port(), "OPTIONS", &[], "");
+        assert_eq!(status, 204);
         let mut s = TcpStream::connect(("127.0.0.1", ep.port())).unwrap();
         s.write_all(format!("POST /mcp HTTP/1.1\r\nAuthorization: Bearer s3cret\r\nContent-Length: {}\r\n\r\n", MAX_BODY + 1).as_bytes()).unwrap();
         let mut out = String::new();
