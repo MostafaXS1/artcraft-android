@@ -12,7 +12,8 @@
         123,
         245
       ],
-      "repo": "storytold/photocraft"
+      "repo": "storytold/photocraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "vectorcraft",
@@ -23,7 +24,8 @@
         87,
         63
       ],
-      "repo": "storytold/vectorcraft"
+      "repo": "storytold/vectorcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "filmcraft",
@@ -34,7 +36,8 @@
         92,
         246
       ],
-      "repo": "storytold/filmcraft"
+      "repo": "storytold/filmcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "lightcraft",
@@ -45,7 +48,8 @@
         165,
         22
       ],
-      "repo": "storytold/lightcraft"
+      "repo": "storytold/lightcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "pdfcraft",
@@ -56,7 +60,8 @@
         32,
         79
       ],
-      "repo": "storytold/pdfcraft"
+      "repo": "storytold/pdfcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "effectcraft",
@@ -67,7 +72,8 @@
         54,
         143
       ],
-      "repo": "storytold/effectcraft"
+      "repo": "storytold/effectcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "designcraft",
@@ -78,7 +84,8 @@
         181,
         28
       ],
-      "repo": "storytold/designcraft"
+      "repo": "storytold/designcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "figcraft",
@@ -89,7 +96,8 @@
         218,
         150
       ],
-      "repo": "storytold/figcraft"
+      "repo": "storytold/figcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "wordcraft",
@@ -100,7 +108,8 @@
         95,
         224
       ],
-      "repo": "storytold/wordcraft"
+      "repo": "storytold/wordcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "soundcraft",
@@ -111,7 +120,8 @@
         165,
         201
       ],
-      "repo": "storytold/soundcraft"
+      "repo": "storytold/soundcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "deckcraft",
@@ -122,7 +132,8 @@
         122,
         30
       ],
-      "repo": "storytold/deckcraft"
+      "repo": "storytold/deckcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "cadcraft",
@@ -133,7 +144,8 @@
         166,
         232
       ],
-      "repo": "storytold/cadcraft"
+      "repo": "storytold/cadcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "gridcraft",
@@ -144,7 +156,8 @@
         157,
         85
       ],
-      "repo": "storytold/gridcraft"
+      "repo": "storytold/gridcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "materialcraft",
@@ -155,7 +168,8 @@
         138,
         156
       ],
-      "repo": "storytold/materialcraft"
+      "repo": "storytold/materialcraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "texturecraft",
@@ -166,7 +180,8 @@
         103,
         43
       ],
-      "repo": "storytold/texturecraft"
+      "repo": "storytold/texturecraft",
+      "discord": "https://discord.gg/artcraft"
     },
     {
       "id": "anicraft",
@@ -177,7 +192,8 @@
         202,
         0
       ],
-      "repo": "storytold/anicraft"
+      "repo": "storytold/anicraft",
+      "discord": "https://discord.gg/artcraft"
     }
   ],
   "community_apps": [
@@ -192,7 +208,6 @@
       ],
       "repo": "Aalzard/subcraft",
       "publisher": "Aalzard",
-      "site": "https://github.com/Aalzard/subcraft",
       "bundle": null,
       "image": "subcraft.png"
     },
@@ -209,7 +224,8 @@
       "publisher": "Tangency Labs",
       "site": "https://solidcraft.io",
       "bundle": "io.tangencylabs.solidcraft",
-      "image": "solidcraft.png"
+      "image": "solidcraft.png",
+      "discord": "https://discord.gg/FtU4NQNVDH"
     },
     {
       "id": "bimcraft",
@@ -222,7 +238,6 @@
       ],
       "repo": "IPedrax/BIMCraft",
       "publisher": "IPedrax",
-      "site": "https://github.com/IPedrax/BIMCraft",
       "bundle": null,
       "image": "bimcraft.png"
     },
@@ -237,7 +252,6 @@
       ],
       "repo": "kostyk348/CapsuleCraft",
       "publisher": "kostyk348",
-      "site": "https://github.com/kostyk348/CapsuleCraft",
       "bundle": null,
       "image": "capsulecraft.png"
     },
@@ -252,7 +266,6 @@
       ],
       "repo": "baradhili/DiagramCraft",
       "publisher": "baradhili",
-      "site": "https://github.com/baradhili/DiagramCraft",
       "bundle": null,
       "image": "diagramcraft.png"
     },
@@ -267,7 +280,6 @@
       ],
       "repo": "therichronicles/EarthCraft",
       "publisher": "therichronicles",
-      "site": "https://github.com/therichronicles/EarthCraft",
       "bundle": null,
       "image": "earthcraft.png"
     },
@@ -282,7 +294,6 @@
       ],
       "repo": "YalKouassi/HumanMotionCraft",
       "publisher": "YalKouassi",
-      "site": "https://github.com/YalKouassi/HumanMotionCraft",
       "bundle": null,
       "image": "humanmotioncraft.png"
     },
@@ -312,9 +323,9 @@
       ],
       "repo": "AlienTechSoftware/notecraft",
       "publisher": "AlienTechSoftware",
-      "site": "https://github.com/AlienTechSoftware/notecraft",
       "bundle": null,
-      "image": "notecraft.png"
+      "image": "notecraft.png",
+      "discord": "https://discord.com/invite/artcraft"
     },
     {
       "id": "paintcraft",
@@ -327,7 +338,6 @@
       ],
       "repo": "replicraft/PaintCraft",
       "publisher": "replicraft",
-      "site": "https://github.com/replicraft/PaintCraft",
       "bundle": null,
       "image": "paintcraft.png"
     },
@@ -344,7 +354,8 @@
       "publisher": "fabox",
       "site": "https://fabox-os.github.io/Picasso-Suite/",
       "bundle": null,
-      "image": "picassosuite.png"
+      "image": "picassosuite.png",
+      "discord": "https://discord.gg/zuMqg3nVnX"
     },
     {
       "id": "prowave",
@@ -359,7 +370,8 @@
       "publisher": "fabox",
       "site": "https://fabox-os.github.io/Pro-Wave/",
       "bundle": null,
-      "image": "prowave.png"
+      "image": "prowave.png",
+      "discord": "https://discord.gg/zuMqg3nVnX"
     },
     {
       "id": "rustgis",
@@ -372,7 +384,7 @@
       ],
       "repo": "opengeos/RustGIS",
       "publisher": "opengeos",
-      "site": "https://github.com/opengeos/RustGIS",
+      "site": "https://rustgis.app",
       "bundle": null,
       "image": "rustgis.png"
     },
@@ -387,7 +399,7 @@
       ],
       "repo": "tracedraw/tracedraw",
       "publisher": "TraceDraw",
-      "site": "https://github.com/tracedraw/tracedraw",
+      "site": "https://tracedraw.github.io/tracedraw/",
       "bundle": null,
       "package": "dev.tracedraw.app",
       "image": "tracedraw.png"
@@ -405,7 +417,8 @@
       "publisher": "transit-audio",
       "site": "https://transit-audio.com/",
       "bundle": null,
-      "image": "transit.png"
+      "image": "transit.png",
+      "discord": "https://discord.gg/7PPUBZqA66"
     },
     {
       "id": "coimanide",
@@ -418,7 +431,6 @@
       ],
       "repo": "ManuelCoimbra/coiman-ide",
       "publisher": "ManuelCoimbra",
-      "site": "https://github.com/ManuelCoimbra/coiman-ide",
       "bundle": null,
       "image": "coimanide.png"
     },
@@ -493,14 +505,14 @@
       ],
       "repo": "artcraft-android/procraft",
       "publisher": "Bearinmind",
-      "site": null,
       "bundle": null,
       "release": {
         "repo": "artcraft-android/procraft",
         "asset": "procraft-*-android-arm64.apk"
       },
       "package": "io.github.artcraftandroid.procraft",
-      "image": "procraft.png"
+      "image": "procraft.png",
+      "discord": "https://discord.gg/gypGes3Uca"
     },
     {
       "id": "capcraft",
@@ -513,7 +525,6 @@
       ],
       "repo": "artcraft-android/capcraft-android",
       "publisher": "Bearinmind",
-      "site": null,
       "bundle": null,
       "release": {
         "repo": "artcraft-android/capcraft-android",
@@ -540,7 +551,8 @@
         "asset": "Concat-*-android-arm64.apk"
       },
       "package": "app.concat.editor",
-      "image": "concat.png"
+      "image": "concat.png",
+      "discord": "https://discord.gg/DVuPfpXfqP"
     },
     {
       "id": "shapecraft",
@@ -560,7 +572,8 @@
         "asset": "shapecraft-*-android-arm64.apk"
       },
       "package": "com.jackharvest.shapecraft",
-      "image": "shapecraft.png"
+      "image": "shapecraft.png",
+      "discord": "https://discord.gg/qHW22aC8Rn"
     }
   ]
 }

@@ -104,5 +104,5 @@
         <package android:name="io.github.artcraftandroid.capcraft" />
         <package android:name="io.github.artcraftandroid.procraft" />
     </queries>
-    <!-- END GENERATED PACKAGE QUERIES -->
+        <!-- END GENERATED PACKAGE QUERIES -->
 </manifest>

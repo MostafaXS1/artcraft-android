@@ -45,6 +45,8 @@ pub struct CraftApp {
     pub former_bundles: &'static [&'static str],
     /// Its website, when it isn't a page on getartcraft.com (a community app has its own).
     pub site: Option<&'static str>,
+    /// Its Discord invite URL, if it has a community server.
+    pub discord: Option<&'static str>,
     /// The Apple Developer team whose Developer ID signature its macOS build must carry. `None`
     /// while those builds carry no signature the launcher can check: it then opens a copy that's
     /// there and links to the releases, but installs nothing.
@@ -65,9 +67,15 @@ impl CraftApp {
         format!("https://github.com/{}", self.repo)
     }
 
-    /// The app's website: its page on getartcraft.com, or a community app's own site.
-    pub fn website(&self) -> String {
-        self.site.map_or_else(|| format!("https://getartcraft.com/apps/{}", self.id), str::to_string)
+    /// The app's website: its page on getartcraft.com (for official apps), or a community app's own site.
+    pub fn website(&self) -> Option<String> {
+        if let Some(site) = self.site {
+            Some(site.to_string())
+        } else if self.kind == AppKind::Official {
+            Some(format!("https://getartcraft.com/apps/{}", self.id))
+        } else {
+            None
+        }
     }
 
     /// Whether the launcher installs this app from a `kind` package.
@@ -118,6 +126,7 @@ const fn app(
         bundle: None,
         former_bundles: &[],
         site: None,
+        discord: Some(DISCORD_URL),
         mac_team: Some(ARTCRAFT_TEAM_ID),
     }
 }
@@ -228,6 +237,7 @@ pub const SUITE: [CraftApp; 17] = [
         bundle: Some("io.tangencylabs.solidcraft"),
         former_bundles: &["ai.storyteller.solidcraft", "ai.storyteller.solvecraft"],
         site: Some("https://solidcraft.io"),
+        discord: Some("https://discord.gg/FtU4NQNVDH"),
         // Signed by its own developer's team, not ArtCraft's (since 0.27, per its README).
         mac_team: Some("G5QA5U5X2S"),
         ..app(
@@ -369,7 +379,8 @@ mod tests {
         assert_eq!(sc.bundle_ids().collect::<Vec<_>>(), ["io.tangencylabs.solidcraft", "ai.storyteller.solidcraft", "ai.storyteller.solvecraft"]);
         assert_eq!(CraftApp::by_id("gridcraft").unwrap().bundle_id(), "ai.storyteller.gridcraft");
         assert_eq!(CraftApp::by_id("gridcraft").unwrap().kind, AppKind::Official);
-        assert_eq!(sc.website(), "https://solidcraft.io");
+        assert_eq!(sc.website().as_deref(), Some("https://solidcraft.io"));
+        assert_eq!(sc.discord, Some("https://discord.gg/FtU4NQNVDH"));
         assert!(sc.installs(crate::PackageKind::Dmg) && sc.installs(crate::PackageKind::Msi) && sc.installs(crate::PackageKind::Flatpak));
         assert_eq!(sc.mac_team, Some("G5QA5U5X2S"));
         assert_eq!(CraftApp::by_id("gridcraft").unwrap().mac_team, Some(ARTCRAFT_TEAM_ID));
@@ -381,7 +392,8 @@ mod tests {
         assert_eq!(app.kind, AppKind::Official);
         assert_eq!(app.repo, "storytold/texturecraft");
         assert_eq!(app.bundle_id(), "ai.storyteller.texturecraft");
-        assert_eq!(app.website(), "https://getartcraft.com/apps/texturecraft");
+        assert_eq!(app.website().as_deref(), Some("https://getartcraft.com/apps/texturecraft"));
+        assert_eq!(app.discord, Some(DISCORD_URL));
         assert_eq!(app.mac_team, Some(ARTCRAFT_TEAM_ID));
     }
 
@@ -391,7 +403,8 @@ mod tests {
         assert_eq!(app.kind, AppKind::Official);
         assert_eq!(app.repo, "storytold/materialcraft");
         assert_eq!(app.bundle_id(), "ai.storyteller.materialcraft");
-        assert_eq!(app.website(), "https://github.com/storytold/materialcraft");
+        assert_eq!(app.website().as_deref(), Some("https://github.com/storytold/materialcraft"));
+        assert_eq!(app.discord, Some(DISCORD_URL));
         assert_eq!(app.mac_team, Some(ARTCRAFT_TEAM_ID));
     }
 
@@ -401,7 +414,8 @@ mod tests {
         assert_eq!(ca.kind, AppKind::Official);
         assert_eq!(ca.repo, "storytold/craft-anything");
         assert_eq!(ca.bundle_id(), "ai.storyteller.craft-anything");
-        assert_eq!(ca.website(), "https://getartcraft.com/apps/craft-anything");
+        assert_eq!(ca.website().as_deref(), Some("https://getartcraft.com/apps/craft-anything"));
+        assert_eq!(ca.discord, Some(DISCORD_URL));
         assert_eq!(ca.mac_team, Some(ARTCRAFT_TEAM_ID));
     }
 
@@ -410,7 +424,7 @@ mod tests {
         let pdf = CraftApp::by_id("pdfcraft").unwrap();
         assert_eq!(pdf.stems().collect::<Vec<_>>(), ["pdfcraft", "printcraft"]);
         assert_eq!(pdf.names().collect::<Vec<_>>(), ["PdfCraft", "PrintCraft"]);
-        assert_eq!(pdf.website(), "https://getartcraft.com/apps/pdfcraft");
-        assert_eq!(CraftApp::by_id("wordcraft").unwrap().website(), "https://getartcraft.com/apps/wordcraft");
+        assert_eq!(pdf.website().as_deref(), Some("https://getartcraft.com/apps/pdfcraft"));
+        assert_eq!(CraftApp::by_id("wordcraft").unwrap().website().as_deref(), Some("https://getartcraft.com/apps/wordcraft"));
     }
 }
