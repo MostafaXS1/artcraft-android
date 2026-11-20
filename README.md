@@ -225,7 +225,6 @@ Yes! If you develop an open-source Rust, egui, or desktop creative application, 
 ---
 
 ## Security
-
-For vulnerability reporting guidelines, please see our [Security Policy](SECURITY.md).
+We take security very seriously across all our Android ports. For vulnerability reporting guidelines, please see our [Security Policy](SECURITY.md).
 
 
