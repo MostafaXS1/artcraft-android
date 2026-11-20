@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "f52841444e4de64c20470dfc856f01064b598108",
-  "head_date": "2026-11-18T23:57:40Z",
-  "commits": 5556,
+  "head": "a3f65b67b858e4661b177e356dee263aef84724a",
+  "head_date": "2026-11-20T01:41:29Z",
+  "commits": 5562,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 110,
-      "commits": 402,
-      "lines_added": 22942,
-      "lines_deleted": 59350,
+      "prs": 116,
+      "commits": 408,
+      "lines_added": 23320,
+      "lines_deleted": 59853,
       "binary_added": 2,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:24Z",
-      "last_commit": "2026-11-18T23:57:40Z"
+      "last_commit": "2026-11-20T01:41:29Z"
     },
     {
       "login": "bflatastic",

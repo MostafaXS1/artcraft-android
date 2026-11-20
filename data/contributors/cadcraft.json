@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/cadcraft",
   "branch": "main",
-  "head": "a770fa5a5e5f9d4ffe4dc0f60db5eacb6665c980",
-  "head_date": "2026-11-18T14:46:38Z",
-  "commits": 1666,
+  "head": "23a599dcd613157c8247a4d6f744294b6174c4f2",
+  "head_date": "2026-11-20T00:44:39Z",
+  "commits": 1676,
   "unattributed_commits": 14,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 105,
-      "commits": 147,
-      "lines_added": 17194,
-      "lines_deleted": 14103,
+      "prs": 106,
+      "commits": 152,
+      "lines_added": 17250,
+      "lines_deleted": 14425,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T16:58:26Z",
-      "last_commit": "2026-11-16T11:28:11Z"
+      "last_commit": "2026-11-20T00:44:39Z"
     },
     {
       "login": "tanish2k09",
@@ -513,6 +513,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-15T14:43:04Z",
       "last_commit": "2026-11-02T22:01:46Z"
+    },
+    {
+      "login": "cwilson510",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 0,
+      "commits": 5,
+      "lines_added": 160,
+      "lines_deleted": 29,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-10T19:43:21Z",
+      "last_commit": "2026-11-14T09:48:06Z"
     },
     {
       "login": "cyfung1031",
@@ -1891,6 +1904,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T13:12:32Z",
       "last_commit": "2026-10-08T13:12:32Z"
+    },
+    {
+      "login": "cdwilson127",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 2,
+      "commits": 0,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "",
+      "last_commit": ""
     }
   ],
   "models": [

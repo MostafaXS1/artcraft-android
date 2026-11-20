@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "a02d892f831f0a4e1220e0357c7b941030b9cd6f",
-  "head_date": "2026-11-19T01:37:06Z",
-  "commits": 1664,
+  "head": "f0338e662c3114a9aa753da818ad0ed1aa03338b",
+  "head_date": "2026-11-19T23:43:25Z",
+  "commits": 1667,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -63,14 +63,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 69,
-      "commits": 94,
-      "lines_added": 7670,
-      "lines_deleted": 27938,
+      "prs": 71,
+      "commits": 96,
+      "lines_added": 7784,
+      "lines_deleted": 28024,
       "binary_added": 0,
       "binary_deleted": 10,
       "first_commit": "2026-10-11T15:52:00Z",
-      "last_commit": "2026-11-17T08:19:04Z"
+      "last_commit": "2026-11-19T23:43:25Z"
     },
     {
       "login": "FredApps",
@@ -1150,6 +1150,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-12T08:10:00Z",
       "last_commit": "2026-10-12T08:10:00Z"
+    },
+    {
+      "login": "vhhr7",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 2584,
+      "lines_deleted": 24,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-19T16:43:36Z",
+      "last_commit": "2026-11-19T16:43:36Z"
     },
     {
       "login": "vxMacDev",

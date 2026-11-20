@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/deckcraft",
   "branch": "main",
-  "head": "e4f86d11fe8a9db91a6c433b7a3032b7b2801a98",
-  "head_date": "2026-11-19T00:51:57Z",
-  "commits": 2264,
+  "head": "b547f10884dbae3cf147b8efd67e88d2a5c7546a",
+  "head_date": "2026-11-20T00:00:02Z",
+  "commits": 2268,
   "unattributed_commits": 24,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 134,
-      "commits": 193,
-      "lines_added": 19366,
-      "lines_deleted": 71271,
+      "prs": 137,
+      "commits": 196,
+      "lines_added": 19391,
+      "lines_deleted": 71759,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T10:17:45Z",
-      "last_commit": "2026-11-19T00:51:57Z"
+      "last_commit": "2026-11-20T00:00:02Z"
     },
     {
       "login": "aiongg",
@@ -76,14 +76,14 @@
       "login": "Harrison-Booth",
       "people_entry": false,
       "github_name": null,
-      "prs": 48,
-      "commits": 99,
-      "lines_added": 4380,
-      "lines_deleted": 718,
+      "prs": 49,
+      "commits": 100,
+      "lines_added": 4577,
+      "lines_deleted": 740,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-26T22:17:53Z",
-      "last_commit": "2026-11-04T23:09:50Z"
+      "last_commit": "2026-11-19T21:27:42Z"
     },
     {
       "login": "FredApps",

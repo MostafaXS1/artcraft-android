@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "686fb3fa0485ab4af74c60e343203572fc37138f",
-  "head_date": "2026-11-19T00:24:22Z",
-  "commits": 5180,
+  "head": "ab5c4751f3ab481457744ed6064df99cda61329d",
+  "head_date": "2026-11-19T23:48:27Z",
+  "commits": 5357,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -37,27 +37,27 @@
       "login": "vangel76",
       "people_entry": true,
       "github_name": null,
-      "prs": 181,
-      "commits": 436,
-      "lines_added": 123983,
-      "lines_deleted": 10617,
+      "prs": 182,
+      "commits": 606,
+      "lines_added": 147019,
+      "lines_deleted": 16531,
       "binary_added": 3,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T09:11:25Z",
-      "last_commit": "2026-11-16T21:05:56Z"
+      "last_commit": "2026-11-19T09:37:00Z"
     },
     {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 136,
-      "commits": 288,
-      "lines_added": 24017,
-      "lines_deleted": 49403,
+      "prs": 139,
+      "commits": 292,
+      "lines_added": 24413,
+      "lines_deleted": 49707,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:14Z",
-      "last_commit": "2026-11-18T15:42:05Z"
+      "last_commit": "2026-11-19T23:48:27Z"
     },
     {
       "login": "arnav-hiwarkar",
@@ -89,14 +89,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 45,
-      "commits": 238,
-      "lines_added": 53384,
-      "lines_deleted": 27631,
+      "prs": 47,
+      "commits": 242,
+      "lines_added": 53764,
+      "lines_deleted": 27843,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T20:25:40Z",
-      "last_commit": "2026-11-19T00:24:22Z"
+      "last_commit": "2026-11-19T20:56:31Z"
     },
     {
       "login": "aiongg",
@@ -2250,9 +2250,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 1327,
-      "lines_added": 453352,
-      "lines_deleted": 34475
+      "commits": 1354,
+      "lines_added": 458697,
+      "lines_deleted": 35931
     },
     {
       "id": "anthropic/claude-sonnet/5.5",

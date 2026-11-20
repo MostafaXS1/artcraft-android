@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/designcraft",
   "branch": "main",
-  "head": "a8f6be842efb2981fcf53e5878404bdbce37b4e9",
-  "head_date": "2026-11-19T00:08:41Z",
-  "commits": 5573,
+  "head": "a354990c2b6c1d7c8abe1345f71c5e7950e7b46e",
+  "head_date": "2026-11-19T23:56:55Z",
+  "commits": 5596,
   "unattributed_commits": 28,
   "contributors": [
     {
@@ -12,13 +12,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 215,
-      "commits": 1836,
-      "lines_added": 222212,
-      "lines_deleted": 129251,
+      "commits": 1837,
+      "lines_added": 222303,
+      "lines_deleted": 129257,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-06T15:11:56Z",
-      "last_commit": "2026-11-14T14:18:31Z"
+      "last_commit": "2026-11-19T01:37:12Z"
     },
     {
       "login": "teaalltr",
@@ -50,27 +50,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 117,
-      "commits": 367,
-      "lines_added": 23356,
-      "lines_deleted": 20697,
+      "prs": 120,
+      "commits": 370,
+      "lines_added": 23684,
+      "lines_deleted": 21096,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T05:51:30Z",
-      "last_commit": "2026-11-19T00:08:41Z"
+      "last_commit": "2026-11-19T23:56:55Z"
     },
     {
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
-      "prs": 79,
-      "commits": 264,
-      "lines_added": 21681,
-      "lines_deleted": 2457,
+      "prs": 80,
+      "commits": 278,
+      "lines_added": 22508,
+      "lines_deleted": 3699,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T06:14:31Z",
-      "last_commit": "2026-11-18T13:00:41Z"
+      "last_commit": "2026-11-19T15:45:28Z"
     },
     {
       "login": "skylartaylor",
@@ -138,6 +138,19 @@
       "last_commit": "2026-10-21T21:45:03Z"
     },
     {
+      "login": "FredApps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 11,
+      "commits": 61,
+      "lines_added": 6824,
+      "lines_deleted": 760,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-20T08:57:09Z",
+      "last_commit": "2026-11-19T16:19:53Z"
+    },
+    {
       "login": "macrobi",
       "people_entry": true,
       "github_name": null,
@@ -149,19 +162,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-17T13:56:21Z",
       "last_commit": "2026-11-01T13:25:33Z"
-    },
-    {
-      "login": "FredApps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 9,
-      "commits": 56,
-      "lines_added": 6698,
-      "lines_deleted": 749,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-20T08:57:09Z",
-      "last_commit": "2026-11-16T12:51:57Z"
     },
     {
       "login": "texjer",
@@ -1139,6 +1139,19 @@
       "last_commit": "2026-10-12T06:39:40Z"
     },
     {
+      "login": "alejo-c",
+      "people_entry": true,
+      "github_name": "Alejandro Castrill\u00f3n",
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 91,
+      "lines_deleted": 6,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-19T01:37:12Z",
+      "last_commit": "2026-11-19T01:37:12Z"
+    },
+    {
       "login": "alichaudhry55",
       "people_entry": false,
       "github_name": null,
@@ -1770,9 +1783,9 @@
       "company": "OpenAI",
       "model": "Codex",
       "version": "",
-      "commits": 43,
-      "lines_added": 10032,
-      "lines_deleted": 857
+      "commits": 48,
+      "lines_added": 10445,
+      "lines_deleted": 1474
     },
     {
       "id": "anthropic/claude",
@@ -1820,6 +1833,15 @@
       "lines_deleted": 18
     },
     {
+      "id": "coderabbit/coderabbit",
+      "company": "CodeRabbit",
+      "model": "CodeRabbit",
+      "version": "",
+      "commits": 2,
+      "lines_added": 94,
+      "lines_deleted": 6
+    },
+    {
       "id": "anthropic/claude-opus/4.8",
       "company": "Anthropic",
       "model": "Claude Opus",
@@ -1836,15 +1858,6 @@
       "commits": 1,
       "lines_added": 48,
       "lines_deleted": 5
-    },
-    {
-      "id": "coderabbit/coderabbit",
-      "company": "CodeRabbit",
-      "model": "CodeRabbit",
-      "version": "",
-      "commits": 1,
-      "lines_added": 3,
-      "lines_deleted": 0
     }
   ]
 }

@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/pdfcraft",
   "branch": "main",
-  "head": "5b8cb8ab61cd0d0f8dd91845f16d3f5a40a546d9",
-  "head_date": "2026-11-19T01:12:39Z",
-  "commits": 6622,
+  "head": "6de83353bd67bb51c748bda90b7239c340326394",
+  "head_date": "2026-11-20T02:16:43Z",
+  "commits": 6638,
   "unattributed_commits": 16,
   "contributors": [
     {
@@ -64,13 +64,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 65,
-      "commits": 471,
+      "commits": 472,
       "lines_added": 77055,
       "lines_deleted": 104802,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T22:25:25Z",
-      "last_commit": "2026-11-19T01:12:39Z"
+      "last_commit": "2026-11-20T02:16:43Z"
     },
     {
       "login": "EricKaden",
@@ -102,14 +102,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 150,
-      "commits": 275,
-      "lines_added": 24062,
-      "lines_deleted": 44733,
+      "prs": 154,
+      "commits": 285,
+      "lines_added": 25690,
+      "lines_deleted": 45663,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T15:51:25Z",
-      "last_commit": "2026-11-19T00:23:10Z"
+      "last_commit": "2026-11-19T23:38:34Z"
     },
     {
       "login": "alehel",
@@ -258,14 +258,14 @@
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
-      "prs": 18,
-      "commits": 56,
-      "lines_added": 6822,
+      "prs": 19,
+      "commits": 57,
+      "lines_added": 6823,
       "lines_deleted": 438,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-24T10:22:04Z",
-      "last_commit": "2026-11-18T09:34:15Z"
+      "last_commit": "2026-11-19T23:58:18Z"
     },
     {
       "login": "MMexicann",
@@ -437,6 +437,19 @@
       "last_commit": "2026-10-23T20:23:04Z"
     },
     {
+      "login": "wstock",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 17,
+      "commits": 24,
+      "lines_added": 2051,
+      "lines_deleted": 255,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-08T07:39:27Z",
+      "last_commit": "2026-11-19T14:20:37Z"
+    },
+    {
       "login": "DWAA1660",
       "people_entry": false,
       "github_name": null,
@@ -448,19 +461,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T01:37:28Z",
       "last_commit": "2026-11-11T12:09:37Z"
-    },
-    {
-      "login": "wstock",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 16,
-      "commits": 23,
-      "lines_added": 1500,
-      "lines_deleted": 149,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-08T07:39:27Z",
-      "last_commit": "2026-10-20T12:43:21Z"
     },
     {
       "login": "bartalos86",
@@ -1282,6 +1282,19 @@
       "last_commit": "2026-10-11T17:54:26Z"
     },
     {
+      "login": "kiwi4boy",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 0,
+      "commits": 6,
+      "lines_added": 1695,
+      "lines_deleted": 880,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-15T02:19:22Z",
+      "last_commit": "2026-11-18T22:28:58Z"
+    },
+    {
       "login": "leblanc-simon",
       "people_entry": false,
       "github_name": null,
@@ -1917,19 +1930,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-11T19:09:39Z",
       "last_commit": "2026-10-13T04:14:40Z"
-    },
-    {
-      "login": "kiwi4boy",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 0,
-      "commits": 3,
-      "lines_added": 1170,
-      "lines_deleted": 702,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-15T02:19:22Z",
-      "last_commit": "2026-11-18T22:11:01Z"
     },
     {
       "login": "Kronbii",
@@ -4873,7 +4873,7 @@
       "login": "keithcsqueensu",
       "people_entry": false,
       "github_name": null,
-      "prs": 1,
+      "prs": 2,
       "commits": 0,
       "lines_added": 0,
       "lines_deleted": 0,
@@ -4934,9 +4934,9 @@
       "company": "Anthropic",
       "model": "Claude Fable",
       "version": "5.1",
-      "commits": 56,
-      "lines_added": 12758,
-      "lines_deleted": 969
+      "commits": 57,
+      "lines_added": 13309,
+      "lines_deleted": 1075
     },
     {
       "id": "openai/codex-gpt/6.1",

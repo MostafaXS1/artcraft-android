@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/wordcraft",
   "branch": "main",
-  "head": "6ef13b2cc8a60e6391d7a5b92459ec47598d58a9",
-  "head_date": "2026-11-18T15:16:38Z",
-  "commits": 3524,
+  "head": "f8ec3cc0fa884369c4f3ebbd9ca3085398f5ec31",
+  "head_date": "2026-11-20T00:03:26Z",
+  "commits": 3525,
   "unattributed_commits": 14,
   "contributors": [
     {
@@ -63,14 +63,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 75,
-      "commits": 198,
-      "lines_added": 23978,
+      "prs": 76,
+      "commits": 199,
+      "lines_added": 24011,
       "lines_deleted": 104954,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T15:50:38Z",
-      "last_commit": "2026-11-17T21:19:16Z"
+      "last_commit": "2026-11-20T00:03:26Z"
     },
     {
       "login": "dkhlapov",
