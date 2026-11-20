@@ -291,6 +291,9 @@ EXT_MIME = {
     # Simulation / FEA
     "fieldcraft": ("application/x-fieldcraft",),
     "msh": ("model/mesh", "application/octet-stream"),
+    # PaperCraft
+    "papercraft": ("application/x-papercraft",),
+    "crumbs": ("application/x-papercraft-crumbs",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -349,6 +352,9 @@ ASSOCIATIONS = {
     "anicraft": ["anicraft", "fla", "xfl", "svg", "png", "gif", "json"],
     "pcbcraft": ["pc", "kicad_pcb", "kicad_sch"],
     "fieldcraft": ["fieldcraft", "solidcraft", "3mf", "msh"],
+    "papercraft": ["papercraft", "crumbs", "fig", "svg"],
+    "drawcraft": ["tdraw", "cdr", "cmx", "svg", "pdf", "ai", "eps"],
+    "ferrite": ["md", "markdown", "txt", "json", "toml", "yaml", "yml", "csv"],
     "coimanide": [
         "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
         "md", "markdown", "txt", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "java", "kt", "kts",

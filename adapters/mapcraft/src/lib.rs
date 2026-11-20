@@ -5,7 +5,7 @@
 use android_activity::AndroidApp;
 use eframe::App as EframeApp;
 use mapcraft_ui::{MapCraftApp, Options};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -20,9 +20,51 @@ const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_MAPCRAFT_ANDROID_SHELL_V1";
 
 static ALIVE: AtomicBool = AtomicBool::new(true);
 
+fn migrate_dir_contents(src: &Path, dst: &Path) {
+    if !src.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(file_name);
+            if src_path.is_dir() {
+                migrate_dir_contents(&src_path, &dst_path);
+                let _ = std::fs::remove_dir(&src_path);
+            } else if src_path.is_file() {
+                if std::fs::rename(&src_path, &dst_path).is_err() {
+                    if std::fs::copy(&src_path, &dst_path).is_ok() {
+                        let _ = std::fs::remove_file(&src_path);
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(src);
+}
+
+fn resolve_media_dir(app: &AndroidApp) -> Option<PathBuf> {
+    if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            if path.exists() && path != media_path {
+                migrate_dir_contents(&path, &media_path);
+            }
+            return Some(media_path);
+        }
+        return Some(path);
+    }
+    app.internal_data_path()
+}
+
 #[allow(unused_unsafe)]
 fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
-    let base = app.external_data_path().or_else(|| app.internal_data_path())?;
+    let base = resolve_media_dir(app)?;
     let config = base.join("config");
     let cache = base.join("cache");
     let _ = std::fs::create_dir_all(&config);

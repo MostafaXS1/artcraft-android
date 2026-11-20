@@ -269,7 +269,7 @@ impl WgpuSetupCreateNew {
                     required_limits: wgpu::Limits {
                         // When using a depth buffer, we have to be able to create a texture
                         // large enough for the entire surface, and we want to support 4k+ displays.
-                        max_texture_dimension_2d: 8192,
+                        max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d.min(8192),
                         ..base_limits
                     },
                     ..Default::default()

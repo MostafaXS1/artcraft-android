@@ -76,8 +76,10 @@
         <package android:name="com.artcraft.deckcraft" />
         <package android:name="com.artcraft.designcraft" />
         <package android:name="com.artcraft.diagramcraft" />
+        <package android:name="com.artcraft.drawcraft" />
         <package android:name="com.artcraft.earthcraft" />
         <package android:name="com.artcraft.effectcraft" />
+        <package android:name="com.artcraft.ferrite" />
         <package android:name="com.artcraft.fieldcraft" />
         <package android:name="com.artcraft.figcraft" />
         <package android:name="com.artcraft.filmcraft" />
@@ -88,6 +90,7 @@
         <package android:name="com.artcraft.materialcraft" />
         <package android:name="com.artcraft.notecraft" />
         <package android:name="com.artcraft.paintcraft" />
+        <package android:name="com.artcraft.papercraft" />
         <package android:name="com.artcraft.pcbcraft" />
         <package android:name="com.artcraft.pdfcraft" />
         <package android:name="com.artcraft.photocraft" />

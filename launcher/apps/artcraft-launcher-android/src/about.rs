@@ -368,6 +368,42 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
+    AppDetails {
+        id: "papercraft",
+        headline: "A local design canvas built in Rust and egui.",
+        about: "An open-source local design canvas and vector editor by slyim. Fast vector tools, artboards, SVG export, and Figma document import.",
+        features: &[
+            Feature { title: "Local design canvas", text: "Intuitive vector drawing with bezier paths, shapes, and typography." },
+            Feature { title: "Figma import", text: "Directly opens .fig files into native editable papercraft documents." },
+            Feature { title: "Local-first", text: "Your designs stay entirely on your device with no cloud dependencies." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
+    AppDetails {
+        id: "drawcraft",
+        headline: "Vector illustration and CorelDraw CDR design in pure Rust.",
+        about: "An open-source vector graphics editor supporting CorelDraw .cdr files, SVG, PDF and CMYK vector design workflows.",
+        features: &[
+            Feature { title: "Vector drawing tools", text: "Comprehensive suite of pen, node, shaping, and precision layout tools." },
+            Feature { title: "CDR interoperability", text: "High-fidelity rendering and parsing of CorelDraw CDR files." },
+            Feature { title: "Cross-platform", text: "Identical experience across desktop and Android." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
+    AppDetails {
+        id: "ferrite",
+        headline: "Fast, lightweight text editor for Markdown and JSON.",
+        about: "A fast, lightweight text editor for Markdown, JSON, and more by OlaProeis. Built with pure Rust and egui with syntax highlighting, live preview, and vim modes.",
+        features: &[
+            Feature { title: "Markdown with live preview", text: "Real-time side-by-side or tabbed markdown rendering with syntect highlighting." },
+            Feature { title: "Lightweight & responsive", text: "Near-instant startup and minimal memory footprint on mobile devices." },
+            Feature { title: "Local-first", text: "Private, offline text editing designed for touch and keyboard." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

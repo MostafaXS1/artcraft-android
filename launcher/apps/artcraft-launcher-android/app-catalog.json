@@ -604,6 +604,51 @@
       "site": "https://github.com/tangency-labs/fieldcraft",
       "bundle": "io.tangencylabs.fieldcraft",
       "image": "fieldcraft.png"
+    },
+    {
+      "id": "papercraft",
+      "name": "PaperCraft",
+      "tagline": "A local design canvas built in Rust and egui",
+      "color": [
+        234,
+        76,
+        137
+      ],
+      "repo": "slyim/papercraft",
+      "publisher": "slyim",
+      "site": "https://github.com/slyim/papercraft",
+      "bundle": "com.artcraft.papercraft",
+      "image": "papercraft.png"
+    },
+    {
+      "id": "drawcraft",
+      "name": "DrawCraft",
+      "tagline": "Vector illustration and CorelDraw CDR design",
+      "color": [
+        14,
+        165,
+        233
+      ],
+      "repo": "Adnan10p/DrawCraft",
+      "publisher": "Adnan10p",
+      "site": "https://github.com/Adnan10p/DrawCraft",
+      "bundle": "com.artcraft.drawcraft",
+      "image": "drawcraft.png"
+    },
+    {
+      "id": "ferrite",
+      "name": "Ferrite",
+      "tagline": "Fast, lightweight text editor for Markdown and JSON",
+      "color": [
+        249,
+        115,
+        22
+      ],
+      "repo": "OlaProeis/Ferrite",
+      "publisher": "OlaProeis",
+      "site": "https://github.com/OlaProeis/Ferrite",
+      "bundle": "com.artcraft.ferrite",
+      "image": "ferrite.png"
     }
   ]
 }

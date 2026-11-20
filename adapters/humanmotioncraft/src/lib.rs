@@ -18,9 +18,51 @@ const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_HUMANMOTIONCRAFT_ANDROID_SHELL_V1";
 
 static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
+fn migrate_dir_contents(src: &Path, dst: &Path) {
+    if !src.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(file_name);
+            if src_path.is_dir() {
+                migrate_dir_contents(&src_path, &dst_path);
+                let _ = std::fs::remove_dir(&src_path);
+            } else if src_path.is_file() {
+                if std::fs::rename(&src_path, &dst_path).is_err() {
+                    if std::fs::copy(&src_path, &dst_path).is_ok() {
+                        let _ = std::fs::remove_file(&src_path);
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(src);
+}
+
+fn resolve_media_dir(app: &AndroidApp) -> Option<PathBuf> {
+    if let Some(path) = app.external_data_path() {
+        let s = path.to_string_lossy();
+        if s.contains("/Android/data/") {
+            let replaced = s.replace("/Android/data/", "/Android/media/");
+            let media_path = PathBuf::from(replaced);
+            let _ = std::fs::create_dir_all(&media_path);
+            if path.exists() && path != media_path {
+                migrate_dir_contents(&path, &media_path);
+            }
+            return Some(media_path);
+        }
+        return Some(path);
+    }
+    app.internal_data_path()
+}
+
 #[allow(unused_unsafe)]
 fn install_persist_env(app: &AndroidApp) {
-    let Some(base) = app.external_data_path().or_else(|| app.internal_data_path()) else {
+    let Some(base) = resolve_media_dir(app) else {
         return;
     };
     let projects = base.join("projects");

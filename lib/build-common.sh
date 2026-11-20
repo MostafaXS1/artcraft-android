@@ -33,7 +33,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft drawcraft ferrite
 
 Examples:
   bash build.sh -photocraft
@@ -172,6 +172,9 @@ case "$APP" in
     coimanide) TITLE="Coiman IDE" ;;
     pcbcraft) TITLE="PCBCraft" ;;
     fieldcraft) TITLE="FieldCraft" ;;
+    papercraft) TITLE="PaperCraft" ;;
+    drawcraft) TITLE="DrawCraft" ;;
+    ferrite) TITLE="Ferrite" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -237,6 +240,15 @@ elif [[ "$APP" == "pcbcraft" ]]; then
 elif [[ "$APP" == "fieldcraft" ]]; then
     REPO="https://github.com/tangency-labs/fieldcraft.git"
     APP_ORIGIN="https://github.com/tangency-labs/fieldcraft"
+elif [[ "$APP" == "papercraft" ]]; then
+    REPO="https://github.com/slyim/papercraft.git"
+    APP_ORIGIN="https://github.com/slyim/papercraft"
+elif [[ "$APP" == "drawcraft" ]]; then
+    REPO="https://github.com/Adnan10p/DrawCraft.git"
+    APP_ORIGIN="https://github.com/Adnan10p/DrawCraft"
+elif [[ "$APP" == "ferrite" ]]; then
+    REPO="https://github.com/OlaProeis/Ferrite.git"
+    APP_ORIGIN="https://github.com/OlaProeis/Ferrite"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -292,7 +304,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft drawcraft ferrite "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -575,7 +587,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|drawcraft|ferrite)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
@@ -583,6 +595,11 @@ case "$APP" in
     fieldcraft)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="v0.8.1"
+        fi
+        ;;
+    papercraft)
+        if [[ "$BUILD_SOURCE" == "stable" ]]; then
+            BUILD_SOURCE="v0.4.0"
         fi
         ;;
 esac
@@ -2491,6 +2508,20 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
+elif app == "photocraft":
+    if fix("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+        fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
+    fix("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
+    fix("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
+elif app == "vectorcraft":
+    if fix("crates/render/src/images.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+        fixed.append("crates/render/src/images.rs (Android meminfo)")
+    fix("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
+    fix("crates/render/src/images.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos", target_os = "freebsd")))]')
+elif app == "lightcraft":
+    if fix("crates/engine/src/memory.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+        fixed.append("crates/engine/src/memory.rs (Android meminfo)")
+    fix("crates/engine/src/memory.rs", '#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "freebsd")))]')
 elif app == "pdfcraft":
     if fix(
         "crates/ui-egui/src/app.rs",
@@ -2510,6 +2541,27 @@ elif app == "pdfcraft":
         "        let ctx = self.ctx.clone();\n        let handler = self.print_handler.clone();\n        std::thread::spawn(move || {\n",
     ):
         fixed.append("crates/ui-egui/src/workflows/print_ui.rs (handler closure)")
+    old_print_spooler = """            let result = match &spooler {
+                Some(submit) => submit(&bytes, &job),
+                None => spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                    let _ = tx.send(JobNews::Sent(sent, sheets));
+                    repaint();
+                })
+                .map_err(|e| e.to_string()),
+            };"""
+    new_print_spooler = """            let result = if let Some(handler) = &handler {
+                let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title.clone() };
+                handler(&name, &bytes)
+            } else if let Some(submit) = &spooler {
+                submit(&bytes, &job)
+            } else {
+                spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                    let _ = tx.send(JobNews::Sent(sent, sheets));
+                    repaint();
+                }).map_err(|e| e.to_string())
+            };"""
+    if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print_spooler, new_print_spooler):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer spooler)")
     old_print = """            // The receiver may be gone (the app quit): nothing to report to then.
             let result = spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
                 let _ = tx.send(JobNews::Sent(sent, sheets));
@@ -4141,6 +4193,11 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
             description: "System print spooler".to_owned(),
         }
     ]));
+    let spool_bridge = saf_bridge.clone_ref();
+    inner.spooler = Some(std::sync::Arc::new(move |bytes: &[u8], job: &pdfcraft_engine::print::spool::Job| {
+        let name = if job.title.is_empty() { "PdfCraft" } else { &job.title };
+        spool_bridge.print_document(name, bytes)
+    }));
     inner.print_handler = Some(std::sync::Arc::new(move |title: &str, bytes: &[u8]| {
         print_bridge.print_document(title, bytes)
     }));
@@ -4639,6 +4696,31 @@ PERSIST_AFTER_LOAD = {
 
 # Shared Rust helpers the recipes above call (single braces: not interpolated as format fields).
 PERSIST_SUPPORT = r'''
+fn migrate_dir_contents(src: &std::path::Path, dst: &std::path::Path) {
+    if !src.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(file_name);
+            if src_path.is_dir() {
+                migrate_dir_contents(&src_path, &dst_path);
+                let _ = std::fs::remove_dir(&src_path);
+            } else if src_path.is_file() {
+                if std::fs::rename(&src_path, &dst_path).is_err() {
+                    if std::fs::copy(&src_path, &dst_path).is_ok() {
+                        let _ = std::fs::remove_file(&src_path);
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(src);
+}
+
 /// The app's private storage directory. Android exposes two: the internal one
 /// (`/data/user/0/<pkg>/files`), which a file manager or a computer never sees, and the app-specific
 /// external one (`/storage/emulated/0/Android/data/<pkg>/files`), which the user can reach over USB
@@ -4652,6 +4734,9 @@ fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
             let replaced = s.replace("/Android/data/", "/Android/media/");
             let media_path = std::path::PathBuf::from(replaced);
             let _ = std::fs::create_dir_all(&media_path);
+            if path.exists() && path != media_path {
+                migrate_dir_contents(&path, &media_path);
+            }
             return Some(media_path);
         }
         return Some(path);
@@ -4686,6 +4771,7 @@ fn install_persist_env(app: &AndroidApp) {
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
+        std::env::set_var("XDG_DATA_HOME", &base);
         let internal = app.internal_data_path().map(|p| p.join("models")).unwrap_or_else(|| base.join("models"));
         let external = base.join("models");
         if !internal.join("text-detection.onnx").is_file() || !internal.join("text-recognition.onnx").is_file() {
@@ -6257,7 +6343,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
             eframe::wgpu::DeviceDescriptor {{
                 label: Some("{title} wgpu device"),
                 required_limits: eframe::wgpu::Limits {{
-                    max_texture_dimension_2d: supported.max_texture_dimension_2d,
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
                     max_buffer_size: supported.max_buffer_size,
                     ..base
                 }},
@@ -6351,7 +6437,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
             eframe::wgpu::DeviceDescriptor {{
                 label: Some("{title} wgpu device"),
                 required_limits: eframe::wgpu::Limits {{
-                    max_texture_dimension_2d: supported.max_texture_dimension_2d,
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
                     max_buffer_size: supported.max_buffer_size,
                     ..base
                 }},
@@ -6981,13 +7067,15 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 # platform-gated, so desktop builds are unaffected.
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
-if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
+elif [[ "$APP" == "ferrite" ]]; then
+    rm -rf "$SRC/vendor/egui-winit"
+    cp -a "$ROOT/vendor/egui-winit-0.34" "$SRC/vendor/egui-winit"
 elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
-    # SolidCraft, PCBCraft and FieldCraft use upstream vendored egui crates
-    # Do not delete or overwrite with builder's egui-winit - prepare.sh patches upstream's vendored egui-winit for Android
-    echo "Skipping builder egui-winit copy for $APP (uses upstream vendored egui)"
+    # SolidCraft, PCBCraft and FieldCraft prepare.sh handle their own egui/winit setup
+    echo "Skipping builder egui-winit copy for $APP (handled by prepare.sh)"
 else
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
@@ -7226,13 +7314,13 @@ for ew_path in (
         ew = ew_path.read_text()
         if "ImeResetCompleted" not in ew:
             target1 = "WindowEvent::DoubleTapGesture { .. } => EventResponse {"
-            repl1 = "WindowEvent::DoubleTapGesture { .. }\\n            | WindowEvent::ImeResetCompleted { .. } => EventResponse {"
+            repl1 = "WindowEvent::DoubleTapGesture { .. }\n            | WindowEvent::ImeResetCompleted { .. } => EventResponse {"
             if target1 in ew:
                 ew = ew.replace(target1, repl1, 1)
                 changed = True
 
-            target2 = 'WindowEvent::ActivationTokenDone { .. } => "WindowEvent::ActivationTokenDone",\\n'
-            repl2 = target2 + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\\n'
+            target2 = 'WindowEvent::ActivationTokenDone { .. } => "WindowEvent::ActivationTokenDone",\n'
+            repl2 = target2 + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n'
             if target2 in ew:
                 ew = ew.replace(target2, repl2, 1)
                 changed = True
@@ -7383,11 +7471,10 @@ else:
     winit_rs.write_text(text)
     print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
 PY
-elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" ]]; then
-    # SolidCraft, FieldCraft and PCBCraft use SolidCraft's vendor/egui-wgpu with custom APIs (FrameCompositor, DeviceLost, capture_errors)
-    # Do not copy builder's egui-wgpu - keep their original
-    echo "Skipping builder egui-wgpu copy for $APP (uses SolidCraft vendor/egui-wgpu with custom APIs)"
-elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" ]]; then
+elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
+    # SolidCraft, FieldCraft, PCBCraft and Ferrite handle their own graphics backend
+    echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
@@ -7395,8 +7482,8 @@ else
     cp -a "$ROOT/vendor/egui-wgpu" "$SRC/vendor/egui-wgpu"
 fi
 
-# Skip egui-wgpu patching for SolidCraft, FieldCraft and PCBCraft - prepare.sh handles it
-if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" ]]; then
+# Skip egui-wgpu patching for SolidCraft, FieldCraft, PCBCraft and Ferrite - prepare.sh handles it
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -7837,13 +7924,14 @@ if [[ "$MODE" == "release" ]]; then
     fi
 fi
 
+export RUST_FONTCONFIG_DLOPEN=1
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
 
 # For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then

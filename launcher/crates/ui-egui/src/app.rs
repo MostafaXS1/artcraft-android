@@ -113,7 +113,6 @@ pub(crate) enum UiAction {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Dialog {
-    Disclaimer,
     Notes(String),
     ConfirmUninstall(String),
     Install { app: String, folder: String },
@@ -129,7 +128,6 @@ impl Dialog {
     /// size there, so a small prompt never opens at the height of the last dialog shown (#88).
     pub(crate) fn key(&self) -> (&'static str, &str) {
         match self {
-            Dialog::Disclaimer => ("disclaimer", ""),
             Dialog::Notes(id) => ("notes", id),
             Dialog::ConfirmUninstall(id) => ("uninstall", id),
             Dialog::Install { app, .. } => ("install", app),

@@ -502,25 +502,70 @@ public final class PicassoSuiteActivity extends NativeActivity {
      * preferences, exports and the working copies of SAF documents stay reachable over USB/MTP, and
      * the internal directory otherwise.
      */
+    private void migrateLegacyStorage(File targetMediaDir) {
+        if (targetMediaDir == null) return;
+        try {
+            File legacyDataDir = getExternalFilesDir(null);
+            if (legacyDataDir != null && legacyDataDir.exists()) {
+                if (!legacyDataDir.getCanonicalPath().equals(targetMediaDir.getCanonicalPath())) {
+                    copyOrMoveDir(legacyDataDir, targetMediaDir);
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("ArtcraftStorage", "Legacy migration error: " + t.getMessage());
+        }
+    }
+
+    private static void copyOrMoveDir(File src, File dst) {
+        if (!src.exists()) return;
+        if (src.isDirectory()) {
+            if (!dst.exists()) dst.mkdirs();
+            File[] list = src.listFiles();
+            if (list != null) {
+                for (File f : list) {
+                    copyOrMoveDir(f, new File(dst, f.getName()));
+                }
+            }
+            src.delete();
+        } else {
+            if (src.renameTo(dst)) return;
+            try (java.io.InputStream in = new java.io.FileInputStream(src);
+                 java.io.OutputStream out = new java.io.FileOutputStream(dst)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.flush();
+                src.delete();
+            } catch (Throwable ignored) {}
+        }
+    }
+
     private File appStorageDir() {
+        File target = null;
         try {
             File[] mediaDirs = getExternalMediaDirs();
             if (mediaDirs != null && mediaDirs.length > 0 && mediaDirs[0] != null) {
                 if (mediaDirs[0].exists() || mediaDirs[0].mkdirs()) {
-                    return mediaDirs[0];
+                    target = mediaDirs[0];
                 }
             }
         } catch (Throwable ignored) {}
-        File external = getExternalFilesDir(null);
-        if (external != null) {
-            String path = external.getAbsolutePath().replace("/Android/data/", "/Android/media/");
-            File mediaDir = new File(path);
-            if (mediaDir.exists() || mediaDir.mkdirs()) {
-                return mediaDir;
+        if (target == null) {
+            File external = getExternalFilesDir(null);
+            if (external != null) {
+                String path = external.getAbsolutePath().replace("/Android/data/", "/Android/media/");
+                File mediaDir = new File(path);
+                if (mediaDir.exists() || mediaDir.mkdirs()) {
+                    target = mediaDir;
+                } else {
+                    target = external;
+                }
+            } else {
+                target = getFilesDir();
             }
-            return external;
         }
-        return getFilesDir();
+        migrateLegacyStorage(target);
+        return target;
     }
 
     /**

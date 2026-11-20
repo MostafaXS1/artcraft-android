@@ -1217,6 +1217,15 @@ fn android_main(android_app: AndroidApp) {
             return;
         }
     };
+    let config = files_dir.join("config");
+    let cache = files_dir.join("cache");
+    let _ = fs::create_dir_all(&config);
+    let _ = fs::create_dir_all(&cache);
+    unsafe {
+        std::env::set_var("XDG_DATA_HOME", &files_dir);
+        std::env::set_var("XDG_CONFIG_HOME", &config);
+        std::env::set_var("XDG_CACHE_HOME", &cache);
+    }
     let prefs_path = files_dir.join("PhotoCraft").join("preferences.json");
     if let Some(parent) = prefs_path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {

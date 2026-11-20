@@ -25,6 +25,8 @@ s = s.replace("#[no_mangle]\nfn android_main(", "pub fn android_main(")
 s = s.replace("#[no_mangle]\r\nfn android_main(", "pub fn android_main(")
 if "settings.follow_text_size = false;" not in s:
     s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    settings.save();")
+if "let dir = if dir.to_string_lossy().contains" not in s:
+    s = s.replace('if let Some(dir) = app.external_data_path() {', 'if let Some(dir) = app.external_data_path() {\n        let dir = if dir.to_string_lossy().contains("/Android/data/") { std::path::PathBuf::from(dir.to_string_lossy().replace("/Android/data/", "/Android/media/")) } else { dir };')
 p_android.write_text(s)
 
 s_set = p_settings.read_text()

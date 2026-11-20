@@ -54,6 +54,31 @@ static ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 /// needs it for the font symlinks); the external app directory is preferred for the settings and
 /// caches so they stay reachable over USB. This also ensures autosave and crash recovery files are
 /// stored under Android/data/com.artcraft.subcraft/files, where the user can access them via MTP.
+fn migrate_dir_contents(src: &Path, dst: &Path) {
+    if !src.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(file_name);
+            if src_path.is_dir() {
+                migrate_dir_contents(&src_path, &dst_path);
+                let _ = std::fs::remove_dir(&src_path);
+            } else if src_path.is_file() {
+                if std::fs::rename(&src_path, &dst_path).is_err() {
+                    if std::fs::copy(&src_path, &dst_path).is_ok() {
+                        let _ = std::fs::remove_file(&src_path);
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(src);
+}
+
 #[allow(unused_unsafe)]
 fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
     let base = if let Some(path) = app.external_data_path() {
@@ -62,6 +87,9 @@ fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
             let replaced = s.replace("/Android/data/", "/Android/media/");
             let media_path = PathBuf::from(replaced);
             let _ = std::fs::create_dir_all(&media_path);
+            if path.exists() && path != media_path {
+                migrate_dir_contents(&path, &media_path);
+            }
             media_path
         } else {
             path

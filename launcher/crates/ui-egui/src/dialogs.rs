@@ -15,9 +15,7 @@ impl LauncherUi {
     /// so a smaller prompt cannot inherit a taller one's last size, and closing (button, Escape or
     /// a click outside) discards the dialog.
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context, host: &mut dyn Host) {
-        if self.dialog.is_none() && !self.settings.disclaimer_acknowledged {
-            self.dialog = Some(Dialog::Disclaimer);
-        } else if self.dialog.is_none() && is_first_run("launcher") {
+        if self.dialog.is_none() && is_first_run("launcher") {
             self.dialog = Some(Dialog::Settings);
         }
         let Some(mut dialog) = self.dialog.clone() else {
@@ -36,7 +34,6 @@ impl LauncherUi {
         });
         let mut close = false;
         let response = match &mut dialog {
-            Dialog::Disclaimer => modal.show(ctx, |ui| close = self.disclaimer_dialog(ui)),
             Dialog::Notes(id) => modal.show(ctx, |ui| close = self.notes_dialog(ui, id)),
             Dialog::ConfirmUninstall(id) => modal.show(ctx, |ui| close = self.uninstall_dialog(ui, id)),
             Dialog::Install { app, folder } => modal.show(ctx, |ui| close = self.install_dialog(ui, app, folder, host)),
@@ -51,9 +48,6 @@ impl LauncherUi {
             return;
         }
         if close || response.should_close() {
-            if matches!(dialog, Dialog::Disclaimer) {
-                self.settings.disclaimer_acknowledged = true;
-            }
             self.dialog = None;
             if matches!(dialog, Dialog::Versions(_)) {
                 // Close, Escape or a click outside: a version chosen there is dropped.
@@ -118,31 +112,6 @@ impl LauncherUi {
             });
         });
         ui.add_space(14.0);
-    }
-
-    /// Shows an unofficial port disclaimer on first launch.
-    fn disclaimer_dialog(&mut self, ui: &mut egui::Ui) -> bool {
-        let t = Tokens::get(ui.ctx());
-        ui.set_width(460.0f32.min(ui.ctx().content_rect().width() - 80.0));
-        Self::title(ui, Some(crate::icons::artcraft_mark()), tl!("Unofficial Port Disclaimer"), "");
-        ui.label(
-            RichText::new(tl!(
-                "ArtCraft Android is an independent, unofficial community port of the ArtCraft suite. It is not affiliated with, endorsed by, or sponsored by upstream ArtCraft or its original authors.\n\nAll trademarks and copyrights belong to their respective owners. Please report issues specific to Android to our GitHub repository."
-            ))
-            .color(t.ink_strong),
-        );
-        ui.add_space(16.0);
-        let mut close = false;
-        ui.horizontal(|ui| {
-            widgets::hud_link(ui, tl!("GitHub Issues"), "https://github.com/MostafaXS1/artcraft-android/issues");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::button(ui, tl!("I Understand"), Kind::Primary, 120.0).clicked() {
-                    self.settings.disclaimer_acknowledged = true;
-                    close = true;
-                }
-            });
-        });
-        close
     }
 
     /// An app's release notes: a large card like the app page, the notes in a scrolling body.

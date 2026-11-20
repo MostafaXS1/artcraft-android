@@ -8,6 +8,7 @@ mod touch_gestures;
 mod mcp_http;
 use solidcraft_engine::Session;
 use solidcraft_ui_egui::{SolveApp, Services};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -1144,6 +1145,31 @@ impl InputProbe {
 /// or MTP without root. The external directory is preferred so the settings, autosaves and exported
 /// documents are actually findable; the internal directory is the fallback for the rare device where
 /// external storage is unmounted or unavailable. Both survive restarts and app updates.
+fn migrate_dir_contents(src: &Path, dst: &Path) {
+    if !src.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(file_name);
+            if src_path.is_dir() {
+                migrate_dir_contents(&src_path, &dst_path);
+                let _ = std::fs::remove_dir(&src_path);
+            } else if src_path.is_file() {
+                if std::fs::rename(&src_path, &dst_path).is_err() {
+                    if std::fs::copy(&src_path, &dst_path).is_ok() {
+                        let _ = std::fs::remove_file(&src_path);
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(src);
+}
+
 fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
     if let Some(path) = app.external_data_path() {
         let s = path.to_string_lossy();
@@ -1151,6 +1177,9 @@ fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
             let replaced = s.replace("/Android/data/", "/Android/media/");
             let media_path = std::path::PathBuf::from(replaced);
             let _ = std::fs::create_dir_all(&media_path);
+            if path.exists() && path != media_path {
+                migrate_dir_contents(&path, &media_path);
+            }
             return Some(media_path);
         }
         return Some(path);
@@ -1634,7 +1663,7 @@ fn android_main(android_app: android_activity::AndroidApp) {
             eframe::wgpu::DeviceDescriptor {
                 label: Some("SolidCraft wgpu device"),
                 required_limits: eframe::wgpu::Limits {
-                    max_texture_dimension_2d: supported.max_texture_dimension_2d,
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
                     max_buffer_size: supported.max_buffer_size,
                     ..base
                 },

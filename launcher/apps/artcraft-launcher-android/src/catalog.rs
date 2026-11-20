@@ -114,7 +114,7 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 41] = [
+pub static SUITE_ANDROID: [CraftApp; 44] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
@@ -404,6 +404,39 @@ pub static SUITE_ANDROID: [CraftApp; 41] = [
         "Tangency Labs",
         Some("https://github.com/tangency-labs/fieldcraft"),
         Some("io.tangencylabs.fieldcraft"),
+        None,
+    ),
+    community(
+        "papercraft",
+        "PaperCraft",
+        "A local design canvas built in Rust and egui",
+        [234, 76, 137],
+        "slyim/papercraft",
+        "slyim",
+        Some("https://github.com/slyim/papercraft"),
+        Some("com.artcraft.papercraft"),
+        None,
+    ),
+    community(
+        "drawcraft",
+        "DrawCraft",
+        "Vector illustration and CorelDraw CDR design",
+        [14, 165, 233],
+        "Adnan10p/DrawCraft",
+        "Adnan10p",
+        Some("https://github.com/Adnan10p/DrawCraft"),
+        Some("com.artcraft.drawcraft"),
+        None,
+    ),
+    community(
+        "ferrite",
+        "Ferrite",
+        "Fast, lightweight text editor for Markdown and JSON",
+        [249, 115, 22],
+        "OlaProeis/Ferrite",
+        "OlaProeis",
+        Some("https://github.com/OlaProeis/Ferrite"),
+        Some("com.artcraft.ferrite"),
         None,
     ),
 ];

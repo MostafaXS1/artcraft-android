@@ -11,6 +11,8 @@ crate-type = ["cdylib"]
 fieldcraft-engine = { path = "../../crates/engine" }
 fieldcraft-ui-egui = { path = "../../crates/ui-egui" }
 fieldcraft-io = { path = "../../crates/io" }
+fieldcraft-lbm-gpu = { path = "../../crates/lbm-gpu" }
+fieldcraft-mesh-gpu = { path = "../../crates/mesh-gpu" }
 eframe = { workspace = true, default-features = false, features = ["wgpu", "persistence"] }
 egui = { workspace = true }
 egui-winit = { version = "0.37", default-features = false }
