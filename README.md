@@ -73,13 +73,13 @@ The ecosystem currently supports **40 applications**:
 
 The Android build process uses templates, adapters, vendored changes, and compatibility patches as needed. This keeps the Android integration organized and makes it easier to maintain across the app suite.
 
-## Community Apps Welcome
+## Community Apps in the Android Launcher
 
-We actively accept and showcase community applications in the ArtCraft Launcher! If you are developing an open-source creative tool, utility, or desktop application (especially those built with Rust, egui, or similar frameworks):
+The ArtCraft Launcher (originally created by ArtCraft / Storytold, and adapted by us for Android) includes support for community applications alongside the official suite. If you maintain or develop an open-source creative tool, utility, or desktop app (especially those built with Rust, egui, or similar frameworks) and would like it available on Android:
 
-- **Get Listed in the Launcher:** Community applications can be indexed directly in the ArtCraft Launcher catalog (`launcher/apps/artcraft-launcher-android/app-catalog.json`), enabling users to discover, install, and receive automatic updates for your app alongside the official suite.
-- **Android Porting Support:** Leverage our shared Android runtime components, Storage Access Framework (SAF) bridges, soft-keyboard IME integration, and touch/trackpad input patches to bring your PC app to Android.
-- **How to Apply:** To submit your application for inclusion in the launcher or to get assistance with Android porting, **you must contact us on the unofficial [Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**. Project maintainers are also invited to join and apply for their own dedicated project channel. (For technical integration details, see the [CI & porting guide](docs/ci-workflow.md#9-adding-new-android-ports-to-the-build-system--ci)).
+- **Indexing in the Launcher:** Community apps can be included in our Android launcher's catalog (`launcher/apps/artcraft-launcher-android/app-catalog.json`), allowing Android users to discover, install, and receive release updates for your APK directly.
+- **Porting Assistance:** You can take advantage of our shared Android integration components, Storage Access Framework (SAF) bridges, soft-keyboard IME handling, and touch/trackpad patches to adapt your desktop app for Android.
+- **How to Request Inclusion:** If you would like your app featured in our Android build of the launcher or want help porting it, **you must contact us on the unofficial [Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**. Project maintainers are also welcome to join and apply for their own dedicated channel. (For technical porting details, see the [CI & porting guide](docs/ci-workflow.md#9-adding-new-android-ports-to-the-build-system--ci)).
 
 ## Links
 
