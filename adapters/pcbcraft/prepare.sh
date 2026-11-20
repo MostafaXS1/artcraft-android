@@ -11,13 +11,18 @@ DEST="$SRC_ABS/apps/$APP-android"
 echo "Preserving PCBCraft upstream vendored egui crates..."
 
 # PCBCraft requires SolidCraft's custom egui-wgpu (with FrameCompositor, DeviceLost, capture_errors)
-wgpu_cache=$(find "$HOME/.cargo/git/checkouts"/solidcraft* -name "egui-wgpu" 2>/dev/null | grep -E "73bdb6c|vendor/egui-wgpu" | head -n 1 || true)
-if [[ -n "$wgpu_cache" && -d "$wgpu_cache" ]]; then
+if [[ -d "$ADAPTER/vendor/egui-wgpu" ]]; then
     rm -rf "$SRC_ABS/vendor/egui-wgpu"
-    cp -a "$wgpu_cache" "$SRC_ABS/vendor/egui-wgpu"
-elif [[ -d "$ROOT/source/solidcraft/vendor/egui/crates/egui-wgpu" ]]; then
-    rm -rf "$SRC_ABS/vendor/egui-wgpu"
-    cp -a "$ROOT/source/solidcraft/vendor/egui/crates/egui-wgpu" "$SRC_ABS/vendor/egui-wgpu"
+    cp -a "$ADAPTER/vendor/egui-wgpu" "$SRC_ABS/vendor/egui-wgpu"
+else
+    wgpu_cache=$(find "$HOME/.cargo/git/checkouts"/solidcraft* -name "egui-wgpu" 2>/dev/null | grep -E "73bdb6c|vendor/egui-wgpu" | head -n 1 || true)
+    if [[ -n "$wgpu_cache" && -d "$wgpu_cache" ]]; then
+        rm -rf "$SRC_ABS/vendor/egui-wgpu"
+        cp -a "$wgpu_cache" "$SRC_ABS/vendor/egui-wgpu"
+    elif [[ -d "$ROOT/source/solidcraft/vendor/egui/crates/egui-wgpu" ]]; then
+        rm -rf "$SRC_ABS/vendor/egui-wgpu"
+        cp -a "$ROOT/source/solidcraft/vendor/egui/crates/egui-wgpu" "$SRC_ABS/vendor/egui-wgpu"
+    fi
 fi
 
 python3 - "$SRC_ABS" <<'PY'

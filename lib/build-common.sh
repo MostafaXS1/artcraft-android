@@ -2512,7 +2512,7 @@ elif app == "photocraft":
 elif app == "vectorcraft":
     if fix("crates/render/src/images.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/render/src/images.rs (Android meminfo)")
-    fix("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
+    fix_all("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
     fix("crates/render/src/images.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos", target_os = "freebsd")))]')
 elif app == "lightcraft":
     if fix("crates/engine/src/memory.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
@@ -2638,7 +2638,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "82"
+GENERATOR_VERSION = "83"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -6149,6 +6149,100 @@ fn install_cadcraft_io() {
             f"        );\n"
         )
 
+    app_clipboard_init = ""
+    if app == "wordcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+        let app_clip_html = app.clone();
+        inner.services.clipboard_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+        let app_clip_set_rich = app.clone();
+        inner.services.set_clipboard_rich = Some(Box::new({
+            let app = app_clip_set_rich.clone();
+            move |text, html, _rtf, _mathml| {
+                if !html.is_empty() {
+                    android_clipboard_set_html(&app, text, html)
+                } else {
+                    android_clipboard_set(&app, text);
+                    true
+                }
+            }
+        }));
+"""
+    elif app == "designcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+"""
+    elif app == "effectcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.hooks.clipboard_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+"""
+    elif app == "gridcraft":
+        app_clipboard_init = """        let app_clip_text = app.clone();
+        inner.services.paste_text = Some(Box::new({
+            let app = app_clip_text.clone();
+            move || {
+                let t = android_clipboard_get(&app);
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            }
+        }));
+        let app_clip_html = app.clone();
+        inner.services.paste_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+"""
+    elif app == "deckcraft":
+        app_clipboard_init = """        let app_clip_html = app.clone();
+        inner.services.clipboard_html = Some(Box::new({
+            let app = app_clip_html.clone();
+            move || android_clipboard_get_html(&app)
+        }));
+        let app_clip_set_html = app.clone();
+        inner.services.clipboard_set_html = Some(Box::new({
+            let app = app_clip_set_html.clone();
+            move |html, text| {
+                android_clipboard_set_html(&app, text, html)
+            }
+        }));
+"""
+
     shell = f'''
 /// On-device input diagnostics (reported through `adb logcat`).
 ///
@@ -6232,7 +6326,7 @@ impl AndroidShell {{
         mobile_text_bar::set_clipboard_getter(move || android_clipboard_get(&app_clip));
         let app_clip_set = app.clone();
         mobile_text_bar::set_clipboard_setter(move |text| android_clipboard_set(&app_clip_set, text));
-        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
+{app_clipboard_init}        {persist_new_body}Self {{ inner, app, modifiers: egui::Modifiers::default(), fullscreen_applied: false, probe: InputProbe::default(), bars_theme: None, back_pending: false, closing: false, close_asked: false, _mcp{saf_new_init}{intent_init}{persist_new_init}{staged_new_init} }}
     }}
 {saf_poll_method}{intent_method}{persist_methods}{staged_methods}
     /// Keep the system-bar icon contrast on the app's active theme: egui's light/dark choice is
@@ -6649,8 +6743,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl cadcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("CadApp UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "CadApp UI not initialized".to_string())?
         };
         let (req, pending) = cadcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6692,8 +6787,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl wordcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("WordCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "WordCraft UI not initialized".to_string())?
         };
         let (req, rx) = wordcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6775,8 +6871,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl gridcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("GridCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "GridCraft UI not initialized".to_string())?
         };
         let (req, rx) = gridcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6818,8 +6915,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl deckcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("DeckCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "DeckCraft UI not initialized".to_string())?
         };
         let (req, rx) = deckcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6861,8 +6959,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl designcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("DesignCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "DesignCraft UI not initialized".to_string())?
         };
         let (req, rx) = designcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6904,8 +7003,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl lightcraft_mcp::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("LightCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "LightCraft UI not initialized".to_string())?
         };
         let (req, rx) = lightcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;
@@ -6960,8 +7060,9 @@ let make: MakeServer = Arc::new(move || {
 struct UiControlBackend;
 impl soundcraft_automation::Backend for UiControlBackend {
     fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-        let Some(tx) = crate::CONTROL_TX.get() else {
-            return Err("SoundCraft UI not initialized".to_string());
+        let tx = {
+            let g = crate::CONTROL_TX.lock().map_err(|e| e.to_string())?;
+            g.clone().ok_or_else(|| "SoundCraft UI not initialized".to_string())?
         };
         let (req, rx) = soundcraft_ui_egui::ControlRequest::new(method, params);
         tx.send(req).map_err(|e| format!("failed to send to UI: {e}"))?;

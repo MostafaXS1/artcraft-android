@@ -9,12 +9,12 @@ ADAPTER="$ROOT/adapters/fieldcraft"
 DEST="$SRC_ABS/apps/$APP-android"
 
 # FieldCraft uses SolidCraft's UI kit and vendored egui stack (egui 0.37 with FrameCompositor)
-if [[ ! -d "$ROOT/source/solidcraft/vendor/egui" ]]; then
-    echo "SolidCraft source with vendored egui not found, checking it out..."
-    bash "$ROOT/build.sh" -solidcraft --noupdate || true
-fi
-
-if [[ -d "$ROOT/source/solidcraft/vendor/egui" ]]; then
+if [[ -f "$ADAPTER/vendor/egui.tar.gz" ]]; then
+    echo "Extracting vendored egui stack into FieldCraft..."
+    rm -rf "$SRC_ABS/vendor/egui"
+    mkdir -p "$SRC_ABS/vendor/egui"
+    tar -xzf "$ADAPTER/vendor/egui.tar.gz" -C "$SRC_ABS/vendor/egui"
+elif [[ -d "$ROOT/source/solidcraft/vendor/egui" ]]; then
     echo "Copying SolidCraft vendored egui stack into FieldCraft..."
     rm -rf "$SRC_ABS/vendor/egui"
     cp -a "$ROOT/source/solidcraft/vendor/egui" "$SRC_ABS/vendor/egui"
