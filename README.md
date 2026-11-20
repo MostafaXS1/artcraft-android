@@ -88,6 +88,7 @@ The ArtCraft Launcher (originally created by ArtCraft / Storytold, and adapted b
 - **Explore the apps:** [getartcraft.com/apps](https://getartcraft.com/apps)
 - **Source code:** [ArtCraft Android repository](https://github.com/MostafaXS1/artcraft-android)
 - **Ported Applications:** [`docs/ported-apps.md`](docs/ported-apps.md)
+- **Porting Guide & Processes:** [`docs/porting-guide.md`](docs/porting-guide.md)
 - **CI/CD Workflow:** [`docs/ci-workflow.md`](docs/ci-workflow.md)
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)

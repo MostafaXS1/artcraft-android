@@ -93,6 +93,7 @@ artcraft-android-builder/
 ├── vendor/                  # 15 vendored and patched native crates
 ├── docs/                    # Technical documentation
 │   ├── ported-apps.md       # Complete index of all 40 ported applications
+│   ├── porting-guide.md     # Detailed porting processes and runtime bridges
 │   ├── ci-workflow.md       # CI/CD architecture and pipeline reference
 │   └── FILMCRAFT_OPTIMIZATION_ROADMAP.md # Video pipeline performance roadmap
 ├── .github/workflows/       # GitHub Actions CI matrix workflows
@@ -619,4 +620,5 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 | `.github/workflows/build.yml` | CI/CD build matrix workflow |
 | `README.md` | General overview and quickstart |
 | `docs/ported-apps.md` | Comprehensive index of all 40 ported applications |
+| `docs/porting-guide.md` | Detailed step-by-step porting processes and runtime bridges |
 | `docs/ci-workflow.md` | Detailed CI/CD documentation |

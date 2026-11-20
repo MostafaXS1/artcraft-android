@@ -2,6 +2,9 @@
 
 This document provides a comprehensive index of all applications ported to Android within the **ArtCraft Android** ecosystem. It lists each application's name, purpose, porting status, and direct links to its upstream and source GitHub repositories.
 
+> [!TIP]
+> For in-depth technical documentation detailing how each application is ported, its runtime bridges (SAF, IME, modifier chords, Termux IPC), and step-by-step adaptation processes, see [**`porting-guide.md`**](porting-guide.md).
+
 ---
 
 ## Overview
