@@ -63,9 +63,13 @@ These capabilities are implemented through shared Android runtime components, pl
 
 ## Built for Android Without Removing PC Functionality
 
-The ArtCraft applications originate from the official Storytold repositories. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them on Android.
+The ArtCraft applications originate from the official Storytold repositories and community creative suites. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them natively on Android.
 
-The objective is to preserve the functionality of the PC applications while making them work properly with Android's storage, input, and system services.
+The ecosystem currently supports **40 applications**:
+- **16 Official Storytold Suite applications** (PhotoCraft, VectorCraft, FilmCraft, WordCraft, etc.)
+- **16 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, etc.)
+- **7 External community applications** indexed and tracked via the launcher catalog
+- **ArtCraft Launcher:** A dedicated Android dashboard for installing, launching, and updating the suite
 
 The Android build process uses templates, adapters, vendored changes, and compatibility patches as needed. This keeps the Android integration organized and makes it easier to maintain across the app suite.
 
@@ -76,6 +80,7 @@ The Android build process uses templates, adapters, vendored changes, and compat
 - **Explore the apps:** [getartcraft.com/apps](https://getartcraft.com/apps)
 - **Source code:** [ArtCraft Android repository](https://github.com/MostafaXS1/artcraft-android)
 - **Ported Applications:** [`docs/ported-apps.md`](docs/ported-apps.md)
+- **CI/CD Workflow:** [`docs/ci-workflow.md`](docs/ci-workflow.md)
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)
 - **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
@@ -84,7 +89,7 @@ The Android build process uses templates, adapters, vendored changes, and compat
 
 ## Build from Source
 
-Build locally signed, 64-bit ARM Android APKs from the official Storytold repositories.
+Build locally signed, 64-bit ARM Android APKs from the official Storytold repositories and supported community projects.
 
 ### Requirements
 
@@ -101,11 +106,14 @@ The build scripts can discover or bootstrap supported Android build components w
 Run the scripts from any directory. Each script resolves its own location and switches to the project directory before building.
 
 ```sh
-# Optimized release APK
+# Optimized release APK for any supported application
 bash build.sh -pdfcraft
 
 # Debug APK for testing
 bash build-debug.sh -pdfcraft
+
+# Build the ArtCraft Launcher APK
+bash build-launcher.sh
 ```
 
 Replace `-pdfcraft` with any supported application name.
