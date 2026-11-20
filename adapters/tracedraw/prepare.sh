@@ -24,7 +24,7 @@ s = p_android.read_text()
 s = s.replace("#[no_mangle]\nfn android_main(", "pub fn android_main(")
 s = s.replace("#[no_mangle]\r\nfn android_main(", "pub fn android_main(")
 if "settings.follow_text_size = false;" not in s:
-    s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    settings.save();")
+    s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    if settings.ui_size == 0.0 { settings.ui_size = 0.85; }\n    settings.save();")
 if "let dir = if dir.to_string_lossy().contains" not in s:
     s = s.replace('if let Some(dir) = app.external_data_path() {', 'if let Some(dir) = app.external_data_path() {\n        let dir = if dir.to_string_lossy().contains("/Android/data/") { std::path::PathBuf::from(dir.to_string_lossy().replace("/Android/data/", "/Android/media/")) } else { dir };')
 p_android.write_text(s)
@@ -34,13 +34,12 @@ if "fn default_false() -> bool {\n    false\n}" not in s_set:
     s_set = s_set.replace("fn default_true() -> bool {\n    true\n}", "fn default_true() -> bool {\n    true\n}\n\nfn default_false() -> bool {\n    false\n}")
 s_set = s_set.replace('#[serde(default = "default_true")]\n    pub follow_text_size: bool,', '#[serde(default = "default_false")]\n    pub follow_text_size: bool,')
 s_set = s_set.replace('follow_text_size: true,', 'follow_text_size: false,')
-if '#[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }' not in s_set:
-    s_set = s_set.replace('pub fn effective_ui_size_with(s: &Settings, sys: crate::system_prefs::SystemPrefs) -> f32 {', 'pub fn effective_ui_size_with(s: &Settings, sys: crate::system_prefs::SystemPrefs) -> f32 {\n    #[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }')
 p_settings.write_text(s_set)
 
 s_ui = p_ui.read_text()
-if '#[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }' not in s_ui:
-    s_ui = s_ui.replace('pub(crate) fn ui_zoom(size: f32) -> f32 {', 'pub(crate) fn ui_zoom(size: f32) -> f32 {\n    #[cfg(target_os = "android")]\n    {\n        return 0.75;\n    }')
+target_interface = "pub(crate) fn interface_size(size: f32) -> f32 {\n    if (0.5..=4.0).contains(&size) {\n        size\n    } else {\n        1.0\n    }\n}"
+replacement_interface = "pub(crate) fn interface_size(size: f32) -> f32 {\n    if (0.5..=4.0).contains(&size) {\n        size\n    } else {\n        #[cfg(target_os = \"android\")]\n        {\n            0.85\n        }\n        #[cfg(not(target_os = \"android\"))]\n        {\n            1.0\n        }\n    }\n}"
+s_ui = s_ui.replace(target_interface, replacement_interface)
 p_ui.write_text(s_ui)
 PY
 

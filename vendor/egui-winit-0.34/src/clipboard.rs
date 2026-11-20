@@ -87,6 +87,11 @@ impl Clipboard {
             };
         }
 
+        #[cfg(target_os = "android")]
+        if let Some(text) = android_clipboard_get_text() {
+            return Some(text);
+        }
+
         Some(self.clipboard.clone())
     }
 
@@ -117,6 +122,11 @@ impl Clipboard {
             return;
         }
 
+        #[cfg(target_os = "android")]
+        if android_clipboard_set_text(&text) {
+            return;
+        }
+
         self.clipboard = text;
     }
 
@@ -142,6 +152,164 @@ impl Clipboard {
         );
         _ = image;
     }
+}
+
+/// Android clipboard via JNI, using the application context and VM published globally
+/// by android-activity through `ndk-context` before `android_main` runs.
+#[cfg(target_os = "android")]
+#[expect(unsafe_code)]
+fn android_clipboard_get_text() -> Option<String> {
+    use jni::{
+        jni_sig, jni_str,
+        objects::{JObject, JString, JValue},
+        JavaVM,
+    };
+    let ctx = ndk_context::android_context();
+    // SAFETY: AndroidApp owns the live VM pointer; `ndk_context` initialized it before `android_main`.
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> jni::errors::Result<Option<String>> {
+        let ctx_raw: jni::sys::jobject = ctx.context().cast();
+        // SAFETY: the context is an Android global ref owned by ndk-context; borrow, never delete.
+        let context = unsafe { env.as_cast_raw::<JObject<'_>>(&ctx_raw)? };
+        let service_obj = JObject::from(env.new_string("clipboard")?);
+        let clipboard = env
+            .call_method(
+                &*context,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service_obj)],
+            )?
+            .l()?;
+        if clipboard.is_null() {
+            return Ok(None);
+        }
+        let clip = env
+            .call_method(
+                &clipboard,
+                jni_str!("getPrimaryClip"),
+                jni_sig!("()Landroid/content/ClipData;"),
+                &[],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(None);
+        }
+        let count = env
+            .call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?
+            .i()?;
+        if count <= 0 {
+            return Ok(None);
+        }
+        let item = env
+            .call_method(
+                &clip,
+                jni_str!("getItemAt"),
+                jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                &[JValue::Int(0)],
+            )?
+            .l()?;
+        if item.is_null() {
+            return Ok(None);
+        }
+        let text = env
+            .call_method(
+                &item,
+                jni_str!("getText"),
+                jni_sig!("()Ljava/lang/CharSequence;"),
+                &[],
+            )?
+            .l()?;
+        let text = if !text.is_null() {
+            text
+        } else {
+            env.call_method(
+                &item,
+                jni_str!("coerceToText"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                &[JValue::Object(&*context)],
+            )?
+            .l()?
+        };
+        if text.is_null() {
+            return Ok(None);
+        }
+        let text = env
+            .call_method(
+                &text,
+                jni_str!("toString"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+        if text.is_null() {
+            return Ok(None);
+        }
+        let text = JString::cast_local(env, text)?;
+        Ok(Some(text.try_to_string(env)?))
+    });
+    match res {
+        Ok(inner) => inner,
+        Err(err) => {
+            log::error!("egui-winit Android clipboard paste error: {err}");
+            None
+        }
+    }
+}
+
+/// Write text to the Android system clipboard via JNI. Returns `true` on success.
+#[cfg(target_os = "android")]
+#[expect(unsafe_code)]
+fn android_clipboard_set_text(text: &str) -> bool {
+    use jni::{
+        jni_sig, jni_str,
+        objects::{JObject, JValue},
+        JavaVM,
+    };
+    let ctx = ndk_context::android_context();
+    // SAFETY: AndroidApp owns the live VM pointer; `ndk_context` initialized it before `android_main`.
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
+    let res = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let ctx_raw: jni::sys::jobject = ctx.context().cast();
+        // SAFETY: the context is an Android global ref owned by ndk-context; borrow, never delete.
+        let context = unsafe { env.as_cast_raw::<JObject<'_>>(&ctx_raw)? };
+        let service_obj = JObject::from(env.new_string("clipboard")?);
+        let clipboard = env
+            .call_method(
+                &*context,
+                jni_str!("getSystemService"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                &[JValue::Object(&service_obj)],
+            )?
+            .l()?;
+        if clipboard.is_null() {
+            return Ok(());
+        }
+        let text_obj = JObject::from(env.new_string(text)?);
+        let label_obj = JObject::from(env.new_string("")?);
+        let clip = env
+            .call_static_method(
+                jni_str!("android/content/ClipData"),
+                jni_str!("newPlainText"),
+                jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"),
+                &[JValue::Object(&label_obj), JValue::Object(&text_obj)],
+            )?
+            .l()?;
+        if clip.is_null() {
+            return Ok(());
+        }
+        env.call_method(
+            &clipboard,
+            jni_str!("setPrimaryClip"),
+            jni_sig!("(Landroid/content/ClipData;)V"),
+            &[JValue::Object(&clip)],
+        )?;
+        Ok(())
+    });
+    if let Err(err) = res {
+        log::error!("egui-winit Android clipboard copy/cut error: {err}");
+        return false;
+    }
+    true
 }
 
 #[cfg(all(

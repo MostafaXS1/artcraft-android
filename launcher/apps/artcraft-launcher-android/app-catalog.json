@@ -385,7 +385,7 @@
       "repo": "opengeos/RustGIS",
       "publisher": "opengeos",
       "site": "https://rustgis.app",
-      "bundle": null,
+      "bundle": "org.rustgis.mobile",
       "image": "rustgis.png"
     },
     {
@@ -619,21 +619,6 @@
       "site": "https://github.com/slyim/papercraft",
       "bundle": "com.artcraft.papercraft",
       "image": "papercraft.png"
-    },
-    {
-      "id": "drawcraft",
-      "name": "DrawCraft",
-      "tagline": "Vector illustration and CorelDraw CDR design",
-      "color": [
-        14,
-        165,
-        233
-      ],
-      "repo": "Adnan10p/DrawCraft",
-      "publisher": "Adnan10p",
-      "site": "https://github.com/Adnan10p/DrawCraft",
-      "bundle": "com.artcraft.drawcraft",
-      "image": "drawcraft.png"
     },
     {
       "id": "ferrite",

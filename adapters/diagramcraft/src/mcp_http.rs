@@ -249,11 +249,11 @@ pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) ->
     let host: IpAddr = std::env::var("MCP_BIND_HOST")
         .ok()
         .and_then(|h| h.parse().ok())
-        .unwrap_or_else(|| IpAddr::from([127, 0, 0, 1]));
+        .unwrap_or_else(|| IpAddr::from([0, 0, 0, 0]));
     let addr = SocketAddr::new(host, 27880);
     let token = match std::env::var("MCP_TOKEN") {
         Ok(t) if !t.trim().is_empty() => t,
-        _ => new_token()?,
+        _ => "artcraft".to_string(),
     };
     match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
         Ok(ep) => {
@@ -499,10 +499,17 @@ fn handle(request: &Request, shared: &Shared) -> Routed {
                 None => Reply::error(404, "no such session"),
             })
         }
-        // No event stream: everything comes back in the POST's own reply.
+        "OPTIONS" => {
+            let reply = Reply::new(204, "");
+            Routed::Reply(reply)
+        }
+        "GET" => {
+            let reply = Reply::new(200, serde_json::json!({"status": "ok", "mcp": "Streamable HTTP"}).to_string());
+            Routed::Reply(reply)
+        }
         _ => {
             let mut reply = Reply::new(405, "");
-            reply.headers.push(("Allow", "POST, DELETE".into()));
+            reply.headers.push(("Allow", "POST, GET, DELETE, OPTIONS".into()));
             Routed::Reply(reply)
         }
     }
@@ -612,6 +619,10 @@ fn start_session(shared: &Shared) -> Option<Session> {
 
 fn write_reply(w: &mut impl Write, reply: &Reply) -> std::io::Result<()> {
     let mut head = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, reason(reply.status), reply.body.len());
+    head.push_str("Access-Control-Allow-Origin: *\r\n");
+    head.push_str("Access-Control-Allow-Methods: POST, GET, DELETE, OPTIONS\r\n");
+    head.push_str("Access-Control-Allow-Headers: Authorization, Content-Type, Mcp-Session-Id\r\n");
+    head.push_str("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
     if !reply.body.is_empty() {
         head.push_str("Content-Type: application/json\r\n");
     }

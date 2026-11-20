@@ -169,6 +169,8 @@ if lib_rs.is_file():
         if target2 in txt:
             txt = txt.replace(target2, repl2, 1)
 
+    txt = txt.replace("if !is_toggling_ime && ime.should_interrupt_composition {", "if !cfg!(target_os = \"android\") && !is_toggling_ime && ime.should_interrupt_composition {")
+
     lib_rs.write_text(txt)
 
 # Patch vendor/egui/crates/egui-wgpu/src/winit.rs

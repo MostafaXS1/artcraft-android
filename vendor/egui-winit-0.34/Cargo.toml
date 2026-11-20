@@ -145,7 +145,7 @@ optional = true
 default-features = false
 
 [target.'cfg(target_os = "android")'.dependencies.jni]
-version = "0.21.1"
+version = "0.22.4"
 
 [target.'cfg(target_os = "android")'.dependencies.ndk-context]
 version = "0.1.1"

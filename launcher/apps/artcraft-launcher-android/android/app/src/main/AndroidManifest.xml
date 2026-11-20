@@ -76,7 +76,6 @@
         <package android:name="com.artcraft.deckcraft" />
         <package android:name="com.artcraft.designcraft" />
         <package android:name="com.artcraft.diagramcraft" />
-        <package android:name="com.artcraft.drawcraft" />
         <package android:name="com.artcraft.earthcraft" />
         <package android:name="com.artcraft.effectcraft" />
         <package android:name="com.artcraft.ferrite" />

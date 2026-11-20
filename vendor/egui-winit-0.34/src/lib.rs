@@ -26,6 +26,8 @@ mod window_settings;
 
 #[cfg(target_os = "android")]
 pub mod android_activity;
+#[cfg(target_os = "android")]
+pub mod ime;
 
 pub use window_settings::WindowSettings;
 
@@ -269,6 +271,49 @@ impl State {
             .entry(self.viewport_id)
             .or_default()
             .native_pixels_per_point = Some(window.scale_factor() as f32);
+
+        #[cfg(target_os = "android")]
+        {
+            if self.allow_ime {
+                self.egui_ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
+            for ev in crate::ime::android::poll_all_ime_events() {
+                if ev == "\x08" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: self.egui_input.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: Some(egui::Key::Backspace),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: self.egui_input.modifiers,
+                    });
+                } else if ev == "\n" {
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: self.egui_input.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: Some(egui::Key::Enter),
+                        pressed: false,
+                        repeat: false,
+                        modifiers: self.egui_input.modifiers,
+                    });
+                    self.egui_input.events.push(egui::Event::Text("\n".to_string()));
+                } else {
+                    self.egui_input.events.push(egui::Event::Text(ev));
+                }
+            }
+        }
 
         self.egui_input.take()
     }
@@ -1329,6 +1374,9 @@ fn translate_mouse_button(button: winit::event::MouseButton) -> Option<egui::Poi
         winit::event::MouseButton::Left => Some(egui::PointerButton::Primary),
         winit::event::MouseButton::Right => Some(egui::PointerButton::Secondary),
         winit::event::MouseButton::Middle => Some(egui::PointerButton::Middle),
+        #[cfg(target_os = "android")]
+        winit::event::MouseButton::Back => Some(egui::PointerButton::Secondary),
+        #[cfg(not(target_os = "android"))]
         winit::event::MouseButton::Back => Some(egui::PointerButton::Extra1),
         winit::event::MouseButton::Forward => Some(egui::PointerButton::Extra2),
         winit::event::MouseButton::Other(_) => None,

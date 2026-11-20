@@ -381,18 +381,6 @@ pub static ABOUT: &[AppDetails] = &[
         platforms: "Android, macOS, Windows, Linux",
     },
     AppDetails {
-        id: "drawcraft",
-        headline: "Vector illustration and CorelDraw CDR design in pure Rust.",
-        about: "An open-source vector graphics editor supporting CorelDraw .cdr files, SVG, PDF and CMYK vector design workflows.",
-        features: &[
-            Feature { title: "Vector drawing tools", text: "Comprehensive suite of pen, node, shaping, and precision layout tools." },
-            Feature { title: "CDR interoperability", text: "High-fidelity rendering and parsing of CorelDraw CDR files." },
-            Feature { title: "Cross-platform", text: "Identical experience across desktop and Android." },
-        ],
-        shots: &[],
-        platforms: "Android, macOS, Windows, Linux",
-    },
-    AppDetails {
         id: "ferrite",
         headline: "Fast, lightweight text editor for Markdown and JSON.",
         about: "A fast, lightweight text editor for Markdown, JSON, and more by OlaProeis. Built with pure Rust and egui with syntax highlighting, live preview, and vim modes.",

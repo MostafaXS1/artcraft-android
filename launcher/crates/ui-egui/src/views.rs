@@ -789,7 +789,15 @@ impl LauncherUi {
                             ui.spacing_mut().item_spacing.x = 10.0;
                             // App Icon
                             if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-                                ui.add(icon.fit_to_exact_size(vec2(40.0, 40.0)));
+                                let icon_img = icon.fit_to_exact_size(vec2(40.0, 40.0)).sense(Sense::click());
+                                let icon_resp = ui.add(icon_img);
+                                if icon_resp.clicked() {
+                                    if installed {
+                                        self.launch_app(id);
+                                    } else if AppDetails::by_id(id).is_some() {
+                                        self.detail = Some(id.to_string());
+                                    }
+                                }
                             }
 
                             // Title & Version / Status
@@ -853,38 +861,57 @@ impl LauncherUi {
                             ui.spacing_mut().item_spacing.x = 12.0;
                             // App Icon
                             if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-                                ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)));
+                                let icon_img = icon.fit_to_exact_size(vec2(38.0, 38.0)).sense(Sense::click());
+                                let icon_resp = ui.add(icon_img);
+                                if icon_resp.clicked() {
+                                    if installed {
+                                        self.launch_app(id);
+                                    } else if AppDetails::by_id(id).is_some() {
+                                        self.detail = Some(id.to_string());
+                                    }
+                                }
                             }
 
-                            // App name and tagline
+                            // App name and author
                             ui.vertical(|ui| {
-                                ui.set_width(220.0);
+                                ui.set_width(200.0);
                                 ui.spacing_mut().item_spacing.y = 2.0;
-                                let resp = widgets::wordmark_in(ui, entry.app, 16.0, installed);
+                                let resp = widgets::wordmark_in(ui, entry.app, 15.5, installed);
                                 if resp.clicked() && AppDetails::by_id(id).is_some() {
                                     self.detail = Some(id.to_string());
                                 }
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(tr_ctx(current(), entry.app.id, entry.app.tagline))
-                                            .size(12.0)
-                                            .color(t.muted),
-                                    )
-                                    .truncate(),
-                                );
+                                if !entry.app.publisher.is_empty() {
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(entry.app.publisher)
+                                                .size(12.0)
+                                                .color(t.muted),
+                                        )
+                                        .truncate(),
+                                    );
+                                }
                             });
 
-                            // Version and Status
+                            // Version
+                            let ver_text = match (status == AppStatus::UpdateAvailable).then(|| entry.installed_label().zip(entry.latest_label())).flatten() {
+                                Some((from, to)) => format!("v{from} \u{2192} v{to}"),
+                                None => match (entry.installed_label(), entry.latest_label()) {
+                                    (Some(installed), _) => format!("v{installed}"),
+                                    (None, Some(latest)) => format!("v{latest}"),
+                                    (None, None) => String::new(),
+                                },
+                            };
                             ui.vertical(|ui| {
-                                ui.set_width(120.0);
+                                ui.set_width(110.0);
                                 ui.spacing_mut().item_spacing.y = 2.0;
-                                self.table_version_cell(ui, &entry, &status, &t);
-                                self.table_status_cell(ui, &entry, &status, &t);
+                                if !ver_text.is_empty() {
+                                    ui.label(RichText::new(&ver_text).size(12.0).color(t.muted));
+                                }
                             });
 
                             // Right side: Action buttons
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let action_w = 180.0f32.min(ui.available_width());
+                                let action_w = 160.0f32.min(ui.available_width());
                                 self.actions_in(ui, &entry, &status, action_w, Place::Row);
                             });
                         });
@@ -1054,8 +1081,14 @@ impl LauncherUi {
         }
         let installed = entry.status(self.platform, self.caps.manage_apps).is_installed();
         if let Some(icon) = crate::icons::app_image(ui.ctx(), entry.app.id, installed) {
-            // Decorative: the wordmark beside it carries the app name.
-            ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)));
+            let icon_resp = ui.add(icon.fit_to_exact_size(vec2(38.0, 38.0)).sense(Sense::click()));
+            if icon_resp.clicked() {
+                if installed {
+                    self.launch_app(id);
+                } else if AppDetails::by_id(id).is_some() {
+                    self.detail = Some(id.to_string());
+                }
+            }
         }
         ui.add_space(4.0);
         ui.vertical(|ui| {

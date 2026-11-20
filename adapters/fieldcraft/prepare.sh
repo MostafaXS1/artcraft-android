@@ -20,6 +20,16 @@ if [[ -d "$ROOT/source/solidcraft/vendor/egui" ]]; then
     cp -a "$ROOT/source/solidcraft/vendor/egui" "$SRC_ABS/vendor/egui"
 fi
 
+if [[ -f "$SRC_ABS/vendor/egui/crates/egui-winit/src/lib.rs" ]]; then
+    python3 -c '
+from pathlib import Path
+p = Path("'"$SRC_ABS"'/vendor/egui/crates/egui-winit/src/lib.rs")
+s = p.read_text()
+s = s.replace("if !is_toggling_ime && ime.should_interrupt_composition {", "if !cfg!(target_os = \"android\") && !is_toggling_ime && ime.should_interrupt_composition {")
+p.write_text(s)
+'
+fi
+
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, re, tomllib

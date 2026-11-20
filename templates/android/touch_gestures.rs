@@ -1,9 +1,10 @@
 //! Multi-touch gesture recognizer for Android:
+//! - 2-finger pan/scroll: Holding 2 fingers and dragging pans/scrolls in any direction.
 //! - 2-finger tap: Undo (Ctrl + Z)
 //! - 3-finger tap: Redo (Ctrl + Shift + Z)
 //! - Pinch-to-zoom protection: suppresses tool/brush strokes while 2 or more fingers are down.
 
-use egui::{Event, Key, Modifiers, Pos2, TouchPhase};
+use egui::{Event, Key, Modifiers, Pos2, TouchPhase, Vec2};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -23,13 +24,15 @@ struct GestureState {
     max_fingers: usize,
     moved: bool,
     was_multi: bool,
+    prev_midpoint: Option<Pos2>,
 }
 
 static STATE: Mutex<Option<GestureState>> = Mutex::new(None);
 
 /// Processes raw input events:
-/// 1. Detects quick 2-finger and 3-finger taps and injects Ctrl+Z (Undo) and Ctrl+Shift+Z (Redo).
-/// 2. Suppresses brush/tool clicks while 2 or more fingers are touching (pinch-zoom protection).
+/// 1. Detects 2-finger hold-and-drag panning gestures in any direction.
+/// 2. Detects quick 2-finger and 3-finger taps and injects Ctrl+Z (Undo) and Ctrl+Shift+Z (Redo).
+/// 3. Suppresses brush/tool clicks while 2 or more fingers are touching (pinch-zoom protection).
 pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
     let mut state_guard = match STATE.lock() {
         Ok(g) => g,
@@ -38,8 +41,7 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
     let state = state_guard.get_or_insert_with(Default::default);
 
     let mut trigger_tap: Option<usize> = None;
-    let mut cancel_stroke = false;
-    let mut cancel_pos = None;
+    let mut pan_delta: Option<Vec2> = None;
 
     for event in &raw.events {
         match event {
@@ -52,12 +54,11 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                             state.max_fingers = 1;
                             state.moved = false;
                             state.was_multi = false;
+                            state.prev_midpoint = None;
                         } else {
                             state.max_fingers = state.max_fingers.max(state.fingers.len() + 1);
                             if state.fingers.len() + 1 >= 2 {
                                 state.was_multi = true;
-                                cancel_stroke = true;
-                                cancel_pos = Some(*pos);
                             }
                         }
                         state.fingers.insert(
@@ -67,6 +68,15 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                                 last_pos: *pos,
                             },
                         );
+                        if state.fingers.len() == 2 {
+                            let pts: Vec<Pos2> = state.fingers.values().map(|f| f.last_pos).collect();
+                            state.prev_midpoint = Some(Pos2::new(
+                                (pts[0].x + pts[1].x) * 0.5,
+                                (pts[0].y + pts[1].y) * 0.5,
+                            ));
+                        } else if state.fingers.len() > 2 {
+                            state.prev_midpoint = None;
+                        }
                     }
                     TouchPhase::Move => {
                         if let Some(f) = state.fingers.get_mut(&touch_key) {
@@ -75,12 +85,29 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                                 state.moved = true;
                             }
                         }
+                        if state.fingers.len() == 2 {
+                            let pts: Vec<Pos2> = state.fingers.values().map(|f| f.last_pos).collect();
+                            let curr_midpoint = Pos2::new(
+                                (pts[0].x + pts[1].x) * 0.5,
+                                (pts[0].y + pts[1].y) * 0.5,
+                            );
+                            if let Some(prev) = state.prev_midpoint {
+                                let delta = curr_midpoint - prev;
+                                if delta.length_sq() > 0.25 {
+                                    pan_delta = Some(Vec2::new(delta.x, delta.y));
+                                }
+                            }
+                            state.prev_midpoint = Some(curr_midpoint);
+                        }
                     }
                     TouchPhase::End => {
                         if let Some(f) = state.fingers.remove(&touch_key) {
                             if f.start_pos.distance(*pos) > TAP_SLOP {
                                 state.moved = true;
                             }
+                        }
+                        if state.fingers.len() < 2 {
+                            state.prev_midpoint = None;
                         }
                         if state.fingers.is_empty() {
                             let duration = state
@@ -94,15 +121,20 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                             state.max_fingers = 0;
                             state.moved = false;
                             state.was_multi = false;
+                            state.prev_midpoint = None;
                         }
                     }
                     TouchPhase::Cancel => {
                         state.fingers.remove(&touch_key);
+                        if state.fingers.len() < 2 {
+                            state.prev_midpoint = None;
+                        }
                         if state.fingers.is_empty() {
                             state.sequence_start = None;
                             state.max_fingers = 0;
                             state.moved = false;
                             state.was_multi = false;
+                            state.prev_midpoint = None;
                         }
                     }
                 }
@@ -118,6 +150,18 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
     let is_multi_touch = state.fingers.len() >= 2 || state.was_multi;
     if is_multi_touch {
         raw.events.retain(|event| !matches!(event, Event::PointerButton { .. }));
+    }
+
+    // 2-finger panning: emit mouse wheel scroll events
+    if let Some(delta) = pan_delta {
+        raw.events.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta,
+            phase: TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: Modifiers::NONE,
+        });
+        ctx.request_repaint();
     }
 
     // Trigger Undo or Redo shortcuts

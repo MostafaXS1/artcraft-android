@@ -162,10 +162,15 @@ public final class SubCraftActivity extends NativeActivity {
                     inputView.setVisibility(View.VISIBLE);
                     inputView.setFocusable(true);
                     inputView.setFocusableInTouchMode(true);
-                    inputView.requestFocus();
+                    boolean wasVisible = inputView.getVisibility() == View.VISIBLE && inputView.isFocused();
+                    if (!wasVisible) {
+                        inputView.setVisibility(View.VISIBLE);
+                        inputView.setFocusable(true);
+                        inputView.setFocusableInTouchMode(true);
+                        inputView.requestFocus();
+                    }
                     InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                     if (imm != null) {
-                        imm.restartInput(inputView);
                         imm.showSoftInput(inputView, 0);
                     }
                 }
@@ -458,6 +463,19 @@ public final class SubCraftActivity extends NativeActivity {
             if (legacyDataDir != null && legacyDataDir.exists()) {
                 if (!legacyDataDir.getCanonicalPath().equals(targetMediaDir.getCanonicalPath())) {
                     copyOrMoveDir(legacyDataDir, targetMediaDir);
+                }
+            }
+            if (legacyDataDir != null) {
+                File pkgDataDir = legacyDataDir.getParentFile();
+                if (pkgDataDir != null && pkgDataDir.exists()) {
+                    File[] sub = pkgDataDir.listFiles();
+                    if (sub != null) {
+                        for (File f : sub) {
+                            if (!"files".equals(f.getName())) {
+                                copyOrMoveDir(f, new File(targetMediaDir, f.getName()));
+                            }
+                        }
+                    }
                 }
             }
         } catch (Throwable t) {

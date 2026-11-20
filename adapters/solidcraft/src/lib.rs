@@ -1180,6 +1180,25 @@ fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
             if path.exists() && path != media_path {
                 migrate_dir_contents(&path, &media_path);
             }
+            if let Some(parent) = path.parent() {
+                if parent.exists() {
+                    if let Ok(entries) = std::fs::read_dir(parent) {
+                        for entry in entries.flatten() {
+                            let ep = entry.path();
+                            if ep != path {
+                                if let Some(name) = ep.file_name() {
+                                    let dst = media_path.join(name);
+                                    if ep.is_dir() {
+                                        migrate_dir_contents(&ep, &dst);
+                                    } else {
+                                        let _ = std::fs::rename(&ep, &dst);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return Some(media_path);
         }
         return Some(path);

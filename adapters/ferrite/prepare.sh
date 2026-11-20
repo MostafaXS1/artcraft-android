@@ -82,10 +82,11 @@ pub fn log_memory(_label: &str) {}
 EOF
 fi
 
-# Vendor termios for Android support
-rm -rf "$SRC_ABS/vendor/termios"
+# Vendor termios and egui-winit for Android support
+rm -rf "$SRC_ABS/vendor/termios" "$SRC_ABS/vendor/egui-winit"
 mkdir -p "$SRC_ABS/vendor"
 cp -a "$ROOT/vendor/termios" "$SRC_ABS/vendor/termios"
+cp -a "$ROOT/vendor/egui-winit-0.34" "$SRC_ABS/vendor/egui-winit"
 
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path

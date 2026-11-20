@@ -33,7 +33,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft drawcraft ferrite
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite
 
 Examples:
   bash build.sh -photocraft
@@ -173,7 +173,6 @@ case "$APP" in
     pcbcraft) TITLE="PCBCraft" ;;
     fieldcraft) TITLE="FieldCraft" ;;
     papercraft) TITLE="PaperCraft" ;;
-    drawcraft) TITLE="DrawCraft" ;;
     ferrite) TITLE="Ferrite" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
@@ -243,9 +242,6 @@ elif [[ "$APP" == "fieldcraft" ]]; then
 elif [[ "$APP" == "papercraft" ]]; then
     REPO="https://github.com/slyim/papercraft.git"
     APP_ORIGIN="https://github.com/slyim/papercraft"
-elif [[ "$APP" == "drawcraft" ]]; then
-    REPO="https://github.com/Adnan10p/DrawCraft.git"
-    APP_ORIGIN="https://github.com/Adnan10p/DrawCraft"
 elif [[ "$APP" == "ferrite" ]]; then
     REPO="https://github.com/OlaProeis/Ferrite.git"
     APP_ORIGIN="https://github.com/OlaProeis/Ferrite"
@@ -304,7 +300,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft drawcraft ferrite "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -587,7 +583,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|drawcraft|ferrite)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|ferrite)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
@@ -2615,6 +2611,9 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
+        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" ]]; then
+            sed -i '/source: egui::MouseWheelSource::Unknown,/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+        fi
     fi
 else
     python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" "$NO_BUTTONS" <<'PY'
@@ -2654,6 +2653,10 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite"):
+        tg = android_dir / "src" / "touch_gestures.rs"
+        if tg.is_file():
+            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2695,6 +2698,10 @@ if android_dir.exists():
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
+            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite"):
+                tg = android_dir / "src" / "touch_gestures.rs"
+                if tg.is_file():
+                    tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
             raise SystemExit(0)
         print("Regenerating the Android launcher for this builder version.")
         shutil.rmtree(android_dir)
@@ -4737,6 +4744,25 @@ fn app_data_dir(app: &AndroidApp) -> Option<std::path::PathBuf> {
             if path.exists() && path != media_path {
                 migrate_dir_contents(&path, &media_path);
             }
+            if let Some(parent) = path.parent() {
+                if parent.exists() {
+                    if let Ok(entries) = std::fs::read_dir(parent) {
+                        for entry in entries.flatten() {
+                            let ep = entry.path();
+                            if ep != path {
+                                if let Some(name) = ep.file_name() {
+                                    let dst = media_path.join(name);
+                                    if ep.is_dir() {
+                                        migrate_dir_contents(&ep, &dst);
+                                    } else {
+                                        let _ = std::fs::rename(&ep, &dst);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return Some(media_path);
         }
         return Some(path);
@@ -4764,14 +4790,17 @@ fn install_persist_env(app: &AndroidApp) {
     let Some(base) = app_data_dir(app) else { return };
     let config = base.join("config");
     let cache = base.join("cache");
+    let tmp = base.join("tmp");
     let _ = std::fs::create_dir_all(config.join(".config"));
     let _ = std::fs::create_dir_all(&cache);
+    let _ = std::fs::create_dir_all(&tmp);
     // SAFETY: `android_main` runs before the app starts any worker thread, so no other thread is
     // reading the environment here.
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
         std::env::set_var("XDG_DATA_HOME", &base);
+        std::env::set_var("TMPDIR", &tmp);
         let internal = app.internal_data_path().map(|p| p.join("models")).unwrap_or_else(|| base.join("models"));
         let external = base.join("models");
         if !internal.join("text-detection.onnx").is_file() || !internal.join("text-recognition.onnx").is_file() {
@@ -6464,6 +6493,10 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite"):
+        tg = staging_dir / "src" / "touch_gestures.rs"
+        if tg.is_file():
+            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {
         "solidcraft": """
@@ -7067,7 +7100,7 @@ bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
 # platform-gated, so desktop builds are unaffected.
 echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
 mkdir -p "$SRC/vendor"
-if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
+if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" ]]; then
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit-0.36" "$SRC/vendor/egui-winit"
 elif [[ "$APP" == "ferrite" ]]; then
@@ -7474,7 +7507,7 @@ PY
 elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
     # SolidCraft, FieldCraft, PCBCraft and Ferrite handle their own graphics backend
     echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
-elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
+elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" ]]; then
     rm -rf "$SRC/vendor/egui-wgpu"
     cp -a "$ROOT/vendor/egui-wgpu-0.36" "$SRC/vendor/egui-wgpu"
 else
@@ -7931,7 +7964,7 @@ rm -rf "$ANDROID_DIR/jniLibs"
 # For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "drawcraft" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" ]]; then
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then

