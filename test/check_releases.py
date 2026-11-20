@@ -383,6 +383,27 @@ def main() -> int:
                 "The builder successfully avoided them."
             )
 
+    # Render markdown summary in GitHub Actions if environment is present
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        try:
+            with open(summary_path, "a", encoding="utf-8") as f:
+                f.write("### 📦 Upstream Release & Tag Sync Status\n\n")
+                f.write("| App | Status | Builder Resolved | GitHub Latest Release | Raw Git Tag |\n")
+                f.write("| :--- | :---: | :---: | :---: | :---: |\n")
+                for r in sorted_results:
+                    icon = "✅" if r.status == "SYNCED" else ("⚠️" if r.status in ("MAIN_OVERRIDE", "NO_RELEASES") else "❌")
+                    b_tag = f"`{r.resolved_builder_tag}`" if r.resolved_builder_tag else "-"
+                    gh_tag = f"`{r.gh_latest_release}`" if r.gh_latest_release else "-"
+                    raw_tag = f"`{r.raw_git_top_tag}`" if r.raw_git_top_tag else "-"
+                    f.write(f"| **{r.app}** | {icon} {r.status} | {b_tag} | {gh_tag} | {raw_tag} |\n")
+                synced_cnt = sum(1 for r in sorted_results if r.status == "SYNCED")
+                overrides_cnt = sum(1 for r in sorted_results if r.status == "MAIN_OVERRIDE")
+                desyncs_cnt = sum(1 for r in sorted_results if r.status == "DESYNC")
+                f.write(f"\n*Checked {len(sorted_results)} apps: {synced_cnt} in sync, {overrides_cnt} main-overrides, {desyncs_cnt} desynced.*\n\n")
+        except Exception:
+            pass
+
     if desyncs > 0:
         return 1
     if args.strict and raw_mismatches > 0:

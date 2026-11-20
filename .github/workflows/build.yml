@@ -469,6 +469,18 @@ jobs:
     runs-on: ubuntu-latest
     if: always() && !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.has_apps == 'true' || needs.prepare.outputs.build_launcher == 'true')
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Verify Upstream Release & Tag Sync
+        run: |
+          python3 test/check_releases.py --verbose
+
       - name: Download all APK artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
