@@ -92,6 +92,7 @@ The ArtCraft Launcher (originally created by ArtCraft / Storytold, and adapted b
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)
 - **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
+- **Security Policy:** [`SECURITY.md`](SECURITY.md)
 
 ---
 
@@ -223,12 +224,8 @@ Yes! If you develop an open-source Rust, egui, or desktop creative application, 
 
 ---
 
-## Security & Vulnerability Reporting
+## Security
 
-Security is taken seriously across all ArtCraft Android ports:
-
-- **Reporting Vulnerabilities:** If you discover a security vulnerability or exploit specific to the ArtCraft Android harness, runtime bridges (SAF, JNI, Termux bridge), or build scripts, please report it via GitHub Security Advisories or contact us privately on our [Discord](https://discord.gg/J8GhXx8tCD). We aim to investigate and patch confirmed Android-side issues promptly in the next update.
-- **Upstream Scope:** Because we maintain a strict policy of zero unsolicited modifications to upstream application logic, vulnerabilities originating within upstream app codebases must be resolved upstream by their respective maintainers. When upstream releases a security patch, our build system automatically pulls it into the next release tag.
-- For more details, see our full [`SECURITY.md`](SECURITY.md).
+For vulnerability reporting guidelines, please see our [Security Policy](SECURITY.md).
 
 
