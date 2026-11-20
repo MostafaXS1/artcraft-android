@@ -793,6 +793,30 @@ elif app == "cadcraft":
         if fix(rel, old, new):
             fixed.append(f"{rel} ({old} -> {new})")
 
+    # Android has no `/usr/share/fonts`, and upstream's Chinese-interface check (`theme::cjk_font`)
+    # only looks in the desktop font folders, so the language dialog reported "No Chinese font is
+    # installed" on every device even though Android ships Noto Sans CJK in /system/fonts. Look
+    # there, and in the user's own `Fonts` folder (the one the Android shell links into the app's
+    # HOME and the README tells users to drop fonts into) before giving up.
+    if fix(
+        "crates/ui-egui/src/theme.rs",
+        '                let candidates: &[&str] = if cfg!(target_os = "macos") {\n'
+        '                    &["/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Light.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc"]\n',
+        '                let candidates: &[&str] = if cfg!(target_os = "android") {\n'
+        '                    &[\n'
+        '                        "/storage/emulated/0/Fonts/NotoSansCJKsc-Regular.otf",\n'
+        '                        "/sdcard/Fonts/NotoSansCJKsc-Regular.otf",\n'
+        '                        "/system/fonts/NotoSansCJKsc-Regular.otf",\n'
+        '                        "/system/fonts/NotoSansHans-Regular.otf",\n'
+        '                        "/system/fonts/NotoSansCJK-Regular.ttc",\n'
+        '                        "/system/fonts/DroidSansFallback.ttf",\n'
+        '                    ]\n'
+        '                } else if cfg!(target_os = "macos") {\n'
+        '                    &["/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Light.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc"]\n',
+        required=True,
+    ):
+        fixed.append("crates/ui-egui/src/theme.rs (Android CJK font paths)")
+
     # Fix rstar 0.12 API (locate_in_envelope_intersecting takes &T::Envelope)
     if fix(
         "crates/engine/src/spatial.rs",
