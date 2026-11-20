@@ -196,3 +196,39 @@ Do not use the local development key for public distribution. Use a separately m
 
 Existing source checkouts are reused to preserve local Android port work. The build does not automatically reset or overwrite local source changes. Update existing checkouts deliberately with Git and review the diff before switching versions or incorporating upstream changes.
 
+---
+
+## Frequently Asked Questions (FAQ)
+
+### How can we build and port apps so fast?
+ArtCraft Android does not rewrite or maintain separate mobile forks of each application. Instead, our automated build harness pulls the exact upstream desktop Rust source code directly from official releases, applies modular Android runtime adapters (GameActivity, Storage Access Framework bridges, and native IME input), and vendors platform compatibility patches (for `winit`, `egui`, etc.). In CI, multi-tier caching (`sccache`, Cargo registry caching, and Gradle cache) allows parallel cross-compilation of all 32 applications in minutes rather than hours.
+
+### Are these stripped-down mobile editions?
+No. Every application is the full, unabridged PC desktop application running natively on Android (`aarch64-linux-android`). All desktop tools, rendering pipelines, panels, and format support are preserved.
+
+### How does file storage work on Android?
+The ports integrate with Android's Storage Access Framework (SAF). Clicking **File ▸ Open** or **Save** opens Android's native system document picker, giving you direct access to internal storage, SD cards, and connected cloud providers (Google Drive, Nextcloud, OneDrive, etc.).
+
+### Do touch gestures, stylus, mouse, and physical keyboards work?
+Yes. The runtime adapts input across form factors:
+- **Touch & Stylus:** Native two-finger scrolling, pinch zoom, and pen pressure where supported.
+- **Mouse & Trackpad:** Full cursor hover states, right-click context menus, smooth trackpad scrolling, and mouse wheel navigation.
+- **Keyboards:** Android soft keyboard (IME) with real-time text composition, as well as physical keyboard shortcut chords (`Ctrl`, `Alt`, `Shift`).
+
+### How do I install and update the applications?
+The recommended way is through the **ArtCraft Launcher** APK, which lets you browse, install, and update all official and community applications in one place. Alternatively, individual standalone APKs can be downloaded directly from [GitHub Releases](https://github.com/MostafaXS1/artcraft-android/releases/).
+
+### Can my open-source app be added to the launcher?
+Yes! If you develop an open-source Rust, egui, or desktop creative application, we can index your APK in the ArtCraft Launcher catalog. Please contact us on our [Discord](https://discord.gg/J8GhXx8tCD) to discuss inclusion.
+
+---
+
+## Security & Vulnerability Reporting
+
+Security is taken seriously across all ArtCraft Android ports:
+
+- **Reporting Vulnerabilities:** If you discover a security vulnerability or exploit specific to the ArtCraft Android harness, runtime bridges (SAF, JNI, Termux bridge), or build scripts, please report it via GitHub Security Advisories or contact us privately on our [Discord](https://discord.gg/J8GhXx8tCD). We aim to investigate and patch confirmed Android-side issues promptly in the next update.
+- **Upstream Scope:** Because we maintain a strict policy of zero unsolicited modifications to upstream application logic, vulnerabilities originating within upstream app codebases must be resolved upstream by their respective maintainers. When upstream releases a security patch, our build system automatically pulls it into the next release tag.
+- For more details, see our full [`SECURITY.md`](SECURITY.md).
+
+
