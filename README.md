@@ -63,11 +63,23 @@ These capabilities are implemented through shared Android runtime components, pl
 
 ## Built for Android Without Removing PC Functionality
 
-The ArtCraft applications originate from the official Storytold repositories. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them on Android.
+The ArtCraft applications originate from the official Storytold repositories and community creative suites. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them natively on Android.
 
-The objective is to preserve the functionality of the PC applications while making them work properly with Android's storage, input, and system services.
+The ecosystem currently supports **40 applications**:
+- **16 Official Storytold Suite applications** (PhotoCraft, VectorCraft, FilmCraft, WordCraft, etc.)
+- **16 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, etc.)
+- **7 External community applications** indexed and tracked via the launcher catalog
+- **ArtCraft Launcher:** A dedicated Android dashboard for installing, launching, and updating the suite
 
 The Android build process uses templates, adapters, vendored changes, and compatibility patches as needed. This keeps the Android integration organized and makes it easier to maintain across the app suite.
+
+## Community Apps in the Android Launcher
+
+The ArtCraft Launcher (originally created by ArtCraft / Storytold, and adapted by us for Android) includes support for community applications alongside the official suite. If you maintain or develop an open-source creative tool, utility, or desktop app (especially those built with Rust, egui, or similar frameworks) and would like it available on Android:
+
+- **Get Listed in the Launcher:** Community apps can be included in our Android launcher's catalog (`launcher/apps/artcraft-launcher-android/app-catalog.json`), allowing Android users to discover, install, and receive release updates for your APK directly.
+- **Porting Assistance:** You can take advantage of our shared Android integration components, Storage Access Framework (SAF) bridges, soft-keyboard IME handling, and touch/trackpad patches to adapt your desktop app for Android.
+- **How to Apply:** If you would like your app featured in our Android build of the launcher or want help porting it, **you must contact us on the unofficial [Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**. Project maintainers are also welcome to join and apply for their own dedicated channel. (For technical porting details, see the [CI & porting guide](docs/ci-workflow.md#9-adding-new-android-ports-to-the-build-system--ci)).
 
 ## Links
 
@@ -75,15 +87,18 @@ The Android build process uses templates, adapters, vendored changes, and compat
 - **ArtCraft website:** [getartcraft.com](https://getartcraft.com/)
 - **Explore the apps:** [getartcraft.com/apps](https://getartcraft.com/apps)
 - **Source code:** [ArtCraft Android repository](https://github.com/MostafaXS1/artcraft-android)
+- **Ported Applications:** [`docs/ported-apps.md`](docs/ported-apps.md)
+- **CI/CD Workflow:** [`docs/ci-workflow.md`](docs/ci-workflow.md)
 - **Adapter documentation:** [`adapters/README.md`](adapters/README.md)
 - **Architecture documentation:** [`architecture.md`](architecture.md)
 - **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
+- **Security Policy:** [`SECURITY.md`](SECURITY.md)
 
 ---
 
 ## Build from Source
 
-Build locally signed, 64-bit ARM Android APKs from the official Storytold repositories.
+Build locally signed, 64-bit ARM Android APKs from the official Storytold repositories and supported community projects.
 
 ### Requirements
 
@@ -100,22 +115,21 @@ The build scripts can discover or bootstrap supported Android build components w
 Run the scripts from any directory. Each script resolves its own location and switches to the project directory before building.
 
 ```sh
-# Optimized release APK
+# Optimized release APK for any supported application
 bash build.sh -pdfcraft
 
 # Debug APK for testing
 bash build-debug.sh -pdfcraft
+
+# Build the ArtCraft Launcher APK
+bash build-launcher.sh
 ```
 
 Replace `-pdfcraft` with any supported application name.
 
 ### Supported Build Targets
 
-| App | Repo |
-| --- | --- |
-| photocraft, vectorcraft, filmcraft, lightcraft, pdfcraft, effectcraft, designcraft, figcraft, wordcraft, soundcraft, deckcraft, cadcraft, gridcraft, materialcraft, texturecraft | Storytold (official) |
-| subcraft | [Aalzard/subcraft](https://github.com/Aalzard/subcraft) *(Unofficial)* |
-| solidcraft | [tangency-labs/solidcraft](https://github.com/tangency-labs/solidcraft) *(Community)* |
+All supported build targets can be found in [`docs/ported-apps.md`](docs/ported-apps.md).
 
 App names are passed as command-line flags, such as `-photocraft` or `-vectorcraft`.
 
@@ -182,4 +196,35 @@ Builds are signed with a local development keystore stored under `keys/`. Keep t
 Do not use the local development key for public distribution. Use a separately managed release-signing key for public releases.
 
 Existing source checkouts are reused to preserve local Android port work. The build does not automatically reset or overwrite local source changes. Update existing checkouts deliberately with Git and review the diff before switching versions or incorporating upstream changes.
+
+---
+
+## Frequently Asked Questions (FAQ)
+
+### How can we build and port apps so fast?
+ArtCraft Android does not rewrite or maintain separate mobile forks of each application. Instead, our automated build harness pulls the exact upstream desktop Rust source code directly from official releases, applies modular Android runtime adapters (GameActivity, Storage Access Framework bridges, and native IME input), and vendors platform compatibility patches (for `winit`, `egui`, etc.). In CI, multi-tier caching (`sccache`, Cargo registry caching, and Gradle cache) allows parallel cross-compilation of all 32 applications in minutes rather than hours.
+
+### Are these stripped-down mobile editions?
+No. Every application is the full, unabridged PC desktop application running natively on Android (`aarch64-linux-android`). All desktop tools, rendering pipelines, panels, and format support are preserved.
+
+### How does file storage work on Android?
+The ports integrate with Android's Storage Access Framework (SAF). Clicking **File ▸ Open** or **Save** opens Android's native system document picker, giving you direct access to internal storage, SD cards, and connected cloud providers (Google Drive, Nextcloud, OneDrive, etc.).
+
+### Do touch gestures, stylus, mouse, and physical keyboards work?
+Yes. The runtime adapts input across form factors:
+- **Touch & Stylus:** Native two-finger scrolling, pinch zoom, and pen pressure where supported.
+- **Mouse & Trackpad:** Full cursor hover states, right-click context menus, smooth trackpad scrolling, and mouse wheel navigation.
+- **Keyboards:** Android soft keyboard (IME) with real-time text composition, as well as physical keyboard shortcut chords (`Ctrl`, `Alt`, `Shift`).
+
+### How do I install and update the applications?
+The recommended way is through the **ArtCraft Launcher** APK, which lets you browse, install, and update all official and community applications in one place. Alternatively, individual standalone APKs can be downloaded directly from [GitHub Releases](https://github.com/MostafaXS1/artcraft-android/releases/).
+
+### Can my open-source app be added to the launcher?
+Yes! If you develop an open-source Rust, egui, or desktop creative application, we can index your APK in the ArtCraft Launcher catalog. Please contact us on our [Discord](https://discord.gg/J8GhXx8tCD) to discuss inclusion.
+
+---
+
+## Security
+We take security very seriously across all our Android ports. For vulnerability reporting guidelines, please see our [Security Policy](SECURITY.md).
+
 
