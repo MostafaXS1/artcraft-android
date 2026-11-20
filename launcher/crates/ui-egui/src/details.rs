@@ -582,14 +582,38 @@ fn step_button(ui: &mut Ui, left: bool, tip: &str, t: &Tokens) -> bool {
 }
 
 /// The app's links as a row of buttons each as wide as its label; the ↗ says each opens the
-/// browser, like the links on the cards.
+/// browser, like the links on the cards. If a link (e.g. Discord or Website) is not available,
+/// the button is grayed out.
 fn link_buttons(ui: &mut Ui, app: &CraftApp) {
-    let links = [(tl!("Website"), app.website()), (tl!("GitHub"), app.repo_url()), (tl!("Releases"), app.releases_url())];
+    let website = app.website();
+    let github = Some(app.repo_url());
+    let releases = Some(app.releases_url());
+    let discord = app.discord.map(str::to_string);
+
+    let links = [
+        (tl!("Website"), website, tl!("No website available")),
+        (tl!("GitHub"), github, tl!("No repository available")),
+        (tl!("Releases"), releases, tl!("No releases available")),
+        (tl!("Discord"), discord, tl!("No Discord server available")),
+    ];
+
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
-        for (label, url) in links {
-            if widgets::button(ui, &format!("{label} ↗"), Kind::Secondary, 0.0).on_hover_text(url.as_str()).clicked() {
-                widgets::open_external_link(ui.ctx(), &url);
+        for (label, url, disabled_tip) in links {
+            let text = format!("{label} ↗");
+            if let Some(url) = url {
+                if widgets::button(ui, &text, Kind::Secondary, 0.0)
+                    .on_hover_text(url.as_str())
+                    .clicked()
+                {
+                    widgets::open_external_link(ui.ctx(), &url);
+                }
+            } else {
+                ui.add_enabled_ui(false, |ui| {
+                    widgets::button(ui, &text, Kind::Secondary, 0.0)
+                })
+                .inner
+                .on_hover_text(disabled_tip);
             }
         }
     });

@@ -1363,9 +1363,14 @@ impl LauncherUi {
                         ui.close();
                     }
                 };
-                link(ui, tl!("Website"), entry.app.website());
+                if let Some(site) = entry.app.website() {
+                    link(ui, tl!("Website"), site);
+                }
                 link(ui, tl!("GitHub repository"), entry.app.repo_url());
                 link(ui, tl!("All releases"), entry.app.releases_url());
+                if let Some(discord) = entry.app.discord {
+                    link(ui, tl!("Discord"), discord.to_string());
+                }
             }
             self.menu_pin(ui, entry, &id);
             self.menu_hide(ui, entry, &id);

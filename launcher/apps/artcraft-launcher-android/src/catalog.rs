@@ -40,6 +40,7 @@ const fn community(
     publisher: &'static str,
     site: Option<&'static str>,
     bundle: Option<&'static str>,
+    discord: Option<&'static str>,
 ) -> CraftApp {
     CraftApp {
         id,
@@ -61,6 +62,7 @@ const fn community(
         bundle,
         former_bundles: &[],
         site,
+        discord,
         mac_team: None,
     }
 }
@@ -72,6 +74,7 @@ const fn official(
     tagline: &'static str,
     color: [u8; 3],
     repo: &'static str,
+    discord: Option<&'static str>,
 ) -> CraftApp {
     CraftApp {
         id,
@@ -93,6 +96,7 @@ const fn official(
         bundle: None,
         former_bundles: &[],
         site: None,
+        discord,
         mac_team: Some(ARTCRAFT_TEAM_ID),
     }
 }
@@ -111,22 +115,22 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
 pub static SUITE_ANDROID: [CraftApp; 39] = [
-    official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft"),
-    official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft"),
-    official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft"),
-    official("lightcraft", "LightCraft", "Photo library and raw development", [242, 165, 22], "storytold/lightcraft"),
-    official("pdfcraft", "PdfCraft", "Reading, organizing and protecting PDFs", [232, 32, 79], "storytold/pdfcraft"),
-    official("effectcraft", "EffectCraft", "Image effects and filters", [224, 54, 143], "storytold/effectcraft"),
-    official("designcraft", "DesignCraft", "Graphic design and layout", [123, 181, 28], "storytold/designcraft"),
-    official("figcraft", "FigCraft", "Diagramming and whiteboarding", [2, 218, 150], "storytold/figcraft"),
-    official("wordcraft", "WordCraft", "Writing and word processing", [63, 95, 224], "storytold/wordcraft"),
-    official("soundcraft", "SoundCraft", "Audio recording and editing", [31, 165, 201], "storytold/soundcraft"),
-    official("deckcraft", "DeckCraft", "Presentations and slide decks", [240, 122, 30], "storytold/deckcraft"),
-    official("cadcraft", "CadCraft", "2D and 3D CAD drawings", [62, 166, 232], "storytold/cadcraft"),
-    official("gridcraft", "GridCraft", "Spreadsheets and tables", [31, 157, 85], "storytold/gridcraft"),
-    official("materialcraft", "MaterialCraft", "Materials and textures for 3D work", [23, 138, 156], "storytold/materialcraft"),
-    official("texturecraft", "TextureCraft", "3D texture painting", [194, 103, 43], "storytold/texturecraft"),
-    official("anicraft", "AniCraft", "Frame-by-frame 2D animation", [223, 202, 0], "storytold/anicraft"),
+    official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
+    official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
+    official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
+    official("lightcraft", "LightCraft", "Photo library and raw development", [242, 165, 22], "storytold/lightcraft", Some("https://discord.gg/artcraft")),
+    official("pdfcraft", "PdfCraft", "Reading, organizing and protecting PDFs", [232, 32, 79], "storytold/pdfcraft", Some("https://discord.gg/artcraft")),
+    official("effectcraft", "EffectCraft", "Image effects and filters", [224, 54, 143], "storytold/effectcraft", Some("https://discord.gg/artcraft")),
+    official("designcraft", "DesignCraft", "Graphic design and layout", [123, 181, 28], "storytold/designcraft", Some("https://discord.gg/artcraft")),
+    official("figcraft", "FigCraft", "Diagramming and whiteboarding", [2, 218, 150], "storytold/figcraft", Some("https://discord.gg/artcraft")),
+    official("wordcraft", "WordCraft", "Writing and word processing", [63, 95, 224], "storytold/wordcraft", Some("https://discord.gg/artcraft")),
+    official("soundcraft", "SoundCraft", "Audio recording and editing", [31, 165, 201], "storytold/soundcraft", Some("https://discord.gg/artcraft")),
+    official("deckcraft", "DeckCraft", "Presentations and slide decks", [240, 122, 30], "storytold/deckcraft", Some("https://discord.gg/artcraft")),
+    official("cadcraft", "CadCraft", "2D and 3D CAD drawings", [62, 166, 232], "storytold/cadcraft", Some("https://discord.gg/artcraft")),
+    official("gridcraft", "GridCraft", "Spreadsheets and tables", [31, 157, 85], "storytold/gridcraft", Some("https://discord.gg/artcraft")),
+    official("materialcraft", "MaterialCraft", "Materials and textures for 3D work", [23, 138, 156], "storytold/materialcraft", Some("https://discord.gg/artcraft")),
+    official("texturecraft", "TextureCraft", "3D texture painting", [194, 103, 43], "storytold/texturecraft", Some("https://discord.gg/artcraft")),
+    official("anicraft", "AniCraft", "Frame-by-frame 2D animation", [223, 202, 0], "storytold/anicraft", Some("https://discord.gg/artcraft")),
     community(
         "subcraft",
         "SubCraft",
@@ -134,7 +138,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [255, 134, 26],
         "Aalzard/subcraft",
         "Aalzard",
-        Some("https://github.com/Aalzard/subcraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -146,6 +151,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "Tangency Labs",
         Some("https://solidcraft.io"),
         Some("io.tangencylabs.solidcraft"),
+        Some("https://discord.gg/FtU4NQNVDH"),
     ),
     community(
         "bimcraft",
@@ -154,7 +160,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [86, 157, 126],
         "IPedrax/BIMCraft",
         "IPedrax",
-        Some("https://github.com/IPedrax/BIMCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -164,7 +171,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [26, 169, 251],
         "kostyk348/CapsuleCraft",
         "kostyk348",
-        Some("https://github.com/kostyk348/CapsuleCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -174,7 +182,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [255, 201, 62],
         "baradhili/DiagramCraft",
         "baradhili",
-        Some("https://github.com/baradhili/DiagramCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -184,7 +193,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [18, 216, 208],
         "therichronicles/EarthCraft",
         "therichronicles",
-        Some("https://github.com/therichronicles/EarthCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -194,7 +204,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [250, 123, 61],
         "YalKouassi/HumanMotionCraft",
         "YalKouassi",
-        Some("https://github.com/YalKouassi/HumanMotionCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -206,6 +217,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "bearlikelion",
         Some("https://mapcraft.site"),
         None,
+        None,
     ),
     community(
         "notecraft",
@@ -214,8 +226,9 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [157, 40, 255],
         "AlienTechSoftware/notecraft",
         "AlienTechSoftware",
-        Some("https://github.com/AlienTechSoftware/notecraft"),
         None,
+        None,
+        Some("https://discord.com/invite/artcraft"),
     ),
     community(
         "paintcraft",
@@ -224,7 +237,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [255, 146, 25],
         "replicraft/PaintCraft",
         "replicraft",
-        Some("https://github.com/replicraft/PaintCraft"),
+        None,
+        None,
         None,
     ),
     community(
@@ -236,6 +250,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "fabox",
         Some("https://fabox-os.github.io/Picasso-Suite/"),
         None,
+        Some("https://discord.gg/zuMqg3nVnX"),
     ),
     community(
         "prowave",
@@ -246,6 +261,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "fabox",
         Some("https://fabox-os.github.io/Pro-Wave/"),
         None,
+        Some("https://discord.gg/zuMqg3nVnX"),
     ),
     community(
         "rustgis",
@@ -254,7 +270,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [184, 74, 44],
         "opengeos/RustGIS",
         "opengeos",
-        Some("https://github.com/opengeos/RustGIS"),
+        Some("https://rustgis.app"),
+        None,
         None,
     ),
     community(
@@ -264,7 +281,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [83, 198, 255],
         "tracedraw/tracedraw",
         "TraceDraw",
-        Some("https://github.com/tracedraw/tracedraw"),
+        Some("https://tracedraw.github.io/tracedraw/"),
+        None,
         None,
     ),
     community(
@@ -276,6 +294,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "transit-audio",
         Some("https://transit-audio.com/"),
         None,
+        Some("https://discord.gg/7PPUBZqA66"),
     ),
     community(
         "coimanide",
@@ -284,7 +303,8 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [47, 140, 255],
         "ManuelCoimbra/coiman-ide",
         "ManuelCoimbra",
-        Some("https://github.com/ManuelCoimbra/coiman-ide"),
+        None,
+        None,
         None,
     ),
     community(
@@ -296,6 +316,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "Bramble Apps",
         Some("https://bramble-apps.github.io"),
         None,
+        None,
     ),
     community(
         "values",
@@ -305,6 +326,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "bramble-apps/bramble-office",
         "Bramble Apps",
         Some("https://bramble-apps.github.io"),
+        None,
         None,
     ),
     community(
@@ -316,6 +338,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "Bramble Apps",
         Some("https://bramble-apps.github.io"),
         None,
+        None,
     ),
     community(
         "procraft",
@@ -326,6 +349,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "Bearinmind",
         None,
         None,
+        Some("https://discord.gg/gypGes3Uca"),
     ),
     community(
         "capcraft",
@@ -334,6 +358,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         [25, 25, 25],
         "artcraft-android/capcraft-android",
         "Bearinmind",
+        None,
         None,
         None,
     ),
@@ -346,6 +371,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "jub0t",
         Some("https://concat.standalones.org"),
         None,
+        Some("https://discord.gg/DVuPfpXfqP"),
     ),
     community(
         "shapecraft",
@@ -356,6 +382,7 @@ pub static SUITE_ANDROID: [CraftApp; 39] = [
         "jackharvest",
         Some("https://jackharvest.com/shapecraft/"),
         None,
+        Some("https://discord.gg/qHW22aC8Rn"),
     ),
 ];
 
@@ -564,7 +591,7 @@ mod tests {
         let asset = Asset {
             name: "photocraft-0.20.2.apk".to_string(),
             url: "https://example.com/photocraft-0.20.2.apk".to_string(),
-            size: 1000,
+            size: 100,
             sha256: Some("sha256:deadbeef".to_string()),
         };
         let version = artcraft_launcher_core::version::parse("0.20.2");
@@ -579,7 +606,7 @@ mod tests {
         let asset = Asset {
             name: "Keydeck-android.apk".to_string(),
             url: "https://example.com/Keydeck-android.apk".to_string(),
-            size: 1000,
+            size: 100,
             sha256: Some("sha256:deadbeef".to_string()),
         };
         let version = artcraft_launcher_core::version::parse("v0.5.1");
@@ -608,3 +635,4 @@ mod tests {
         }
     }
 }
+
