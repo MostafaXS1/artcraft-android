@@ -64,6 +64,7 @@ fn android_main(app: AndroidApp) {
         }
     }
     system_fonts::install_font_env(&app);
+    tracedraw::topbar_modifiers::set_hardware_keyboard_connected(android_activity::hardware_keyboard_connected());
     let _mcp = mcp_http::start_mcp_service(
         "TraceDraw".to_string(),
         "0.41.0".to_string(),

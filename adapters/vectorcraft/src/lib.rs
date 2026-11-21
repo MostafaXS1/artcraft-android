@@ -538,6 +538,10 @@ fn install_persist_env(app: &AndroidApp) {
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
+        let home = app.internal_data_path().unwrap_or_else(|| base.clone()).join("home");
+        let _ = fs::create_dir_all(&home);
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_DATA_HOME", &base);
     }
     log::info!("settings directory: {}", config.display());
 }
@@ -1304,6 +1308,24 @@ fn android_main(android_app: AndroidApp) {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("VectorCraft wgpu device"),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
+        });
     }
     let app_bridge = bridge.clone_for_services();
     let app_picks = picks.clone();

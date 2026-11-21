@@ -330,6 +330,26 @@ impl eframe::App for PcbCraftAndroidApp {
     }
 }
 
+
+fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
+    use jni::{jni_sig, jni_str, JavaVM, objects::JObject};
+    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        Ok(env
+            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
+            .z()?)
+    });
+    match result {
+        Ok(is_dense) => Some(is_dense),
+        Err(error) => {
+            log::warn!("Could not determine screen density: {error}");
+            None
+        }
+    }
+}
+
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(android_app: AndroidApp) {
@@ -359,7 +379,7 @@ fn android_main(android_app: AndroidApp) {
     let saf_state = Arc::new(SafState::default());
     install_saf_launcher(saf_bridge.clone_ref(), Arc::clone(&saf_state));
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_title("PCBCraft")
@@ -367,6 +387,30 @@ fn android_main(android_app: AndroidApp) {
         android_app: Some(android_app.clone()),
         ..Default::default()
     };
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
+        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("PCBCraft wgpu device"),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
+        });
+    }
 
     let app_bridge = saf_bridge.clone_ref();
     let app_state = saf_state.clone();
@@ -374,6 +418,9 @@ fn android_main(android_app: AndroidApp) {
         "PCBCraft",
         options,
         Box::new(move |cc| {
+            if device_is_high_density(app_bridge.android_app()) == Some(true) {
+                cc.egui_ctx.set_zoom_factor(0.75);
+            }
             let inner = pcbcraft_app::PcbApp::new(cc).with_integrated_titlebar(false);
             let _mcp = mcp_http::start_mcp_service(
                 "PCBCraft".to_string(),

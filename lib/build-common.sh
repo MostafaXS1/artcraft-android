@@ -3713,7 +3713,13 @@ pub fn load_wordcraft_user_fonts(app: &AndroidApp) {
     }
 
     let _ = db.load_system_fonts();
-    wordcraft_engine::packs::use_font_store(true);
+    let font_store_dir = if let Some(base) = app_data_dir(app) {
+        base.join("font_store")
+    } else {
+        std::path::PathBuf::from("/data/data/com.artcraft.wordcraft/files/font_store")
+    };
+    let _ = std::fs::create_dir_all(&font_store_dir);
+    wordcraft_engine::packs::use_font_store_in(font_store_dir, true);
 }
 
 /// Show WordCraft's native file dialog without blocking the frame loop (#94, #511). WordCraft has
@@ -4389,7 +4395,7 @@ INTENT_OPEN = {
         }
 ''',
     "wordcraft": '''        match std::fs::read(path) {
-            Ok(bytes) => self.saf_inbox.lock().unwrap().push((saf::picker_name(path), bytes)),
+            Ok(bytes) => self.saf_inbox.lock().unwrap().push((path.to_string(), bytes)),
             Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
         }
 ''',
@@ -4821,6 +4827,9 @@ fn install_persist_env(app: &AndroidApp) {
     // SAFETY: `android_main` runs before the app starts any worker thread, so no other thread is
     // reading the environment here.
     unsafe {
+        let home = app.internal_data_path().unwrap_or_else(|| base.clone()).join("home");
+        let _ = std::fs::create_dir_all(&home);
+        std::env::set_var("HOME", &home);
         std::env::set_var("XDG_CONFIG_HOME", &config);
         std::env::set_var("XDG_CACHE_HOME", &cache);
         std::env::set_var("XDG_DATA_HOME", &base);
@@ -6500,8 +6509,16 @@ impl eframe::App for AndroidShell {{
             }
 """,
     }.get(app, "")
+    scale_line = ""
+    if app not in UI_SCALE_BOOTSTRAP:
+        scale_line = (
+            "            if device_is_high_density(&android_app) == Some(true) {\n"
+            "                cc.egui_ctx.set_zoom_factor(0.75);\n"
+            "            }\n"
+        )
     theme_line = (
         "            cc.egui_ctx.set_theme(egui::ThemePreference::System);\n"
+        + scale_line
     )
     needs_cc = bool(re.search(r"\bcc\b", construct_expr) or re.search(r"\bcc\b", post_construct))
     if needs_cc:

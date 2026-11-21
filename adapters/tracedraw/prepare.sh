@@ -43,6 +43,8 @@ s_ui = s_ui.replace(target_interface, replacement_interface)
 p_ui.write_text(s_ui)
 PY
 
+bash "$ROOT/lib/topbar_modifiers.sh" "$SRC_ABS" "$APP" "$TITLE"
+
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"

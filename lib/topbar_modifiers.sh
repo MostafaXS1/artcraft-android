@@ -15,7 +15,7 @@ TITLE="${3:?title}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 case "$APP" in
-    photocraft|vectorcraft|designcraft|wordcraft|gridcraft|deckcraft)
+    photocraft|vectorcraft|designcraft|wordcraft|gridcraft|deckcraft|tracedraw)
         ;;
     *)
         exit 0
@@ -35,6 +35,8 @@ root, src, app, title, no_buttons_str = Path(sys.argv[1]), Path(sys.argv[2]), sy
 no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
 
 ui_egui_src = src / "crates" / "ui-egui" / "src"
+if not ui_egui_src.is_dir():
+    ui_egui_src = src / "apps" / "tracedraw" / "src"
 if not ui_egui_src.is_dir():
     sys.exit(0)
 
@@ -162,5 +164,27 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
                 "crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 220.0, y - 1.0));",
                 text,
             )
+
+elif app == "tracedraw":
+    mod_rs = ui_egui_src / "ui" / "mod.rs"
+    if mod_rs.is_file():
+        text = mod_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers" not in text:
+            target = "menus::menu_bar(app, ui);"
+            replacement = "menus::menu_bar(app, ui);\n                crate::topbar_modifiers::render_topbar_modifiers_right(ui);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                mod_rs.write_text(text, encoding="utf-8")
+                print(f"  Integrated topbar modifiers into {title} menu bar")
+    lib_rs = ui_egui_src / "lib.rs"
+    if lib_rs.is_file():
+        text = lib_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers::apply_to_raw_input" not in text:
+            target = "pen::filter_raw_input(ctx, raw_input);"
+            replacement = "pen::filter_raw_input(ctx, raw_input);\n        crate::topbar_modifiers::apply_to_raw_input(&raw_input.modifiers, raw_input);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                lib_rs.write_text(text, encoding="utf-8")
+                print(f"  Hooked topbar modifiers into {title} raw_input_hook")
             ribbon_rs.write_text(text, encoding="utf-8")
 PY

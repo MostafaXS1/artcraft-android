@@ -32,8 +32,6 @@ Thumbs.db
 
 # Local reversible snapshots (not part of the project)
 .backups/
-keys/*.jks
-keys/.keystore-password
 
 # ArtCraft Launcher (Android) build artifacts
 artcraft-android-launcher/launcher/target/

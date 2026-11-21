@@ -617,6 +617,91 @@ elif app == "deckcraft":
     if fix("crates/ui-egui/src/app/keys.rs", deck_keys_old, deck_keys_new):
         fixed.append("crates/ui-egui/src/app/keys.rs (enable Cmd+Shift+Z for redo)")
 
+elif app == "photocraft":
+    # 1. Allow concurrent pinch-to-zoom and pan navigation (Issue #164)
+    wheel_enum_old = (
+        "pub enum Wheel {\n"
+        "    /// Multiply the zoom by this factor around the pointer.\n"
+        "    Zoom(f32),\n"
+        "    /// Step N rungs on the zoom ladder (positive = in, negative = out).\n"
+        "    SnapZoom(i32),\n"
+        "    /// Move the image by this many screen points (egui's content direction).\n"
+        "    Pan(Vec2),\n"
+        "}\n"
+    )
+    wheel_enum_new = (
+        "pub enum Wheel {\n"
+        "    /// Multiply the zoom by this factor around the pointer.\n"
+        "    Zoom(f32),\n"
+        "    /// Multiply the zoom by this factor and pan simultaneously.\n"
+        "    ZoomAndPan(f32, Vec2),\n"
+        "    /// Step N rungs on the zoom ladder (positive = in, negative = out).\n"
+        "    SnapZoom(i32),\n"
+        "    /// Move the image by this many screen points (egui's content direction).\n"
+        "    Pan(Vec2),\n"
+        "}\n"
+    )
+    if fix("crates/ui-egui/src/canvas/wheel_nav.rs", wheel_enum_old, wheel_enum_new):
+        fixed.append("crates/ui-egui/src/canvas/wheel_nav.rs (Wheel::ZoomAndPan variant)")
+
+    classify_old = (
+        "pub fn classify(i: Input) -> Option<Wheel> {\n"
+        "    if i.pinch_zooms && i.zoom_delta.is_finite() && i.zoom_delta > 0.0 && i.zoom_delta != 1.0 {\n"
+        "        return Some(Wheel::Zoom(i.zoom_delta));\n"
+        "    }\n"
+    )
+    classify_new = (
+        "pub fn classify(i: Input) -> Option<Wheel> {\n"
+        "    if i.pinch_zooms && i.zoom_delta.is_finite() && i.zoom_delta > 0.0 && i.zoom_delta != 1.0 {\n"
+        "        let scroll_finite = i.scroll.x.is_finite() && i.scroll.y.is_finite();\n"
+        "        if scroll_finite && (i.scroll.x.abs() > 0.1 || i.scroll.y.abs() > 0.1) {\n"
+        "            return Some(Wheel::ZoomAndPan(i.zoom_delta, i.scroll));\n"
+        "        }\n"
+        "        return Some(Wheel::Zoom(i.zoom_delta));\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/canvas/wheel_nav.rs", classify_old, classify_new):
+        fixed.append("crates/ui-egui/src/canvas/wheel_nav.rs (classify returns ZoomAndPan during concurrent pinch+pan)")
+
+    canvas_match_old = "            (Some(crate::wheel_nav::Wheel::Zoom(f)), Some(p)) => {\n"
+    canvas_match_new = (
+        "            (Some(crate::wheel_nav::Wheel::ZoomAndPan(f, scroll)), Some(p)) => {\n"
+        "                let nz = crate::zoom_levels::clamp(view.zoom * f, view.doc_size);\n"
+        "                if nz != view.zoom * f {\n"
+        "                    crate::wheel_nav::settle(input.ctx, input.wheel_owner);\n"
+        "                }\n"
+        "                if nz != view.zoom {\n"
+        "                    let at = wheel_anchor(&input.xf, p, view.doc_size);\n"
+        "                    zoom_about(view, &input.xf, at, nz, false, input.ppp);\n"
+        "                }\n"
+        "                let d = input.xf.unmap_vec(scroll) / (view.zoom / input.ppp);\n"
+        "                view.center[0] -= d.x;\n"
+        "                view.center[1] -= d.y;\n"
+        "            }\n"
+        "            (Some(crate::wheel_nav::Wheel::Zoom(f)), Some(p)) => {\n"
+    )
+    if fix("crates/ui-egui/src/canvas.rs", canvas_match_old, canvas_match_new):
+        fixed.append("crates/ui-egui/src/canvas.rs (apply concurrent zoom and pan)")
+
+elif app == "vectorcraft":
+    # 2. Fluid 2-finger pan on touchscreens/trackpads instead of converting vertical drag to zoom
+    view_wheel_old = (
+        "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
+        "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
+        "                    scroll.x += d.x;\n"
+        "                } else {\n"
+    )
+    view_wheel_new = (
+        "                } else if *source == egui::MouseWheelSource::Trackpad {\n"
+        "                    scroll += d;\n"
+        "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
+        "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
+        "                    scroll.x += d.x;\n"
+        "                } else {\n"
+    )
+    if fix("crates/ui-egui/src/canvas/view.rs", view_wheel_old, view_wheel_new):
+        fixed.append("crates/ui-egui/src/canvas/view.rs (trackpad/touch 2-finger panning)")
+
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")
 PY

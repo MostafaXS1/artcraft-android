@@ -54,6 +54,214 @@ target.write_text(text)
 print(f"photocraft: the control server follows upstream ({upstream.name})")
 PY
 
+# Apply mobile dialog and popup scaling adaptations to upstream ui-egui crates
+python3 - "$SRC_ABS" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1])
+ui_lib = src / "crates" / "ui-egui" / "src" / "lib.rs"
+ui_app = src / "crates" / "ui-egui" / "src" / "app.rs"
+dialogs = src / "crates" / "ui-egui" / "src" / "dialogs.rs"
+new_doc = src / "crates" / "ui-egui" / "src" / "dialogs" / "new_doc_ui.rs"
+
+if ui_lib.is_file():
+    s = ui_lib.read_text()
+    if "pub compact_layout: bool," not in s:
+        s = s.replace("pub background_jobs: bool,", "pub background_jobs: bool,\n    pub compact_layout: bool,")
+        ui_lib.write_text(s)
+
+if ui_app.is_file():
+    s = ui_app.read_text()
+    if "compact_layout: false," not in s:
+        s = s.replace("background_jobs: false,", "background_jobs: false,\n            compact_layout: false,")
+        ui_app.write_text(s)
+
+if dialogs.is_file():
+    s = dialogs.read_text()
+    old_show_modal = """fn show_modal<T>(
+    modal: egui::Modal,
+    ctx: &egui::Context,
+    id: egui::Id,
+    resizable: Option<(egui::Vec2, egui::Vec2, egui::Vec2)>,
+    fixed: Option<egui::Vec2>,
+    interactive: bool,
+    contents: impl FnOnce(&mut egui::Ui) -> T,
+) -> egui::ModalResponse<T> {"""
+    new_show_modal = """#[allow(clippy::too_many_arguments)]
+fn show_modal<T>(
+    modal: egui::Modal,
+    ctx: &egui::Context,
+    id: egui::Id,
+    resizable: Option<(egui::Vec2, egui::Vec2, egui::Vec2)>,
+    fixed: Option<egui::Vec2>,
+    interactive: bool,
+    compact: Option<f32>,
+    contents: impl FnOnce(&mut egui::Ui) -> T,
+) -> egui::ModalResponse<T> {"""
+    if old_show_modal in s:
+        s = s.replace(old_show_modal, new_show_modal)
+    
+    old_modal_inner = """        if let Some(size) = fixed {
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
+                ui.set_clip_rect(ui.clip_rect().expand(8.0));
+                contents(ui)
+            })
+        } else if let Some((size, min, max)) = resizable {
+            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
+            // dialog's frame that left the title and buttons flush against it (#8199).
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
+        } else {
+            contents(ui)
+        }"""
+    new_modal_inner = """        if let Some(size) = fixed.filter(|_| compact.is_none()) {
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
+                ui.set_clip_rect(ui.clip_rect().expand(8.0));
+                contents(ui)
+            })
+        } else if let Some((size, min, max)) = resizable.filter(|_| compact.is_none()) {
+            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
+            // dialog's frame that left the title and buttons flush against it (#8199).
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
+        } else if let Some(h) = compact {
+            egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(h).min_scrolled_height(h).show(ui, contents).inner
+        } else {
+            contents(ui)
+        }"""
+    if old_modal_inner in s:
+        s = s.replace(old_modal_inner, new_modal_inner)
+
+    old_vars = """        let mut drag = egui::Vec2::ZERO;
+        let mut close_clicked = false;
+        let mut sizing = false;"""
+    new_vars = """        let mut drag = egui::Vec2::ZERO;
+        let mut close_clicked = false;
+        let mut sizing = false;
+        let phone = app.compact_layout;
+        let on_canvas = phone && (d.kind == DialogKind::LayerStyle || crate::blur_pins::owns(&d.fields) || crate::adjust_dialog::owns(&d.fields) || d.fields.contains_key("__filter"));
+        let screen_h = ctx.content_rect().height();
+        let phone_height = phone.then(|| if on_canvas { (screen_h * 0.4).max(160.0) } else { (screen_h - 40.0).max(120.0) });"""
+    if old_vars in s and "let phone = app.compact_layout;" not in s:
+        s = s.replace(old_vars, new_vars)
+
+    old_call = "let modal = show_modal(modal, ctx, id, resizable, fixed, interactive, |ui| {"
+    new_call = "let modal = show_modal(modal, ctx, id, resizable, fixed, interactive, phone_height, |ui| {"
+    if old_call in s:
+        s = s.replace(old_call, new_call)
+
+    old_widths = """            if !compact {
+                ui.set_min_width(if curves { 300.0 } else { 380.0 });
+            }
+            // A resizable dialog's contents fill its resizable area (#7420), the others the window.
+            let room = if resizable.is_some() { available.x } else { (ctx.content_rect().width() - 48.0).max(380.0) };
+            let wide = crate::prefs_ui::width(&d.fields, room);
+            if let Some(w) = wide {
+                ui.set_min_width(w.min(460.0));
+            }
+            if d.kind == DialogKind::NewDocument {
+                ui.set_min_width(800.0);
+            }
+            // The About window: room for the contributor table, the same width on every tab.
+            let about_tabs = d.kind == DialogKind::About && d.fields.get("systemInfo").and_then(Value::as_bool) != Some(true);
+            if about_tabs {
+                ui.set_min_width(700.0);
+            }"""
+    new_widths = """            let fit = (ctx.content_rect().width() - 24.0).max(240.0);
+            if !compact {
+                ui.set_min_width((if curves { 300.0 } else { 380.0_f32 }).min(fit));
+            }
+            let room = if resizable.is_some() { available.x } else { (ctx.content_rect().width() - 48.0).max(240.0) };
+            let wide = crate::prefs_ui::width(&d.fields, room);
+            if let Some(w) = wide {
+                ui.set_min_width(w.min(460.0).min(fit));
+            }
+            if d.kind == DialogKind::NewDocument {
+                ui.set_min_width(800.0_f32.min(fit));
+            }
+            let about_tabs = d.kind == DialogKind::About && d.fields.get("systemInfo").and_then(Value::as_bool) != Some(true);
+            if about_tabs {
+                ui.set_min_width(700.0_f32.min(fit));
+            }"""
+    if old_widths in s:
+        s = s.replace(old_widths, new_widths)
+
+    old_color_picker = """            if color_picker {
+                ui.set_width(crate::color_picker_ui::content_width(ui));
+            }"""
+    new_color_picker = """            if color_picker {
+                ui.set_width(crate::color_picker_ui::content_width(ui));
+            } else if phone && !web {
+                let full = (ctx.content_rect().width() - 48.0).max(240.0);
+                ui.set_min_width(full);
+                ui.set_max_width(full);
+            }"""
+    if old_color_picker in s and "let full = (ctx.content_rect().width() - 48.0).max(240.0);" not in s:
+        s = s.replace(old_color_picker, new_color_picker)
+
+    old_body = """            if let Some(done) = dialog_body(app, ui, &d, &mut fields, id, interactive) {
+                outcome = Some(done);
+            }"""
+    new_body = """            let body_room = phone_height.filter(|_| on_canvas).map(|h| (h - 110.0).max(80.0));
+            outcome = match body_room {
+                Some(h) => egui::ScrollArea::vertical()
+                    .id_salt(id.with("phone-body"))
+                    .max_height(h)
+                    .show(ui, |ui| dialog_body(app, ui, &d, &mut fields, id, interactive))
+                    .inner,
+                None => dialog_body(app, ui, &d, &mut fields, id, interactive),
+            };"""
+    if old_body in s:
+        s = s.replace(old_body, new_body)
+
+    dialogs.write_text(s)
+
+if new_doc.is_file():
+    s = new_doc.read_text()
+    if "let narrow = ui.available_width() < 790.0 || app.compact_layout;" not in s:
+        s = s.replace("let cat = get_s(f, \"__category\", \"Recent\");\n    let mut create = false;\n    // Category tabs.\n    ui.horizontal(|ui| {",
+                      "let cat = get_s(f, \"__category\", \"Recent\");\n    let mut create = false;\n    let narrow = ui.available_width() < 790.0 || app.compact_layout;\n    let full_width = ui.available_width();\n    // Category tabs.\n    ui.horizontal_wrapped(|ui| {")
+        
+        old_cols = """    let chosen = get_s(f, "__preset", "");
+    ui.horizontal_top(|ui| {
+        // Left: preset grid.
+        ui.vertical(|ui| {
+            ui.set_width(520.0);"""
+        new_cols = """    let chosen = get_s(f, "__preset", "");
+    let columns = if narrow { egui::Layout::top_down(egui::Align::Min) } else { egui::Layout::left_to_right(egui::Align::Min) };
+    ui.with_layout(columns, |ui| {
+        // Left: preset grid.
+        ui.vertical(|ui| {
+            ui.set_width(if narrow { full_width } else { 520.0 });"""
+        s = s.replace(old_cols, new_cols)
+
+        old_chunks = """            let card = vec2(164.0, 112.0);
+            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
+            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (card.y + 8.0)).show(ui, |ui| {
+                for row in presets.chunks(3) {
+                    ui.horizontal(|ui| {"""
+        new_chunks = """            let card = vec2(164.0, 112.0);
+            let per_row = if narrow { (((ui.available_width() + 8.0) / (card.x + 8.0)).floor() as usize).max(1) } else { 3 };
+            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
+            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (card.y + 8.0)).show(ui, |ui| {
+                for row in presets.chunks(per_row) {
+                    ui.horizontal(|ui| {"""
+        s = s.replace(old_chunks, new_chunks)
+
+        old_focus = """            if !f.contains_key("__focused") {
+                f.insert("__focused".into(), json!(true));
+                crate::field_tab::focus(ui.ctx(), r.id);
+            }"""
+        new_focus = """            if !f.contains_key("__focused") {
+                f.insert("__focused".into(), json!(true));
+                if !app.compact_layout {
+                    crate::field_tab::focus(ui.ctx(), r.id);
+                }
+            }"""
+        s = s.replace(old_focus, new_focus)
+        new_doc.write_text(s)
+print("photocraft: dialog scaling patches applied")
+PY
+
 # Ship the shared Android system-font module next to the adapter sources; its launcher references
 # `mod system_fonts;` (see templates/android/system_fonts.rs, shared with the generated launchers).
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"

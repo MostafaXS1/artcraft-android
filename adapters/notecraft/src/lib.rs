@@ -321,6 +321,26 @@ fn drain_incoming(app: &mut NoteCraftApp, bridge: &saf::Bridge, state: &SafState
     }
 }
 
+
+fn device_is_high_density(app: &AndroidApp) -> Option<bool> {
+    use jni::{jni_sig, jni_str, JavaVM, objects::JObject};
+    let jvm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result = jvm.attach_current_thread(|env| -> jni::errors::Result<bool> {
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+        Ok(env
+            .call_method(&*activity, jni_str!("isHighDensityDevice"), jni_sig!("()Z"), &[])?
+            .z()?)
+    });
+    match result {
+        Ok(is_dense) => Some(is_dense),
+        Err(error) => {
+            log::warn!("Could not determine screen density: {error}");
+            None
+        }
+    }
+}
+
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(android_app: AndroidApp) {
@@ -368,6 +388,24 @@ fn android_main(android_app: AndroidApp) {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("wgpu device"),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
+        });
     }
 
     let app_bridge = bridge.clone_ref();
@@ -375,6 +413,9 @@ fn android_main(android_app: AndroidApp) {
         "NoteCraft",
         native,
         Box::new(move |cc| {
+            if device_is_high_density(app_bridge.android_app()) == Some(true) {
+                cc.egui_ctx.set_zoom_factor(0.75);
+            }
             if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             let internal_dir = app_bridge.android_app().internal_data_path().unwrap_or_else(|| PathBuf::from("/data/data/com.artcraft.notecraft/files"));
             let notebooks = match std::env::var("NOTECRAFT_NOTEBOOKS") {

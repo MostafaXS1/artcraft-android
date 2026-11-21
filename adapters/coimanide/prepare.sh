@@ -204,9 +204,48 @@ def ensure_section(header_line, content_line):
 # The Android terminal session signals its child (the Termux shim) with libc::kill.
 # portable-pty compiles on aarch64-linux-android and stays in [dependencies].
 ensure_section(android_libc, 'libc = "0.2"')
+ensure_section("[dependencies]", 'zip = { version = "9.1", default-features = false, features = ["deflate"] }')
 tomllib.loads(s)
 p.write_text(s)
-print("coiman-core: libc added for Android")
+print("coiman-core: libc and zip added")
+PY
+
+# Patch vscode_import.rs to unpack .vsix using pure Rust zip archive instead of host tar
+python3 - "$SRC_ABS/crates/coiman-core/src/extensions/vscode_import.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    text = p.read_text(encoding="utf-8")
+    old_unpack = '''pub fn unpack_vsix(file: &Path, into: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(into).map_err(|e| e.to_string())?;
+    // Git's tar may come first on the path, and can't read zip files.
+    let system = std::env::var_os("SystemRoot").map(|r| PathBuf::from(r).join("System32").join("tar.exe"));
+    let tar = system.filter(|p| p.exists()).unwrap_or_else(|| PathBuf::from("tar"));
+    let status = crate::language::lsp::discovery::quiet_command(&tar).arg("-xf").arg(file).arg("-C").arg(into).status();
+    match status {
+        Ok(done) if done.success() => {}
+        Ok(done) => return Err(format!("Couldn't unpack {}: tar said {done}", file.display())),
+        Err(e) => return Err(format!("Couldn't unpack {}: {e}", file.display())),
+    }
+    let folder = into.join("extension");
+    if folder.join("package.json").exists() { Ok(folder) } else { Err("That file has no extension in it".to_owned()) }
+}'''
+
+    new_unpack = '''pub fn unpack_vsix(file: &Path, into: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(into).map_err(|e| e.to_string())?;
+    let archive_file = std::fs::File::open(file).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(archive_file).map_err(|e| e.to_string())?;
+    archive.extract(into).map_err(|e| e.to_string())?;
+    let folder = into.join("extension");
+    if folder.join("package.json").exists() { Ok(folder) } else { Err("That file has no extension in it".to_owned()) }
+}'''
+
+    if old_unpack in text:
+        text = text.replace(old_unpack, new_unpack, 1)
+        p.write_text(text, encoding="utf-8")
+        print("coiman-core: patched unpack_vsix to use zip crate")
 PY
 
 cp -f "$ADAPTER/patches/android_termux.rs" "$SRC_ABS/crates/coiman-core/src/android_termux.rs"

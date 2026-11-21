@@ -1105,6 +1105,8 @@ impl eframe::App for PhotoCraftAndroidApp {
                 self.inner.set_theme(ctx, target_kind);
             }
         }
+        let is_phone = device_is_high_density(&self.bridge.app) == Some(true) || ctx.screen_rect().width() < 600.0;
+        self.inner.compact_layout = is_phone;
         self.inner.logic(ctx, frame);
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -1252,6 +1254,24 @@ fn android_main(android_app: AndroidApp) {
             eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("wgpu device"),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
+        });
     }
     let app_bridge = bridge.clone_for_services();
     let app_picker = picker.clone();
