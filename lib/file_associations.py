@@ -294,6 +294,10 @@ EXT_MIME = {
     # PaperCraft
     "papercraft": ("application/x-papercraft",),
     "crumbs": ("application/x-papercraft-crumbs",),
+    # PixelCraft
+    "pixel": ("application/x-pixelcraft",),
+    "ase": ("image/x-aseprite", "application/x-aseprite"),
+    "aseprite": ("image/x-aseprite", "application/x-aseprite"),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -353,6 +357,7 @@ ASSOCIATIONS = {
     "pcbcraft": ["pc", "kicad_pcb", "kicad_sch"],
     "fieldcraft": ["fieldcraft", "solidcraft", "3mf", "msh"],
     "papercraft": ["papercraft", "crumbs", "fig", "svg"],
+    "pixelcraft": ["pixel", "ase", "aseprite", "png", "gif"],
     "ferrite": ["md", "markdown", "txt", "json", "toml", "yaml", "yml", "csv"],
     "coimanide": [
         "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",

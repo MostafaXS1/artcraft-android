@@ -83,7 +83,7 @@ jobs:
               "paintcraft", "bimcraft", "tracedraw", "picassosuite", "capsulecraft",
               "humanmotioncraft", "rustgis", "earthcraft", "mapcraft", "prowave",
               "transit", "anicraft", "coimanide", "pcbcraft", "fieldcraft",
-              "papercraft", "ferrite"
+              "papercraft", "ferrite", "pixelcraft"
           ]
 
           event = os.environ.get("EVENT_NAME", "")

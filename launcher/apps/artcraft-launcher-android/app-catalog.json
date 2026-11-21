@@ -634,6 +634,21 @@
       "site": "https://github.com/OlaProeis/Ferrite",
       "bundle": "com.artcraft.ferrite",
       "image": "ferrite.png"
+    },
+    {
+      "id": "pixelcraft",
+      "name": "PixelCraft",
+      "tagline": "Fast, native pixel art editor and animator",
+      "color": [
+        86,
+        201,
+        184
+      ],
+      "repo": "asad-albadi/PixelCraft",
+      "publisher": "Asad",
+      "site": "https://github.com/asad-albadi/PixelCraft",
+      "bundle": "com.artcraft.pixelcraft",
+      "image": "pixelcraft.png"
     }
   ]
 }

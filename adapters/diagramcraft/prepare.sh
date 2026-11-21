@@ -55,31 +55,17 @@ PY
 # Patch dc-ui app.rs to handle Android (no std::process::Command on Android)
 python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# Add Android case to the hyperlink opening logic
-old = '''#[cfg(target_os = "linux")]
-        let open = "xdg-open";
-        #[cfg(target_os = "macos")]
-        let open = "open";
-        #[cfg(target_os = "windows")]
-        let open = "cmd";
-        #[cfg(target_os = "windows")]
-        let flag = "/C";
-        #[cfg(not(target_os = "windows"))]
-        let flag = "";
-        let mut cmd = std::process::Command::new(open);
-        if !flag.is_empty() {
-            cmd.arg(flag);
-        }
-        match cmd.arg(&address).spawn() {
-            Ok(_) => self.status = crate::i18n::strs().msg_opened_address(address.clone()),
-            Err(e) => self.status = crate::i18n::strs().msg_could_not_open_address_e(address, e.to_string()),
-        }'''
-
-new = '''#[cfg(target_os = "linux")]
+# Check if already patched
+if 'target_os = "android"' in s and 'not supported on Android' in s:
+    print("dc-ui app.rs already patched for Android")
+else:
+    pattern = r'(fn follow_hyperlink\(&mut self, address: &str, sub: &str\) \{.*?)(\n        #\[cfg\(target_os = "linux"\)\]\n        let open = "xdg-open";.*?\n        match cmd\.arg\(&address\)\.spawn\(\) \{.*?\n        \})'
+    replacement = r"""\1
+        #[cfg(target_os = "linux")]
         let open = "xdg-open";
         #[cfg(target_os = "macos")]
         let open = "open";
@@ -104,26 +90,25 @@ new = '''#[cfg(target_os = "linux")]
             }
             match cmd.arg(&address).spawn() {
                 Ok(_) => self.status = crate::i18n::strs().msg_opened_address(address.clone()),
-                Err(e) => self.status = crate::i18n::strs().msg_could_not_open_address_e(address, e.to_string()),
+                Err(e) => {
+                    self.status =
+                        crate::i18n::strs().msg_could_not_open_address_e(address, e.to_string())
+                }
             }
-        }'''
-
-# Check if already patched
-if 'target_os = "android"' in s and 'not supported on Android' in s:
-    print("dc-ui app.rs already patched for Android")
-elif old in s:
-    s = s.replace(old, new)
-    p.write_text(s)
-    print("Patched dc-ui app.rs for Android")
-else:
-    # Debug: show what's around the target area
-    idx = s.find('let mut cmd = std::process::Command::new(open);')
-    if idx >= 0:
-        print("Found target area:")
-        print(repr(s[max(0, idx-300):idx+400]))
+        }"""
+    new_s, n = re.subn(pattern, replacement, s, flags=re.DOTALL)
+    if n > 0:
+        p.write_text(new_s)
+        print("Patched dc-ui app.rs for Android")
     else:
-        print("Could not find target pattern")
-    sys.exit(1)
+        # Debug: show what's around the target area
+        idx = s.find('let mut cmd = std::process::Command::new(open);')
+        if idx >= 0:
+            print("Found target area:")
+            print(repr(s[max(0, idx-300):idx+400]))
+        else:
+            print("Could not find target pattern")
+        sys.exit(1)
 PY
 
 # Expose a public "open this file into the running app" seam for the Android shell's incoming

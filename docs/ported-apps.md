@@ -71,6 +71,7 @@ These community applications have custom port adapters under `adapters/<app>/` a
 | **FieldCraft** | `fieldcraft` | Finite element analysis and physics simulation | [tangency-labs/fieldcraft](https://github.com/tangency-labs/fieldcraft) | Tangency Labs |
 | **PaperCraft** | `papercraft` | Local design canvas built in Rust and egui | [slyim/papercraft](https://github.com/slyim/papercraft) | slyim |
 | **Ferrite** | `ferrite` | Fast, lightweight text editor for Markdown and JSON | [OlaProeis/Ferrite](https://github.com/OlaProeis/Ferrite) | OlaProeis |
+| **PixelCraft** | `pixelcraft` | Fast, native pixel art editor and animator | [asad-albadi/PixelCraft](https://github.com/asad-albadi/PixelCraft) | Asad |
 
 ---
 
@@ -133,6 +134,7 @@ Below is an alphabetical reference list of all 44 applications with direct links
 29. [PdfCraft](https://github.com/storytold/pdfcraft) — PDF viewing, annotating and management
 30. [PhotoCraft](https://github.com/storytold/photocraft) — Professional image editing and manipulation
 31. [PicassoSuite](https://github.com/fabox-os/Picasso-Suite) — Multi-page video editing suite
+32. [PixelCraft](https://github.com/asad-albadi/PixelCraft) — Fast, native pixel art editor and animator
 32. [ProCraft](https://github.com/artcraft-android/procraft) — Digital painting with pressure-sensitive brushes
 33. [ProWave](https://github.com/fabox-os/Pro-Wave) — Music production and digital audio workstation
 34. [RustGIS](https://github.com/opengeos/RustGIS) — Geospatial analysis and GIS mapping

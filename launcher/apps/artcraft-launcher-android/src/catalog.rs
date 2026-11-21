@@ -114,7 +114,7 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 43] = [
+pub static SUITE_ANDROID: [CraftApp; 44] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
@@ -426,6 +426,17 @@ pub static SUITE_ANDROID: [CraftApp; 43] = [
         "OlaProeis",
         Some("https://github.com/OlaProeis/Ferrite"),
         Some("com.artcraft.ferrite"),
+        None,
+    ),
+    community(
+        "pixelcraft",
+        "PixelCraft",
+        "Fast, native pixel art editor and animator",
+        [86, 201, 184],
+        "asad-albadi/PixelCraft",
+        "Asad",
+        Some("https://github.com/asad-albadi/PixelCraft"),
+        Some("com.artcraft.pixelcraft"),
         None,
     ),
 ];

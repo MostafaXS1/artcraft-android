@@ -392,6 +392,19 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
+    AppDetails {
+        id: "pixelcraft",
+        headline: "Fast, native pixel art editor and animator.",
+        about: "An open-source pixel art editor and animation studio by Asad. Built in Rust and egui with onion skinning, tilesets, color management, and Aseprite interchange.",
+        features: &[
+            Feature { title: "Pixel art & animation", text: "Multi-layer editing, timeline animation, onion skinning, and playback." },
+            Feature { title: "Tileset & tilemap tools", text: "Integrated tileset creation, auto-tiling, and tilemap export." },
+            Feature { title: "Aseprite & format support", text: "Directly open and export .ase, .aseprite, .pixel, and sprite sheets." },
+            Feature { title: "Local-first", text: "All artwork and animations stay entirely on your device with no telemetry." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

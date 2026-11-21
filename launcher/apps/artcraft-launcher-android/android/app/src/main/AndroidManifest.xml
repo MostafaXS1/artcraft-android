@@ -94,6 +94,7 @@
         <package android:name="com.artcraft.pdfcraft" />
         <package android:name="com.artcraft.photocraft" />
         <package android:name="com.artcraft.picassosuite" />
+        <package android:name="com.artcraft.pixelcraft" />
         <package android:name="com.artcraft.prowave" />
         <package android:name="com.artcraft.rustgis" />
         <package android:name="com.artcraft.solidcraft" />
