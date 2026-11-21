@@ -202,6 +202,14 @@ Existing source checkouts are reused to preserve local Android port work. The bu
 
 ## Frequently Asked Questions (FAQ)
 
+### What does it mean to be unofficial?
+ArtCraft Android is a community-driven, independent open-source initiative. We love the ArtCraft creative suite and want to make these desktop tools accessible on Android devices, but **we are not affiliated with, sponsored by, or endorsed by Storytold or the official ArtCraft project**.
+
+In practice, this means:
+- **Upstream Source Code:** The applications run the authentic desktop codebases pulled directly from upstream releases, coupled with our open-source Android runtime adapters (SAF document pickers, soft-keyboard IME, and touch/trackpad handling).
+- **Independent Maintenance:** Upstream maintainers do not develop, test, or provide support for Android. All mobile porting work, Android compatibility patches, release packaging, and device-specific fixes are managed independently by our community.
+- **Support & Issues:** For questions, bug reports, or feature requests regarding the Android ports, please use our [GitHub Issues](https://github.com/MostafaXS1/artcraft-android/issues) or join the [Artcraft Android Discord](https://discord.gg/J8GhXx8tCD) rather than contacting official ArtCraft / Storytold channels.
+
 ### How can we build and port apps so fast?
 ArtCraft Android does not rewrite or maintain separate mobile forks of each application. Instead, our automated build harness pulls the exact upstream desktop Rust source code directly from official releases, applies modular Android runtime adapters (GameActivity, Storage Access Framework bridges, and native IME input), and vendors platform compatibility patches (for `winit`, `egui`, etc.). In CI, multi-tier caching (`sccache`, Cargo registry caching, and Gradle cache) allows parallel cross-compilation of all 36 applications in minutes rather than hours.
 
