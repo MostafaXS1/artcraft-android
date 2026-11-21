@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "f0338e662c3114a9aa753da818ad0ed1aa03338b",
-  "head_date": "2026-11-19T23:43:25Z",
-  "commits": 1667,
+  "head": "85623f28f99a9a788123f0f6b48829f95f07962f",
+  "head_date": "2026-11-20T16:32:21Z",
+  "commits": 1682,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 17,
-      "commits": 139,
-      "lines_added": 45848,
-      "lines_deleted": 45802,
+      "prs": 18,
+      "commits": 140,
+      "lines_added": 45941,
+      "lines_deleted": 45956,
       "binary_added": 10,
       "binary_deleted": 0,
       "first_commit": "2026-10-16T17:32:35Z",
-      "last_commit": "2026-10-31T04:42:39Z"
+      "last_commit": "2026-11-20T11:10:42Z"
     },
     {
       "login": "grovebit",
@@ -63,27 +63,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 71,
-      "commits": 96,
-      "lines_added": 7784,
+      "prs": 72,
+      "commits": 97,
+      "lines_added": 7852,
       "lines_deleted": 28024,
       "binary_added": 0,
       "binary_deleted": 10,
       "first_commit": "2026-10-11T15:52:00Z",
-      "last_commit": "2026-11-19T23:43:25Z"
+      "last_commit": "2026-11-20T16:32:21Z"
     },
     {
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
       "prs": 9,
-      "commits": 54,
-      "lines_added": 2157,
-      "lines_deleted": 275,
+      "commits": 56,
+      "lines_added": 2250,
+      "lines_deleted": 429,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-02T17:23:48Z",
-      "last_commit": "2026-11-18T13:53:20Z"
+      "last_commit": "2026-11-20T14:04:15Z"
     },
     {
       "login": "marcoarnulfo",
@@ -227,6 +227,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-20T19:50:38Z",
       "last_commit": "2026-11-16T20:24:12Z"
+    },
+    {
+      "login": "ashokram-si",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 3,
+      "commits": 14,
+      "lines_added": 907,
+      "lines_deleted": 189,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-30T11:48:09Z",
+      "last_commit": "2026-11-19T20:00:57Z"
     },
     {
       "login": "ayozetr",
@@ -682,19 +695,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-25T14:51:15Z",
       "last_commit": "2026-10-29T09:46:26Z"
-    },
-    {
-      "login": "ashokram-si",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 2,
-      "lines_added": 158,
-      "lines_deleted": 16,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-13T00:51:06Z",
-      "last_commit": "2026-11-13T00:51:36Z"
     },
     {
       "login": "bflatastic",
@@ -1223,9 +1223,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 301,
-      "lines_added": 100113,
-      "lines_deleted": 4502
+      "commits": 302,
+      "lines_added": 100206,
+      "lines_deleted": 4656
     },
     {
       "id": "anthropic/claude-haiku/5.5",

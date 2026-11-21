@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "ae0a71d30359719ede5bb8a66791ab263c9fb037",
-  "head_date": "2026-11-19T22:45:27Z",
-  "commits": 4185,
+  "head": "960a661001767a887dc4402c51e24f0436176705",
+  "head_date": "2026-11-20T14:05:40Z",
+  "commits": 4195,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 17,
-      "commits": 489,
-      "lines_added": 104030,
-      "lines_deleted": 102113,
+      "prs": 18,
+      "commits": 490,
+      "lines_added": 104161,
+      "lines_deleted": 102401,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-14T05:50:54Z",
-      "last_commit": "2026-10-31T05:56:51Z"
+      "last_commit": "2026-11-20T11:09:44Z"
     },
     {
       "login": "dylanmtaylor",
@@ -64,13 +64,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 29,
-      "commits": 232,
-      "lines_added": 11563,
-      "lines_deleted": 7545,
+      "commits": 235,
+      "lines_added": 11694,
+      "lines_deleted": 7833,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T01:04:56Z",
-      "last_commit": "2026-11-19T22:45:27Z"
+      "last_commit": "2026-11-20T14:05:40Z"
     },
     {
       "login": "Felix-Helleckes",
@@ -526,6 +526,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-10T02:43:20Z",
       "last_commit": "2026-10-14T17:25:19Z"
+    },
+    {
+      "login": "inspiretelapps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 9,
+      "lines_added": 1668,
+      "lines_deleted": 79,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-18T14:19:47Z",
+      "last_commit": "2026-11-18T14:43:14Z"
     },
     {
       "login": "sanyamsingh001",
@@ -1373,7 +1386,7 @@
       "last_commit": "2026-10-10T03:25:58Z"
     },
     {
-      "login": "rossaai",
+      "login": "rossaaiofficial",
       "people_entry": false,
       "github_name": null,
       "prs": 1,
@@ -1501,19 +1514,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-25T13:42:53Z",
       "last_commit": "2026-11-06T09:57:26Z"
-    },
-    {
-      "login": "inspiretelapps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 1,
-      "commits": 2,
-      "lines_added": 27,
-      "lines_deleted": 1,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-18T14:19:47Z",
-      "last_commit": "2026-10-19T18:03:22Z"
     },
     {
       "login": "IppSec",
@@ -1930,19 +1930,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-30T05:46:18Z",
       "last_commit": "2026-10-30T05:46:18Z"
-    },
-    {
-      "login": "Auipp",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 1,
-      "commits": 1,
-      "lines_added": 341,
-      "lines_deleted": 58,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-11T12:02:09Z",
-      "last_commit": "2026-10-11T12:02:09Z"
     },
     {
       "login": "ayozetr",
@@ -2478,6 +2465,19 @@
       "last_commit": "2026-10-13T12:49:05Z"
     },
     {
+      "login": "Nuweir",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 341,
+      "lines_deleted": 58,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-11T12:02:09Z",
+      "last_commit": "2026-10-11T12:02:09Z"
+    },
+    {
       "login": "Oldrich333",
       "people_entry": false,
       "github_name": null,
@@ -2757,9 +2757,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 1186,
-      "lines_added": 467288,
-      "lines_deleted": 29306
+      "commits": 1194,
+      "lines_added": 469060,
+      "lines_deleted": 29672
     },
     {
       "id": "anthropic/claude-sonnet/5.5",

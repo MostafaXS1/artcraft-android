@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/figcraft",
   "branch": "main",
-  "head": "c745cc615df7a311f5317724ecac328940e73c27",
-  "head_date": "2026-11-20T00:44:17Z",
-  "commits": 4665,
+  "head": "390e5f4e4b60c89729de1d534480f2b5eeeecd25",
+  "head_date": "2026-11-20T19:22:20Z",
+  "commits": 4673,
   "unattributed_commits": 18,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 128,
-      "commits": 227,
-      "lines_added": 20491,
-      "lines_deleted": 15169,
+      "prs": 132,
+      "commits": 231,
+      "lines_added": 20920,
+      "lines_deleted": 15293,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-15T23:53:22Z",
-      "last_commit": "2026-11-20T00:44:17Z"
+      "last_commit": "2026-11-20T19:22:20Z"
     },
     {
       "login": "Silvertree2010",
@@ -63,14 +63,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 14,
-      "commits": 101,
-      "lines_added": 115646,
-      "lines_deleted": 114284,
+      "prs": 15,
+      "commits": 102,
+      "lines_added": 115731,
+      "lines_deleted": 114472,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-23T17:01:12Z",
-      "last_commit": "2026-10-31T05:43:37Z"
+      "last_commit": "2026-11-20T11:09:36Z"
     },
     {
       "login": "echelon",
@@ -103,13 +103,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 10,
-      "commits": 43,
-      "lines_added": 3003,
-      "lines_deleted": 581,
+      "commits": 46,
+      "lines_added": 3123,
+      "lines_deleted": 777,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-05T13:26:53Z",
-      "last_commit": "2026-11-20T00:04:42Z"
+      "last_commit": "2026-11-20T14:28:36Z"
     },
     {
       "login": "Carbocode",
@@ -1243,6 +1243,19 @@
       "last_commit": "2026-10-16T22:45:08Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 3,
+      "lines_added": 253,
+      "lines_deleted": 19,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-19T22:53:33Z",
+      "last_commit": "2026-11-20T14:28:36Z"
+    },
+    {
       "login": "TheGalitube",
       "people_entry": false,
       "github_name": null,
@@ -1958,19 +1971,6 @@
       "last_commit": "2026-10-15T12:11:40Z"
     },
     {
-      "login": "Terra854",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 1,
-      "commits": 1,
-      "lines_added": 59,
-      "lines_deleted": 2,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-19T22:53:33Z",
-      "last_commit": "2026-11-19T22:53:33Z"
-    },
-    {
       "login": "th0mate",
       "people_entry": false,
       "github_name": null,
@@ -2055,9 +2055,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 690,
-      "lines_added": 212796,
-      "lines_deleted": 19793
+      "commits": 692,
+      "lines_added": 212916,
+      "lines_deleted": 19989
     },
     {
       "id": "anthropic/claude-sonnet/5.5",
