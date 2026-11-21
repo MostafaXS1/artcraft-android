@@ -234,7 +234,7 @@ graph LR
 
 ---
 
-## 4. Community Applications with In-Tree Adapters (16 Apps)
+## 4. Community Applications with In-Tree Adapters (20 Apps)
 
 Community applications feature custom in-tree adapters located under `adapters/<app>/`.
 
@@ -257,6 +257,10 @@ graph TD
         TD[TraceDraw]
         Trans[Transit]
         Coim[Coiman IDE]
+        PCBC[PCBCraft]
+        FC[FieldCraft]
+        PapC[PaperCraft]
+        Ferr[Ferrite]
     end
 ```
 
@@ -378,6 +382,44 @@ graph TD
   4. **Dynamic Keyboard Inset Resizing:** Android 15 edge-to-edge mode draws the soft keyboard over the window. `CoimanActivity` caches keyboard insets (`imeInsetBottom`) and dynamically resizes egui's viewport so the terminal and editor remain visible above the keyboard.
   5. **Theme Staging:** Bundles 23 VS Code themes into Android assets, extracting them on first launch into the user's config folder.
 
+### 33. PCBCraft (`pcbcraft`)
+* **Upstream:** [tangency-labs/pcbcraft](https://github.com/tangency-labs/pcbcraft)
+* **Adapter:** `adapters/pcbcraft`
+* **Package:** `io.tangencylabs.pcbcraft`
+* **Process:**
+  - Printed circuit board design and schematic layout application.
+  - Bundles vendored custom `egui-wgpu` to avoid flock collisions and upstream dependency mismatches during CI cross-compilation.
+  - Integrates SAF document bridge for loading `.pcb` and Gerber files and saving project layouts.
+  - Configures dedicated manifest namespace (`io.tangencylabs.pcbcraft`).
+
+### 34. FieldCraft (`fieldcraft`)
+* **Upstream:** [tangency-labs/fieldcraft](https://github.com/tangency-labs/fieldcraft)
+* **Adapter:** `adapters/fieldcraft`
+* **Package:** `io.tangencylabs.fieldcraft`
+* **Process:**
+  - Finite element analysis (FEA) and multiphysics simulation engine.
+  - Registers GPU simulation crates (`fieldcraft-lbm-gpu`, `fieldcraft-mesh-gpu`), `register_picture_drawer()`, and sets a 24-bit depth buffer to prevent black screens when rendering 3D field meshes.
+  - Clamps WGPU texture dimensions to 8192 for mobile GPU hardware compatibility.
+  - Bundles vendored `egui.tar.gz` and registers SAF storage migration to `Android/media`.
+
+### 35. PaperCraft (`papercraft`)
+* **Upstream:** [slyim/papercraft](https://github.com/slyim/papercraft)
+* **Adapter:** `adapters/papercraft`
+* **Package:** `com.artcraft.papercraft`
+* **Process:**
+  - Local vector design and infinite canvas built in Rust and egui.
+  - Integrates multi-touch gestures including two-finger pinch zoom, panning, and canvas rotation.
+  - Hooks SAF file picker for importing SVG assets and exporting canvas designs.
+
+### 36. Ferrite (`ferrite`)
+* **Upstream:** [OlaProeis/Ferrite](https://github.com/OlaProeis/Ferrite)
+* **Adapter:** `adapters/ferrite`
+* **Package:** `com.artcraft.ferrite`
+* **Process:**
+  - Fast, lightweight text editor optimized for Markdown and JSON editing.
+  - Includes a custom `termios` shim (`vendor/termios`) to satisfy terminal I/O requirements in the mobile environment.
+  - Connects native GameActivity IME soft keyboard handling with text selection, clipboard paste bridges, and dynamic viewport resize on keyboard display.
+
 ---
 
 ## 5. Community Applications Distributed via Launcher Catalog (7 Apps)
@@ -397,43 +439,43 @@ graph LR
     end
 ```
 
-### 33. Keydeck (`keydeck`)
+### 37. Keydeck (`keydeck`)
 * **Repository:** [bramble-apps/bramble-office](https://github.com/bramble-apps/bramble-office)
 * **Asset Pattern:** `Keydeck*apk`
 * **Package:** `app.bramble.keydeck`
 * **Process:** Indexed via GitHub Releases; launcher tracks upstream release tags, downloads pre-built ARM64 APKs, and verifies package identity via Android `PackageManager`.
 
-### 34. Values (`values`)
+### 38. Values (`values`)
 * **Repository:** [bramble-apps/bramble-office](https://github.com/bramble-apps/bramble-office)
 * **Asset Pattern:** `Values*apk`
 * **Package:** `app.bramble.values`
 * **Process:** Spreadsheet engine tracked via Bramble Office releases.
 
-### 35. Letters (`letters`)
+### 39. Letters (`letters`)
 * **Repository:** [bramble-apps/bramble-office](https://github.com/bramble-apps/bramble-office)
 * **Asset Pattern:** `Letters*apk`
 * **Package:** `app.bramble.letters`
 * **Process:** Document layout engine tracked via Bramble Office releases.
 
-### 36. ProCraft (`procraft`)
+### 40. ProCraft (`procraft`)
 * **Repository:** [artcraft-android/procraft](https://github.com/artcraft-android/procraft)
 * **Asset Pattern:** `procraft-*-android-arm64.apk`
 * **Package:** `io.github.artcraftandroid.procraft`
 * **Process:** Dedicated Android port repository built with Kotlin/Compose frontend and Rust brush engine; indexed for seamless updates.
 
-### 37. CapCraft (`capcraft`)
+### 41. CapCraft (`capcraft`)
 * **Repository:** [artcraft-android/capcraft-android](https://github.com/artcraft-android/capcraft-android)
 * **Asset Pattern:** `capcraft-android-*.apk`
 * **Package:** `io.github.artcraftandroid.capcraft`
 * **Process:** Mobile video editor reimplementation built with Jetpack Compose and Rust core engine; indexed via GitHub Releases.
 
-### 38. Concat (`concat`)
+### 42. Concat (`concat`)
 * **Repository:** [jub0t/Concat](https://github.com/jub0t/Concat)
 * **Asset Pattern:** `Concat-*-android-arm64.apk`
 * **Package:** `org.standalones.concat`
 * **Process:** Scriptable video editor tracked via upstream release tags.
 
-### 39. ShapeCraft (`shapecraft`)
+### 43. ShapeCraft (`shapecraft`)
 * **Repository:** [jackharvest/shapecraft](https://github.com/jackharvest/shapecraft)
 * **Asset Pattern:** `shapecraft-*-android-arm64.apk`
 * **Package:** `com.jackharvest.shapecraft`
@@ -447,7 +489,7 @@ graph LR
 * **Android Implementation:** `launcher/apps/artcraft-launcher-android/`
 * **Architecture & Process:**
   1. **GameActivity Harness:** Wraps the egui desktop launcher in an Android `GameActivity` (`AndroidHost`).
-  2. **Package Manager Bridge (`Bridge.java`):** Uses JNI to communicate with Android's `PackageManager`, querying installed packages across the 39 declared `<queries>` entries.
+  2. **Package Manager Bridge (`Bridge.java`):** Uses JNI to communicate with Android's `PackageManager`, querying installed packages across the 43 declared `<queries>` entries.
   3. **Release Resolver & Downloader:** Queries the GitHub Releases API (with rate-limit caching), resolves APK assets matching target glob patterns or the shared builder repo (`MostafaXS1/artcraft-android`), and streams downloads with SHA-256 integrity verification.
   4. **Package Installation Intent:** Dispatches `Intent.ACTION_INSTALL_PACKAGE` / `FileProvider` intents to prompt the Android system installer when an update or install is initiated.
   5. **Automated Catalog Generator (`generate_catalog.py`):** Compiles `app-catalog.json` into static Rust lookup tables (`src/catalog.rs`) and updates `<queries>` in `AndroidManifest.xml` during the build.

@@ -12,11 +12,11 @@ This document provides a comprehensive index of all applications ported to Andro
 ArtCraft Android brings the complete desktop creative experience to Android devices (`aarch64-linux-android`). The suite comprises:
 
 * **Official Storytold Suite (16 apps):** The core creative and office applications from the Storytold project.
-* **Community Applications with In-Tree Adapters & CI Targets (16 apps):** Community-developed creative software with native Android build targets and custom port adapters.
+* **Community Applications with In-Tree Adapters & CI Targets (20 apps):** Community-developed creative software with native Android build targets and custom port adapters.
 * **Community Applications Tracked via Launcher Catalog (7 apps):** External community applications indexed and distributed directly through the ArtCraft Android Launcher.
 * **ArtCraft Launcher (1 app):** The centralized Android launcher for discovering, managing, launching, and updating ArtCraft apps.
 
-**Total Applications:** 40
+**Total Applications:** 44
 
 ---
 
@@ -67,6 +67,10 @@ These community applications have custom port adapters under `adapters/<app>/` a
 | **TraceDraw** | `tracedraw` | Vector illustration, bezier tracing and print design | [tracedraw/tracedraw](https://github.com/tracedraw/tracedraw) | TraceDraw |
 | **Transit** | `transit` | Digital audio workstation for sequencing and arrangement | [transit-audio/transit](https://github.com/transit-audio/transit) | transit-audio |
 | **Coiman IDE** | `coimanide` | Code editor with language servers (LSP), Git and Termux bridge | [ManuelCoimbra/coiman-ide](https://github.com/ManuelCoimbra/coiman-ide) | ManuelCoimbra |
+| **PCBCraft** | `pcbcraft` | Printed circuit board design and layout | [tangency-labs/pcbcraft](https://github.com/tangency-labs/pcbcraft) | Tangency Labs |
+| **FieldCraft** | `fieldcraft` | Finite element analysis and physics simulation | [tangency-labs/fieldcraft](https://github.com/tangency-labs/fieldcraft) | Tangency Labs |
+| **PaperCraft** | `papercraft` | Local design canvas built in Rust and egui | [slyim/papercraft](https://github.com/slyim/papercraft) | slyim |
+| **Ferrite** | `ferrite` | Fast, lightweight text editor for Markdown and JSON | [OlaProeis/Ferrite](https://github.com/OlaProeis/Ferrite) | OlaProeis |
 
 ---
 
@@ -96,7 +100,7 @@ These community applications are cataloged in the ArtCraft Android Launcher (`la
 
 ## Alphabetical Quick Index
 
-Below is an alphabetical reference list of all 40 applications with direct links to their GitHub repositories:
+Below is an alphabetical reference list of all 44 applications with direct links to their GitHub repositories:
 
 1. [AniCraft](https://github.com/storytold/AniCraft) — Frame-by-frame 2D animation
 2. [ArtCraft Launcher](https://github.com/storytold/craft-launcher) ([Android Port](https://github.com/MostafaXS1/artcraft-android)) — ArtCraft Android ecosystem launcher
@@ -111,30 +115,34 @@ Below is an alphabetical reference list of all 40 applications with direct links
 11. [DiagramCraft](https://github.com/baradhili/DiagramCraft) — Visio-style diagrams and stencils
 12. [EarthCraft](https://github.com/therichronicles/EarthCraft) — 3D globe explorer
 13. [EffectCraft](https://github.com/storytold/effectcraft) — Visual effects and image filters
-14. [FigCraft](https://github.com/storytold/figcraft) — Interface design and prototyping
-15. [FilmCraft](https://github.com/storytold/filmcraft) — Video editing, color grading and audio
-16. [GridCraft](https://github.com/storytold/gridcraft) — Spreadsheets and data tables
-17. [HumanMotionCraft](https://github.com/YalKouassi/HumanMotionCraft) — Humanoid character pose and animation
-18. [Keydeck](https://github.com/bramble-apps/bramble-office) — Presentation authoring (.key / .pptx)
-19. [Letters](https://github.com/bramble-apps/bramble-office) — Word processing and page layout
-20. [LightCraft](https://github.com/storytold/lightcraft) — Photo library and RAW image development
-21. [MapCraft](https://github.com/bearlikelion/MapCraft) — Brush-based 3D level editor
-22. [MaterialCraft](https://github.com/storytold/materialcraft) — Procedural 3D material design
-23. [NoteCraft](https://github.com/AlienTechSoftware/notecraft) — Local-first markdown notebooks
-24. [PaintCraft](https://github.com/replicraft/PaintCraft) — Digital painting and canvas illustration
-25. [PdfCraft](https://github.com/storytold/pdfcraft) — PDF viewing, annotating and management
-26. [PhotoCraft](https://github.com/storytold/photocraft) — Professional image editing and manipulation
-27. [PicassoSuite](https://github.com/fabox-os/Picasso-Suite) — Multi-page video editing suite
-28. [ProCraft](https://github.com/artcraft-android/procraft) — Digital painting with pressure-sensitive brushes
-29. [ProWave](https://github.com/fabox-os/Pro-Wave) — Music production and digital audio workstation
-30. [RustGIS](https://github.com/opengeos/RustGIS) — Geospatial analysis and GIS mapping
-31. [ShapeCraft](https://github.com/jackharvest/shapecraft) — Direct-modeling 3D CAD (STEP, IGES, STL)
-32. [SolidCraft](https://github.com/tangency-labs/solidcraft) — Parametric 3D CAD modeling
-33. [SoundCraft](https://github.com/storytold/soundcraft) — Audio recording, editing and mixing
-34. [SubCraft](https://github.com/Aalzard/subcraft) — 3D texture painting on models
-35. [TextureCraft](https://github.com/storytold/texturecraft) — 3D model texture painting
-36. [TraceDraw](https://github.com/tracedraw/tracedraw) — Vector illustration and bezier tracing
-37. [Transit](https://github.com/transit-audio/transit) — Digital audio workstation
-38. [Values](https://github.com/bramble-apps/bramble-office) — Spreadsheet editor (.numbers / .xlsx)
-39. [VectorCraft](https://github.com/storytold/vectorcraft) — Vector illustration and path design
-40. [WordCraft](https://github.com/storytold/wordcraft) — Writing and word processing
+14. [Ferrite](https://github.com/OlaProeis/Ferrite) — Fast, lightweight text editor for Markdown and JSON
+15. [FieldCraft](https://github.com/tangency-labs/fieldcraft) — Finite element analysis and physics simulation
+16. [FigCraft](https://github.com/storytold/figcraft) — Interface design and prototyping
+17. [FilmCraft](https://github.com/storytold/filmcraft) — Video editing, color grading and audio
+18. [GridCraft](https://github.com/storytold/gridcraft) — Spreadsheets and data tables
+19. [HumanMotionCraft](https://github.com/YalKouassi/HumanMotionCraft) — Humanoid character pose and animation
+20. [Keydeck](https://github.com/bramble-apps/bramble-office) — Presentation authoring (.key / .pptx)
+21. [Letters](https://github.com/bramble-apps/bramble-office) — Word processing and page layout
+22. [LightCraft](https://github.com/storytold/lightcraft) — Photo library and RAW image development
+23. [MapCraft](https://github.com/bearlikelion/MapCraft) — Brush-based 3D level editor
+24. [MaterialCraft](https://github.com/storytold/materialcraft) — Procedural 3D material design
+25. [NoteCraft](https://github.com/AlienTechSoftware/notecraft) — Local-first markdown notebooks
+26. [PaintCraft](https://github.com/replicraft/PaintCraft) — Digital painting and canvas illustration
+27. [PaperCraft](https://github.com/slyim/papercraft) — Local design canvas built in Rust and egui
+28. [PCBCraft](https://github.com/tangency-labs/pcbcraft) — Printed circuit board design and layout
+29. [PdfCraft](https://github.com/storytold/pdfcraft) — PDF viewing, annotating and management
+30. [PhotoCraft](https://github.com/storytold/photocraft) — Professional image editing and manipulation
+31. [PicassoSuite](https://github.com/fabox-os/Picasso-Suite) — Multi-page video editing suite
+32. [ProCraft](https://github.com/artcraft-android/procraft) — Digital painting with pressure-sensitive brushes
+33. [ProWave](https://github.com/fabox-os/Pro-Wave) — Music production and digital audio workstation
+34. [RustGIS](https://github.com/opengeos/RustGIS) — Geospatial analysis and GIS mapping
+35. [ShapeCraft](https://github.com/jackharvest/shapecraft) — Direct-modeling 3D CAD (STEP, IGES, STL)
+36. [SolidCraft](https://github.com/tangency-labs/solidcraft) — Parametric 3D CAD modeling
+37. [SoundCraft](https://github.com/storytold/soundcraft) — Audio recording, editing and mixing
+38. [SubCraft](https://github.com/Aalzard/subcraft) — 3D texture painting on models
+39. [TextureCraft](https://github.com/storytold/texturecraft) — 3D model texture painting
+40. [TraceDraw](https://github.com/tracedraw/tracedraw) — Vector illustration and bezier tracing
+41. [Transit](https://github.com/transit-audio/transit) — Digital audio workstation
+42. [Values](https://github.com/bramble-apps/bramble-office) — Spreadsheet editor (.numbers / .xlsx)
+43. [VectorCraft](https://github.com/storytold/vectorcraft) — Vector illustration and path design
+44. [WordCraft](https://github.com/storytold/wordcraft) — Writing and word processing

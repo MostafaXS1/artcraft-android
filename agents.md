@@ -82,9 +82,10 @@ designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
 anicraft bimcraft capsulecraft diagramcraft earthcraft
 humanmotioncraft mapcraft notecraft paintcraft picassosuite
-prowave rustgis tracedraw transit
+prowave rustgis tracedraw transit coimanide
+pcbcraft fieldcraft papercraft ferrite
 ```
-Total: 28 apps. CI matrix builds all of them.
+Total: 36 apps. CI matrix builds all of them.
 
 ## 3. Repository Structure
 
@@ -325,9 +326,15 @@ The generator creates `android_main` function that wires:
 
 ### 10.4 SAF Apps Configuration
 ```python
-SAF_APPS = {"designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft", 
-           "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft", 
-           "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft"}
+SAF_APPS = {
+    "designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft",
+    "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft",
+    "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft",
+    "notecraft", "diagramcraft", "paintcraft", "bimcraft", "tracedraw",
+    "picassosuite", "capsulecraft", "humanmotioncraft", "rustgis", "earthcraft",
+    "mapcraft", "prowave", "transit", "anicraft", "coimanide",
+    "pcbcraft", "fieldcraft", "papercraft", "ferrite"
+}
 ```
 Note: PhotoCraft and VectorCraft use adapters (custom SAF), so not in SAF_APPS list.
 
@@ -668,9 +675,15 @@ Needs `INTERNET` permission. Compares against `https://api.github.com/repos/Most
 
 ### 14.4 SAF Apps List
 ```python
-SAF_APPS = {"designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft", 
-           "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft", 
-           "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft"}
+SAF_APPS = {
+    "designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft",
+    "effectcraft", "filmcraft", "cadcraft", "soundcraft", "pdfcraft",
+    "figcraft", "subcraft", "solidcraft", "materialcraft", "texturecraft",
+    "notecraft", "diagramcraft", "paintcraft", "bimcraft", "tracedraw",
+    "picassosuite", "capsulecraft", "humanmotioncraft", "rustgis", "earthcraft",
+    "mapcraft", "prowave", "transit", "anicraft", "coimanide",
+    "pcbcraft", "fieldcraft", "papercraft", "ferrite"
+}
 ```
 PhotoCraft and VectorCraft use custom adapters with similar SAF patterns.
 

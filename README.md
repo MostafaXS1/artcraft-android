@@ -203,7 +203,7 @@ Existing source checkouts are reused to preserve local Android port work. The bu
 ## Frequently Asked Questions (FAQ)
 
 ### How can we build and port apps so fast?
-ArtCraft Android does not rewrite or maintain separate mobile forks of each application. Instead, our automated build harness pulls the exact upstream desktop Rust source code directly from official releases, applies modular Android runtime adapters (GameActivity, Storage Access Framework bridges, and native IME input), and vendors platform compatibility patches (for `winit`, `egui`, etc.). In CI, multi-tier caching (`sccache`, Cargo registry caching, and Gradle cache) allows parallel cross-compilation of all 32 applications in minutes rather than hours.
+ArtCraft Android does not rewrite or maintain separate mobile forks of each application. Instead, our automated build harness pulls the exact upstream desktop Rust source code directly from official releases, applies modular Android runtime adapters (GameActivity, Storage Access Framework bridges, and native IME input), and vendors platform compatibility patches (for `winit`, `egui`, etc.). In CI, multi-tier caching (`sccache`, Cargo registry caching, and Gradle cache) allows parallel cross-compilation of all 36 applications in minutes rather than hours.
 
 ### Are these stripped-down mobile editions?
 No. Every application is the full, unabridged PC desktop application running natively on Android (`aarch64-linux-android`). All desktop tools, rendering pipelines, panels, and format support are preserved.

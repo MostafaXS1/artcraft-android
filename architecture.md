@@ -114,18 +114,18 @@ Notes:
 
 ## Supported Apps
 
-ArtCraft Android supports **40 applications** across the suite, categorized into:
+ArtCraft Android supports **44 applications** across the suite, categorized into:
 
 1. **Official Storytold Suite (16 apps):**
    `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`, `materialcraft`, `texturecraft`, `anicraft`.
-2. **Community Applications with In-Tree Adapters & Direct CI Builds (16 apps):**
-   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`.
+2. **Community Applications with In-Tree Adapters & Direct CI Builds (20 apps):**
+   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`, `pcbcraft`, `fieldcraft`, `papercraft`, `ferrite`.
 3. **Community Applications Tracked via Launcher Catalog (7 apps):**
    `keydeck`, `values`, `letters`, `procraft`, `capcraft`, `concat`, `shapecraft`.
 4. **ArtCraft Launcher (1 app):**
    `launcher` (`artcraft-launcher-android`).
 
-All 32 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
+All 36 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
 
 ---
 
@@ -513,7 +513,7 @@ For apps with `recent_paths`/`open_paths` in recipes:
 
 ## Adapters (Custom Ports)
 
-Located in `adapters/` (19 custom adapters):
+Located in `adapters/` (23 custom adapters):
 - **photocraft**: Custom shell with JNI SAF bridge (`pcRequestOpen/Save`, `pcPollPickerResult`), Java Activity `PhotoCraftActivity`, custom persistence/intent handling, modifier tracking, has `prepare.sh`
 - **vectorcraft**: Custom shell with JNI SAF bridge (`vcRequestOpen/Save`, `vcPollPickerResult`), Java Activity `VectorCraftActivity`, modifier key tracking, uses `start_pick` pattern
 - **subcraft**: Custom shell, inlines SAF bridge (`adapters/subcraft/src/saf.rs`), uses vendored rfd with Android backend, has `files::deliver_android` support via `subcraft.sh`
@@ -533,6 +533,10 @@ Located in `adapters/` (19 custom adapters):
 - **rustgis**: Geospatial information systems (GIS) and map rendering
 - **tracedraw**: Vector illustration and bezier tracing
 - **transit**: Digital audio workstation track sequencing and arrangement
+- **pcbcraft**: Printed circuit board design and layout, vendored custom `egui-wgpu`, SAF document bridge, dedicated manifest namespace
+- **fieldcraft**: Finite element analysis and simulation, GPU mesh simulation crates, 24-bit depth buffer, clamped texture limits (8192), SAF storage migration
+- **papercraft**: Local vector design and infinite canvas, SAF document import/export, multi-touch pinch zoom/pan/rotate
+- **ferrite**: Lightweight Markdown/JSON text editor, custom `termios` shim (`vendor/termios`), GameActivity IME soft keyboard bridge and dynamic viewport resize
 
 Adapter README (`adapters/README.md`) explains when to use adapters vs generated launcher.
 
