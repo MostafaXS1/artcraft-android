@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 — 2026-11-21
 
 > **Summary:**  
 > This release officially opens the **ArtCraft Launcher to everyone**—allowing third-party open-source apps to be discovered, installed, and updated directly alongside the suite! We have also added **5 new community applications**, rolled out a comprehensive **documentation overhaul**, resolved **over 15 CVEs**, migrated user storage to **`Android/media`** for easy file access, and launched the unofficial **[Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**.
