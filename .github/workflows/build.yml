@@ -60,6 +60,7 @@ jobs:
       has_apps: ${{ steps.set-matrix.outputs.has_apps }}
       build_launcher: ${{ steps.set-matrix.outputs.build_launcher }}
       apps_count: ${{ steps.set-matrix.outputs.apps_count }}
+      is_release: ${{ steps.set-matrix.outputs.is_release }}
     steps:
       - name: Compute target apps
         id: set-matrix
@@ -91,6 +92,7 @@ jobs:
           raw_apps = (os.environ.get("INPUT_APPS") or "").strip()
           raw_launcher = (os.environ.get("INPUT_LAUNCHER") or "").strip().lower()
           commit_msg = (os.environ.get("COMMIT_MSG") or "").strip()
+          is_release = ref.startswith("refs/tags/")
 
           # 1. Tag pushes (release tags) always build all 32 apps + launcher
           if ref.startswith("refs/tags/"):
@@ -172,10 +174,12 @@ jobs:
                   f.write(f"has_apps={'true' if has_apps else 'false'}\n")
                   f.write(f"build_launcher={'true' if build_launcher else 'false'}\n")
                   f.write(f"apps_count={len(selected_apps) if has_apps else 0}\n")
+                  f.write(f"is_release={'true' if is_release else 'false'}\n")
 
           print(f"Target apps ({len(selected_apps) if has_apps else 0}): {selected_apps if has_apps else []}")
           print(f"Has apps: {has_apps}")
           print(f"Build launcher: {build_launcher}")
+          print(f"Is release: {is_release}")
           PY
 
   build:
@@ -191,7 +195,7 @@ jobs:
       SCCACHE_IDLE_TIMEOUT: "0"
       GIT_LFS_SKIP_SMUDGE: "1"
     strategy:
-      fail-fast: false
+      fail-fast: ${{ needs.prepare.outputs.is_release == 'true' }}
       matrix:
         app: ${{ fromJson(needs.prepare.outputs.apps) }}
 
@@ -552,10 +556,49 @@ jobs:
           if [ "$valid_count" -gt 0 ]; then
             echo "Found $valid_count valid APKs to bundle."
             echo "has_apks=true" >> "$GITHUB_OUTPUT"
+            echo "valid_count=$valid_count" >> "$GITHUB_OUTPUT"
           else
             echo "No valid APKs found to bundle."
             echo "has_apks=false" >> "$GITHUB_OUTPUT"
+            echo "valid_count=0" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Enforce Zero-Failure Policy for Release Run
+        if: needs.prepare.outputs.is_release == 'true'
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          LAUNCHER_RESULT: ${{ needs.build-launcher.result }}
+          HAS_APPS: ${{ needs.prepare.outputs.has_apps }}
+          BUILD_LAUNCHER: ${{ needs.prepare.outputs.build_launcher }}
+          VALID_COUNT: ${{ steps.check_apks.outputs.valid_count }}
+          APPS_COUNT: ${{ needs.prepare.outputs.apps_count }}
+        run: |
+          echo "=== Release Zero-Failure Verification ==="
+          FAILED=0
+          if [ "$HAS_APPS" = "true" ] && [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::Release build failed: Matrix application build result was '$BUILD_RESULT' (expected 'success')."
+            FAILED=1
+          fi
+          if [ "$BUILD_LAUNCHER" = "true" ] && [ "$LAUNCHER_RESULT" != "success" ]; then
+            echo "::error::Release build failed: Launcher build result was '$LAUNCHER_RESULT' (expected 'success')."
+            FAILED=1
+          fi
+
+          EXPECTED_TOTAL=$APPS_COUNT
+          if [ "$BUILD_LAUNCHER" = "true" ]; then
+            EXPECTED_TOTAL=$((EXPECTED_TOTAL + 1))
+          fi
+
+          if [ "${VALID_COUNT:-0}" -lt "$EXPECTED_TOTAL" ]; then
+            echo "::error::Release build failed: Missing APKs! Expected $EXPECTED_TOTAL valid APKs, but only found ${VALID_COUNT:-0}."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Aborting release! Build failures detected during release run. Partial releases are strictly disallowed."
+            exit 1
+          fi
+          echo "All $VALID_COUNT expected APKs built and validated successfully. Proceeding with release."
 
       - name: Upload all APKs combined artifact
         if: steps.check_apks.outputs.has_apks == 'true'
@@ -583,6 +626,7 @@ jobs:
           generate_release_notes: true
 
       - name: Download all failed build logs
+        if: always()
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -591,6 +635,7 @@ jobs:
           merge-multiple: true
 
       - name: Package failed build logs
+        if: always()
         id: package_logs
         run: |
           mkdir -p all-build-logs
@@ -614,14 +659,14 @@ jobs:
           fi
 
       - name: Upload failed build logs zip
-        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created == 'true'
+        if: always() && steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: failed-build-logs
           path: failed-build-logs.zip
 
       - name: Upload single failed build log
-        if: steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created != 'true'
+        if: always() && steps.package_logs.outputs.has_logs == 'true' && steps.package_logs.outputs.zip_created != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: failed-build-log
