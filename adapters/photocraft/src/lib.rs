@@ -1105,7 +1105,7 @@ impl eframe::App for PhotoCraftAndroidApp {
                 self.inner.set_theme(ctx, target_kind);
             }
         }
-        let is_phone = device_is_high_density(&self.bridge.app) == Some(true) || ctx.screen_rect().width() < 600.0;
+        let is_phone = device_is_high_density(&self.bridge.app) == Some(true) || ctx.content_rect().width() < 600.0;
         self.inner.compact_layout = is_phone;
         self.inner.logic(ctx, frame);
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {

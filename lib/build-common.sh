@@ -2625,7 +2625,7 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
         if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" ]]; then
-            sed -i '/source: egui::MouseWheelSource::Unknown,/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+            sed -i '/source: egui::MouseWheelSource::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
         fi
     fi
 else
@@ -2669,7 +2669,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
     if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
         tg = android_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
-            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+            tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -2714,7 +2714,7 @@ if android_dir.exists():
             if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
                 tg = android_dir / "src" / "touch_gestures.rs"
                 if tg.is_file():
-                    tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+                    tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
             raise SystemExit(0)
         print("Regenerating the Android launcher for this builder version.")
         shutil.rmtree(android_dir)
@@ -6748,7 +6748,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
         tg = staging_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
-            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+            tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {
         "solidcraft": """

@@ -13,6 +13,7 @@ coiman-ide = { path = "../../crates/coiman-ide" }
 coiman-core = { path = "../../crates/coiman-core" }
 eframe = { version = "0.37.0", default-features = false, features = [
     "wgpu",
+    "glow",
     "clipboard",
     "default_fonts",
     "links",

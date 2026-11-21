@@ -102,7 +102,7 @@ s = p.read_text()
 # eframe: the desktop build uses glow; Android uses wgpu and the native Activity. `accesskit`
 # adds a second accessibility event loop (and an Android touch-exploration service) that the
 # touch-first shell does not need; the other adapter launchers leave it out too.
-line = ('eframe = { version = "0.37.0", default-features = false, features = ["wgpu", '
+line = ('eframe = { version = "0.37.0", default-features = false, features = ["wgpu", "glow", '
         '"clipboard", "default_fonts", "links", "android-native-activity"] }')
 if re.search(r"(?m)^eframe\s*=", s):
     s = re.sub(r"(?m)^eframe\s*=.*$", line, s, count=1)
@@ -508,6 +508,8 @@ ui_open = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, K
             self.open = false;
             return None;
         }
+        let picker_kind = self.picker.as_ref().map(|p| p.kind);
+        let now = ctx.input(|i| i.time);
 
         if let Some((kind, placeholder)) = self.input {
 """
@@ -515,6 +517,8 @@ ui_open_patched = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers:
             self.open = false;
             return None;
         }
+        let picker_kind = self.picker.as_ref().map(|p| p.kind);
+        let now = ctx.input(|i| i.time);
         // Before the list's focus block clears it: whether this is the frame it opened in.
         let just_opened = self.just_opened;
 

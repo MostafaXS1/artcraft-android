@@ -164,6 +164,7 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
                 "crate::topbar_modifiers::render_topbar_modifiers_at(ui, egui::pos2(ui.max_rect().max.x - 220.0, y - 1.0));",
                 text,
             )
+            ribbon_rs.write_text(text, encoding="utf-8")
 
 elif app == "tracedraw":
     mod_rs = ui_egui_src / "ui" / "mod.rs"
@@ -181,10 +182,13 @@ elif app == "tracedraw":
         text = lib_rs.read_text(encoding="utf-8")
         if "topbar_modifiers::apply_to_raw_input" not in text:
             target = "pen::filter_raw_input(ctx, raw_input);"
-            replacement = "pen::filter_raw_input(ctx, raw_input);\n        crate::topbar_modifiers::apply_to_raw_input(&raw_input.modifiers, raw_input);"
+            replacement = "pen::filter_raw_input(ctx, raw_input);\n        crate::topbar_modifiers::apply_to_raw_input(&egui::Modifiers::NONE, raw_input);"
             if target in text:
                 text = text.replace(target, replacement, 1)
                 lib_rs.write_text(text, encoding="utf-8")
                 print(f"  Hooked topbar modifiers into {title} raw_input_hook")
-            ribbon_rs.write_text(text, encoding="utf-8")
+        elif "&raw_input.modifiers" in text:
+            text = text.replace("&raw_input.modifiers", "&egui::Modifiers::NONE")
+            lib_rs.write_text(text, encoding="utf-8")
+            print(f"  Updated topbar modifiers in {title} raw_input_hook to use Modifiers::NONE")
 PY

@@ -52,6 +52,24 @@ else:
     print("WARNING: dc-ui rfd dependency not in the expected form")
 PY
 
+# Patch dc spellcheck.rs for Android (system_dict_dirs has no default on Android)
+python3 - "$SRC_ABS/crates/dc/src/spellcheck.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+target = "fn system_dict_dirs() -> Vec<PathBuf> {"
+replacement = target + '\n    #[cfg(target_os = "android")]\n    return Vec::new();'
+if 'target_os = "android"' in s:
+    print("dc spellcheck.rs already patched for Android")
+elif target in s:
+    s = s.replace(target, replacement, 1)
+    p.write_text(s)
+    print("Patched dc spellcheck.rs for Android")
+else:
+    raise SystemExit("Could not find system_dict_dirs in dc spellcheck.rs")
+PY
+
 # Patch dc-ui app.rs to handle Android (no std::process::Command on Android)
 python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
 from pathlib import Path

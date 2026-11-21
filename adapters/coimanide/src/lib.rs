@@ -645,7 +645,7 @@ impl eframe::App for CoimanAndroidApp {
         self.keyboard.apply(ui.ctx(), &self.bridge);
     }
 
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.state.mirror.sync(&self.bridge);
     }
 }

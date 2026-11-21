@@ -683,6 +683,44 @@ elif app == "photocraft":
     if fix("crates/ui-egui/src/canvas.rs", canvas_match_old, canvas_match_new):
         fixed.append("crates/ui-egui/src/canvas.rs (apply concurrent zoom and pan)")
 
+    cr_match_old = "            Some(crate::wheel_nav::Wheel::Pan(delta)) => state.pan(delta, viewport, size),\n"
+    cr_match_new = (
+        "            Some(crate::wheel_nav::Wheel::Pan(delta)) => state.pan(delta, viewport, size),\n"
+        "            Some(crate::wheel_nav::Wheel::ZoomAndPan(factor, delta)) => {\n"
+        "                let zoom = state.scale(viewport, size) * factor;\n"
+        "                if zoom != zoom.clamp(MIN_ZOOM, MAX_ZOOM) {\n"
+        "                    crate::wheel_nav::settle(ui.ctx(), cr_wheel);\n"
+        "                }\n"
+        "                state.zoom_at(zoom, at, viewport, size);\n"
+        "                state.pan(delta, viewport, size);\n"
+        "            }\n"
+    )
+    if fix("crates/ui-egui/src/dialogs/camera_raw_preview_ui.rs", cr_match_old, cr_match_new):
+        fixed.append("crates/ui-egui/src/dialogs/camera_raw_preview_ui.rs (handle ZoomAndPan)")
+
+    liq_match_old = (
+        "            Some(crate::wheel_nav::Wheel::Pan(v)) => {\n"
+        "                d.center = [d.center[0] - f64::from(v.x / d.zoom), d.center[1] - f64::from(v.y / d.zoom)];\n"
+        "                None\n"
+        "            }\n"
+    )
+    liq_match_new = (
+        "            Some(crate::wheel_nav::Wheel::Pan(v)) => {\n"
+        "                d.center = [d.center[0] - f64::from(v.x / d.zoom), d.center[1] - f64::from(v.y / d.zoom)];\n"
+        "                None\n"
+        "            }\n"
+        "            Some(crate::wheel_nav::Wheel::ZoomAndPan(f, v)) => {\n"
+        "                d.center = [d.center[0] - f64::from(v.x / d.zoom), d.center[1] - f64::from(v.y / d.zoom)];\n"
+        "                let z = d.zoom * f;\n"
+        "                if z != z.clamp(ZOOM_MIN, ZOOM_MAX) {\n"
+        "                    crate::wheel_nav::settle(ctx, wheel_id);\n"
+        "                }\n"
+        "                Some(z.clamp(ZOOM_MIN, ZOOM_MAX))\n"
+        "            }\n"
+    )
+    if fix("crates/ui-egui/src/dialogs/liquify_ui.rs", liq_match_old, liq_match_new):
+        fixed.append("crates/ui-egui/src/dialogs/liquify_ui.rs (handle ZoomAndPan)")
+
 elif app == "vectorcraft":
     # 2. Fluid 2-finger pan on touchscreens/trackpads instead of converting vertical drag to zoom
     view_wheel_old = (

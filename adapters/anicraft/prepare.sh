@@ -120,6 +120,7 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
+sed -i '/source: egui::MouseWheelSource::/d' "$DEST/src/touch_gestures.rs" 2>/dev/null || true
 # Ensure java directory and AniCraftActivity.java exist
 mkdir -p "$DEST/java/com/artcraft/anicraft"
 python3 - "$ROOT/templates/android/SafActivity.java" "$DEST/java/com/artcraft/anicraft/AniCraftActivity.java" <<'PY'

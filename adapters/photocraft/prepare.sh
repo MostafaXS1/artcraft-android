@@ -79,16 +79,8 @@ if ui_app.is_file():
 
 if dialogs.is_file():
     s = dialogs.read_text()
-    old_show_modal = """fn show_modal<T>(
-    modal: egui::Modal,
-    ctx: &egui::Context,
-    id: egui::Id,
-    resizable: Option<(egui::Vec2, egui::Vec2, egui::Vec2)>,
-    fixed: Option<egui::Vec2>,
-    interactive: bool,
-    contents: impl FnOnce(&mut egui::Ui) -> T,
-) -> egui::ModalResponse<T> {"""
-    new_show_modal = """#[allow(clippy::too_many_arguments)]
+    
+    bad_show_modal = """#[allow(clippy::too_many_arguments)]
 fn show_modal<T>(
     modal: egui::Modal,
     ctx: &egui::Context,
@@ -99,22 +91,19 @@ fn show_modal<T>(
     compact: Option<f32>,
     contents: impl FnOnce(&mut egui::Ui) -> T,
 ) -> egui::ModalResponse<T> {"""
-    if old_show_modal in s:
-        s = s.replace(old_show_modal, new_show_modal)
-    
-    old_modal_inner = """        if let Some(size) = fixed {
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
-                ui.set_clip_rect(ui.clip_rect().expand(8.0));
-                contents(ui)
-            })
-        } else if let Some((size, min, max)) = resizable {
-            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
-            // dialog's frame that left the title and buttons flush against it (#8199).
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
-        } else {
-            contents(ui)
-        }"""
-    new_modal_inner = """        if let Some(size) = fixed.filter(|_| compact.is_none()) {
+    clean_show_modal = """fn show_modal<T>(
+    modal: egui::Modal,
+    ctx: &egui::Context,
+    id: egui::Id,
+    resizable: Option<(egui::Vec2, egui::Vec2, egui::Vec2)>,
+    fixed: Option<egui::Vec2>,
+    interactive: bool,
+    contents: impl FnOnce(&mut egui::Ui) -> T,
+) -> egui::ModalResponse<T> {"""
+    if bad_show_modal in s:
+        s = s.replace(bad_show_modal, clean_show_modal)
+
+    bad_modal_inner = """        if let Some(size) = fixed.filter(|_| compact.is_none()) {
             egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
                 ui.set_clip_rect(ui.clip_rect().expand(8.0));
                 contents(ui)
@@ -128,7 +117,36 @@ fn show_modal<T>(
         } else {
             contents(ui)
         }"""
-    if old_modal_inner in s:
+    old_modal_inner = """        if let Some(size) = fixed {
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
+                ui.set_clip_rect(ui.clip_rect().expand(8.0));
+                contents(ui)
+            })
+        } else if let Some((size, min, max)) = resizable {
+            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
+            // dialog's frame that left the title and buttons flush against it (#8199).
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
+        } else {
+            contents(ui)
+        }"""
+    new_modal_inner = """        let phone = ctx.content_rect().width() < 600.0;
+        if let Some(size) = fixed.filter(|_| !phone) {
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
+                ui.set_clip_rect(ui.clip_rect().expand(8.0));
+                contents(ui)
+            })
+        } else if let Some((size, min, max)) = resizable.filter(|_| !phone) {
+            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
+        } else if phone {
+            egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height((ctx.content_rect().height() - 40.0).max(120.0)).show(ui, contents).inner
+        } else {
+            contents(ui)
+        }"""
+    if "let phone = ctx.screen_rect().width() < 600.0;" in s:
+        s = s.replace("let phone = ctx.screen_rect().width() < 600.0;", "let phone = ctx.content_rect().width() < 600.0;")
+    if bad_modal_inner in s:
+        s = s.replace(bad_modal_inner, new_modal_inner)
+    elif old_modal_inner in s:
         s = s.replace(old_modal_inner, new_modal_inner)
 
     old_vars = """        let mut drag = egui::Vec2::ZERO;
@@ -137,17 +155,14 @@ fn show_modal<T>(
     new_vars = """        let mut drag = egui::Vec2::ZERO;
         let mut close_clicked = false;
         let mut sizing = false;
-        let phone = app.compact_layout;
+        let phone = app.compact_layout || ctx.content_rect().width() < 600.0;
         let on_canvas = phone && (d.kind == DialogKind::LayerStyle || crate::blur_pins::owns(&d.fields) || crate::adjust_dialog::owns(&d.fields) || d.fields.contains_key("__filter"));
         let screen_h = ctx.content_rect().height();
         let phone_height = phone.then(|| if on_canvas { (screen_h * 0.4).max(160.0) } else { (screen_h - 40.0).max(120.0) });"""
-    if old_vars in s and "let phone = app.compact_layout;" not in s:
+    if "let phone = app.compact_layout || ctx.screen_rect().width() < 600.0;" in s:
+        s = s.replace("let phone = app.compact_layout || ctx.screen_rect().width() < 600.0;", "let phone = app.compact_layout || ctx.content_rect().width() < 600.0;")
+    if old_vars in s and "let phone = app.compact_layout" not in s:
         s = s.replace(old_vars, new_vars)
-
-    old_call = "let modal = show_modal(modal, ctx, id, resizable, fixed, interactive, |ui| {"
-    new_call = "let modal = show_modal(modal, ctx, id, resizable, fixed, interactive, phone_height, |ui| {"
-    if old_call in s:
-        s = s.replace(old_call, new_call)
 
     old_widths = """            if !compact {
                 ui.set_min_width(if curves { 300.0 } else { 380.0 });
