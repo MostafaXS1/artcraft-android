@@ -129,7 +129,31 @@ fn show_modal<T>(
         } else {
             contents(ui)
         }"""
-    new_modal_inner = """        let phone = ctx.content_rect().width() < 600.0;
+    new_modal_inner = """        let avail = ctx.content_rect().size() - egui::vec2(24.0, 40.0);
+        if let Some(size) = fixed {
+            if size.x <= avail.x && size.y <= avail.y {
+                egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
+                    ui.set_clip_rect(ui.clip_rect().expand(8.0));
+                    contents(ui)
+                })
+            } else {
+                let eff_size = size.min(avail);
+                egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(avail.y.max(120.0)).show(ui, |ui| {
+                    egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(eff_size).show(ui, contents)
+                }).inner
+            }
+        } else if let Some((size, min, max)) = resizable {
+            let max_fit = max.min(avail);
+            let min_fit = min.min(avail);
+            if min.y <= avail.y && min.x <= avail.x {
+                egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max_fit)).min_size(min_fit).max_size(max_fit).show(ui, contents)
+            } else {
+                egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(avail.y.max(120.0)).show(ui, contents).inner
+            }
+        } else {
+            contents(ui)
+        }"""
+    bad_prev_modal = """        let phone = ctx.content_rect().width() < 600.0;
         if let Some(size) = fixed.filter(|_| !phone) {
             egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
                 ui.set_clip_rect(ui.clip_rect().expand(8.0));
@@ -144,7 +168,9 @@ fn show_modal<T>(
         }"""
     if "let phone = ctx.screen_rect().width() < 600.0;" in s:
         s = s.replace("let phone = ctx.screen_rect().width() < 600.0;", "let phone = ctx.content_rect().width() < 600.0;")
-    if bad_modal_inner in s:
+    if bad_prev_modal in s:
+        s = s.replace(bad_prev_modal, new_modal_inner)
+    elif bad_modal_inner in s:
         s = s.replace(bad_modal_inner, new_modal_inner)
     elif old_modal_inner in s:
         s = s.replace(old_modal_inner, new_modal_inner)
@@ -203,14 +229,24 @@ fn show_modal<T>(
     old_color_picker = """            if color_picker {
                 ui.set_width(crate::color_picker_ui::content_width(ui));
             }"""
-    new_color_picker = """            if color_picker {
+    bad_color_picker = """            if color_picker {
                 ui.set_width(crate::color_picker_ui::content_width(ui));
             } else if phone && !web {
                 let full = (ctx.content_rect().width() - 48.0).max(240.0);
                 ui.set_min_width(full);
                 ui.set_max_width(full);
             }"""
-    if old_color_picker in s and "let full = (ctx.content_rect().width() - 48.0).max(240.0);" not in s:
+    new_color_picker = """            if color_picker {
+                ui.set_width(crate::color_picker_ui::content_width(ui));
+            } else {
+                let avail_w = (ctx.content_rect().width() - 24.0).max(240.0);
+                if ui.min_rect().width() > avail_w {
+                    ui.set_max_width(avail_w);
+                }
+            }"""
+    if bad_color_picker in s:
+        s = s.replace(bad_color_picker, new_color_picker)
+    elif old_color_picker in s:
         s = s.replace(old_color_picker, new_color_picker)
 
     old_body = """            if let Some(done) = dialog_body(app, ui, &d, &mut fields, id, interactive) {

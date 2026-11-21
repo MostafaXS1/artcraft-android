@@ -37,7 +37,7 @@ public final class UpdateCheck {
     private static final String TAG = "ArtCraftUpdate";
 
     /** The builder version baked into this APK. */
-    private static final String BUILDER_VERSION = "0.5.0";
+    private static final String BUILDER_VERSION = "0.7.1";
 
     /** GitHub's "latest release" endpoint for the builder's repository. */
     private static final String API_URL = "https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest";

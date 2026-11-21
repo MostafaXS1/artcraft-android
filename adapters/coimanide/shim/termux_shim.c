@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
     fprintf(script, " 2>/dev/null\n");
     fprintf(script, "echo 1 > ");
     shell_quote(script, started_path);
-    fprintf(script, "\nexport PATH=\"$PREFIX/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH\"\n");
+    fprintf(script, "\nexport PATH=\"$PREFIX/bin:$HOME/.cargo/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH\"\n");
     /* A project folder lives in shared storage, so it belongs to the editor app and not to
      * Termux. Without this, git refuses to work in it ("detected dubious ownership"). */
     fprintf(script, "if [ -z \"${GIT_CONFIG_COUNT:-}\" ]; then\n");

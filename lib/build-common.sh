@@ -254,7 +254,7 @@ fi
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
 # release of this repository on launch and offers the download when GitHub has a newer one
 # (see templates/android/UpdateCheck.java). Bump it when a release is published.
-BUILDER_VERSION="0.6.0"
+BUILDER_VERSION="0.7.1"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 
@@ -327,6 +327,25 @@ if ! cargo ndk --help >/dev/null 2>&1; then
 fi
 cargo ndk -V >/dev/null 2>&1 || fail "cargo-ndk is required but not working. Install it with: cargo install cargo-ndk --locked"
 export PERL5LIB="$ROOT/lib/perl5:${PERL5LIB:-}"
+
+# Memory-aware cargo build limits:
+# Prevent OOM killer on memory-constrained systems (e.g. 16 cores with 16GB RAM).
+if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+    TOTAL_MEM_KB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)"
+    TOTAL_MEM_GB=$(( TOTAL_MEM_KB / 1024 / 1024 ))
+    if [[ "$TOTAL_MEM_GB" -gt 0 ]]; then
+        # Allow roughly 1 job per 3GB of RAM, clamped between 1 and 4
+        SAFE_JOBS=$(( TOTAL_MEM_GB / 3 ))
+    else
+        SAFE_JOBS=2
+    fi
+    [[ "$SAFE_JOBS" -lt 1 ]] && SAFE_JOBS=1
+    [[ "$SAFE_JOBS" -gt 4 ]] && SAFE_JOBS=4
+    export CARGO_BUILD_JOBS="$SAFE_JOBS"
+fi
+
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-16}"
+export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-off}"
 
 # Gradle 8.11.1 with AGP 8.7.3 (see lib/android_project.py) cannot run on the newest JDKs —
 # Java 25 dies in the Groovy build scripts with "Unsupported class file major version 69" —
@@ -8227,14 +8246,14 @@ if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" |
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -j "$CARGO_BUILD_JOBS" --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
             fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
         fi
     else
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -j "$CARGO_BUILD_JOBS" -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
@@ -8244,14 +8263,14 @@ if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" |
 else
     # Standard build from android app directory for other apps
     if [[ "$MODE" == "release" ]]; then
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build -j "$CARGO_BUILD_JOBS" --release 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
             fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
         fi
     else
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build -j "$CARGO_BUILD_JOBS" 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?

@@ -1596,7 +1596,14 @@ public final class CapsuleCraftActivity extends NativeActivity {
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     out.write(pdf);
                 }
-                final int pageCount = countPdfPages(file);
+                int count;
+                try {
+                    count = countPdfPages(file);
+                } catch (Throwable t) {
+                    Log.w(TAG, "Could not count PDF pages with PdfRenderer; falling back to PAGE_COUNT_UNKNOWN", t);
+                    count = PrintDocumentInfo.PAGE_COUNT_UNKNOWN;
+                }
+                final int pageCount = count;
                 runOnUiThread(() -> {
                     try {
                         manager.print(jobName, new PdfPrintAdapter(file, jobName, pageCount), null);
@@ -1669,7 +1676,8 @@ public final class CapsuleCraftActivity extends NativeActivity {
                 byte[] buffer = new byte[64 * 1024];
                 int count;
                 while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
-                callback.onWriteFinished(null);
+                out.flush();
+                callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
             } catch (Throwable error) {
                 callback.onWriteFailed(String.valueOf(error));
             }

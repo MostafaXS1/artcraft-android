@@ -164,7 +164,7 @@ Dedicated script that compiles the ArtCraft Launcher Android APK (`output/Artcra
 Main orchestrator (~4100 lines). Key responsibilities:
 - Argument parsing: `-<app>`, `-stable|-main|-latest`, `-tag=`, `-branch=`, `-appname=`, `-packagename=`, `-appicon=`, `-h`
 - Resolve app metadata: `TITLE`, `REPO` (defaults to `https://github.com/storytold/<app>.git`), with explicit origin routing for community apps (SubCraft from `Aalzard/subcraft`, SolidCraft from `tangency-labs/solidcraft`, Coiman IDE from `ManuelCoimbra/coiman-ide`, PicassoSuite/ProWave from `fabox-os`, Transit from `transit-audio/transit`, etc.)
-- Constants: `BUILDER_VERSION="0.6.0"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `GENERATOR_VERSION="81"`
+- Constants: `BUILDER_VERSION="0.7.1"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `GENERATOR_VERSION="81"`
 - Locking: single build lock via `flock` on `.artcraft-build.lock` (records PID)
 - Tool checks: git, cargo, python3 with tomllib
 - SDK/JDK/NDK discovery and bootstrap

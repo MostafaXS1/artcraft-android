@@ -65,11 +65,12 @@ THEMES_XML = """<?xml version="1.0" encoding="utf-8"?>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>
 """
 
-GRADLE_PROPERTIES = """org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
+GRADLE_PROPERTIES = """org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
 android.useAndroidX=true
 android.nonTransitiveRClass=true
 """
