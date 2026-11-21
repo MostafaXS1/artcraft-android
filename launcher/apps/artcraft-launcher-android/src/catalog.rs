@@ -103,6 +103,7 @@ const fn official(
 
 /// Apps whose APK is not in the shared builder release: app id -> release source.
 static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
+    ("rustgis", ReleaseSource { repo: "opengeos/RustGIS", asset_pattern: Some("RustGIS-*-android-arm64.apk") }),
     ("keydeck", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Keydeck*apk") }),
     ("values", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Values*apk") }),
     ("letters", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Letters*apk") }),
@@ -461,6 +462,7 @@ pub fn release_source_for(app: &CraftApp) -> ReleaseSource {
 /// `app-catalog.json` can override it for apps that already ship under another id.
 pub fn package_for(app_id: &str) -> String {
     match app_id {
+        "rustgis" => "org.rustgis.mobile".to_string(),
         "tracedraw" => "dev.tracedraw.app".to_string(),
         "keydeck" => "app.bramble.keydeck".to_string(),
         "values" => "app.bramble.values".to_string(),

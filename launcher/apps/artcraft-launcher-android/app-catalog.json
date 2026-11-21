@@ -385,8 +385,13 @@
       "repo": "opengeos/RustGIS",
       "publisher": "opengeos",
       "site": "https://rustgis.app",
+      "package": "org.rustgis.mobile",
       "bundle": "org.rustgis.mobile",
-      "image": "rustgis.png"
+      "image": "rustgis.png",
+      "release": {
+        "repo": "opengeos/RustGIS",
+        "asset": "RustGIS-*-android-arm64.apk"
+      }
     },
     {
       "id": "tracedraw",

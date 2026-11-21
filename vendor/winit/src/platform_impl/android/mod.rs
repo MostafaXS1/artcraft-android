@@ -260,6 +260,8 @@ pub struct EventLoop<T: 'static> {
     /// the pinch is reported as two pointers that move apart or together.
     pad_spread: Option<f64>,
     primary_pointer_down: bool,
+    secondary_pointer_down: bool,
+    tertiary_pointer_down: bool,
     modifiers_state: ModifiersState,
     touch_seq: Option<TouchSequence>,
     last_stylus_seen: Option<std::time::Instant>,
@@ -376,6 +378,8 @@ impl<T: 'static> EventLoop<T> {
             pad_position: None,
             pad_spread: None,
             primary_pointer_down: false,
+            secondary_pointer_down: false,
+            tertiary_pointer_down: false,
             modifiers_state: ModifiersState::empty(),
             touch_seq: None,
             last_stylus_seen: None,
@@ -917,6 +921,34 @@ impl<T: 'static> EventLoop<T> {
                     _ => PadGesture::None,
                 };
                 if pad_gesture != PadGesture::None {
+                    if self.secondary_pointer_down {
+                        self.secondary_pointer_down = false;
+                        callback(
+                            event::Event::WindowEvent {
+                                window_id,
+                                event: event::WindowEvent::MouseInput {
+                                    device_id,
+                                    state: event::ElementState::Released,
+                                    button: event::MouseButton::Right,
+                                },
+                            },
+                            self.window_target(),
+                        );
+                    }
+                    if self.tertiary_pointer_down {
+                        self.tertiary_pointer_down = false;
+                        callback(
+                            event::Event::WindowEvent {
+                                window_id,
+                                event: event::WindowEvent::MouseInput {
+                                    device_id,
+                                    state: event::ElementState::Released,
+                                    button: event::MouseButton::Middle,
+                                },
+                            },
+                            self.window_target(),
+                        );
+                    }
                     if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
                         callback(
                             event::Event::WindowEvent {
@@ -1298,43 +1330,48 @@ impl<T: 'static> EventLoop<T> {
                         let button_state = motion_event.button_state().0;
                         let is_secondary = (button_state & 0x2 != 0) || (button_state & 0x8 != 0);
                         let is_tertiary = button_state & 0x4 != 0;
-                        let target_button = if is_secondary {
-                            event::MouseButton::Right
-                        } else if is_tertiary {
-                            event::MouseButton::Middle
-                        } else {
-                            event::MouseButton::Left
-                        };
-                        let state = match motion_event.action() {
+                        let (target_button, state) = match motion_event.action() {
                             MotionAction::Down | MotionAction::PointerDown => {
-                                if is_secondary || is_tertiary {
-                                    Some(event::ElementState::Pressed)
+                                if is_secondary {
+                                    self.secondary_pointer_down = true;
+                                    (event::MouseButton::Right, Some(event::ElementState::Pressed))
+                                } else if is_tertiary {
+                                    self.tertiary_pointer_down = true;
+                                    (event::MouseButton::Middle, Some(event::ElementState::Pressed))
                                 } else if device_kind::primary_button_on_down(&mut self.primary_pointer_down, button_state) {
-                                    Some(event::ElementState::Pressed)
+                                    (event::MouseButton::Left, Some(event::ElementState::Pressed))
                                 } else {
-                                    None
+                                    (event::MouseButton::Left, None)
                                 }
                             }
                             MotionAction::Up | MotionAction::PointerUp => {
-                                if is_secondary || is_tertiary {
-                                    Some(event::ElementState::Released)
+                                if self.secondary_pointer_down {
+                                    self.secondary_pointer_down = false;
+                                    (event::MouseButton::Right, Some(event::ElementState::Released))
+                                } else if self.tertiary_pointer_down {
+                                    self.tertiary_pointer_down = false;
+                                    (event::MouseButton::Middle, Some(event::ElementState::Released))
                                 } else if device_kind::primary_button_on_up(&mut self.primary_pointer_down, button_state) {
-                                    Some(event::ElementState::Released)
+                                    (event::MouseButton::Left, Some(event::ElementState::Released))
                                 } else {
-                                    None
+                                    (event::MouseButton::Left, None)
                                 }
                             }
                             // A cancelled gesture must not leave a button logically held.
                             MotionAction::Cancel => {
-                                if is_secondary || is_tertiary {
-                                    Some(event::ElementState::Released)
+                                if self.secondary_pointer_down {
+                                    self.secondary_pointer_down = false;
+                                    (event::MouseButton::Right, Some(event::ElementState::Released))
+                                } else if self.tertiary_pointer_down {
+                                    self.tertiary_pointer_down = false;
+                                    (event::MouseButton::Middle, Some(event::ElementState::Released))
                                 } else if device_kind::primary_button_on_cancel(&mut self.primary_pointer_down) {
-                                    Some(event::ElementState::Released)
+                                    (event::MouseButton::Left, Some(event::ElementState::Released))
                                 } else {
-                                    None
+                                    (event::MouseButton::Left, None)
                                 }
                             }
-                            _ => None,
+                            _ => (event::MouseButton::Left, None),
                         };
                         let pointers: Box<
                             dyn Iterator<Item = android_activity::input::Pointer<'_>>,

@@ -3,7 +3,8 @@
 use android_activity::AndroidApp;
 use pixelcraft::PixelCraft;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 mod system_fonts;
 mod mobile_text_bar;
@@ -123,9 +124,111 @@ fn apply_immersive_fullscreen(app: &AndroidApp) {
     }));
 }
 
+struct SafState {
+    next_id: AtomicU64,
+    mirror: saf::SaveMirror,
+}
+
+impl SafState {
+    fn new() -> Self {
+        Self {
+            next_id: AtomicU64::new(1),
+            mirror: saf::SaveMirror::default(),
+        }
+    }
+
+    fn next_id(&self) -> u64 {
+        self.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
+    }
+}
+
+fn saf_poll(bridge: &saf::Bridge, state: &SafState) {
+    for _ in 0..16 {
+        let raw = match bridge.poll() {
+            Ok(Some(raw)) => raw,
+            Ok(None) => break,
+            Err(error) => {
+                log::error!("Could not poll Android file picker: {error}");
+                break;
+            }
+        };
+        let value: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let Some(id) = value.get("id").and_then(serde_json::Value::as_u64) else { continue };
+        let status = value.get("status").and_then(serde_json::Value::as_str).unwrap_or("error");
+        let paths: Option<Vec<PathBuf>> = if status == "ok" {
+            Some(saf::picker_paths(&value).into_iter().map(PathBuf::from).collect())
+        } else {
+            None
+        };
+        if let Some(ref paths) = paths {
+            for path in paths {
+                state.mirror.track(id, &path.to_string_lossy());
+            }
+        }
+        rfd::artcraft_saf::deliver(id, paths);
+    }
+    state.mirror.sync(bridge);
+}
+
+fn install_saf_launcher(bridge: saf::Bridge, state: Arc<SafState>) {
+    let launcher_bridge = bridge.clone_ref();
+    rfd::artcraft_saf::install(Arc::new(move |id, kind| {
+        match kind {
+            rfd::artcraft_saf::Kind::Open { multiple } => {
+                launcher_bridge.request_open(id, multiple).ok();
+            }
+            rfd::artcraft_saf::Kind::Save(ref name) => {
+                launcher_bridge.request_save(id, name).ok();
+            }
+            rfd::artcraft_saf::Kind::Folder => {
+                launcher_bridge.request_folder(id).ok();
+            }
+        }
+    }));
+
+    let blocking_bridge = bridge.clone_ref();
+    let blocking_state = Arc::clone(&state);
+    rfd::artcraft_saf::install_blocking(Arc::new(move |kind| {
+        let id = blocking_state.next_id();
+        let answer = match kind {
+            rfd::artcraft_saf::Kind::Open { multiple } => {
+                let answer = blocking_bridge.pick_open_blocking(id, multiple, saf::PICK_TIMEOUT);
+                if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
+                    for path in paths {
+                        blocking_state.mirror.track(id, path);
+                    }
+                }
+                answer
+            }
+            rfd::artcraft_saf::Kind::Save(ref name) => {
+                let answer = blocking_bridge.pick_blocking(id, Some(name), saf::PICK_TIMEOUT);
+                if let Ok(saf::PickAnswer::Paths(ref paths)) = answer {
+                    if let Some(path) = paths.first() {
+                        blocking_state.mirror.track(id, path);
+                    }
+                }
+                answer
+            }
+            rfd::artcraft_saf::Kind::Folder => blocking_bridge.pick_folder_blocking(id, saf::PICK_TIMEOUT),
+        };
+        match answer {
+            Ok(saf::PickAnswer::Paths(paths)) => Some(paths.into_iter().map(PathBuf::from).collect()),
+            Ok(saf::PickAnswer::Cancelled) => None,
+            Err(error) => {
+                log::error!("PixelCraft Android file picker: {error}");
+                None
+            }
+        }
+    }));
+}
+
 struct PixelCraftAndroidApp {
     inner: PixelCraft,
     bridge: saf::Bridge,
+    saf_state: Arc<SafState>,
     _mcp: Option<mcp_http::Endpoint>,
     intent_warmup: i32,
 }
@@ -133,6 +236,7 @@ struct PixelCraftAndroidApp {
 impl eframe::App for PixelCraftAndroidApp {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         system_fonts::install_system_fonts(ctx);
+        saf_poll(&self.bridge, &self.saf_state);
         if self.intent_warmup > 0 {
             self.intent_warmup -= 1;
         } else if self.intent_warmup == 0 {
@@ -173,7 +277,15 @@ fn android_main(android_app: AndroidApp) {
     #[allow(unused_unsafe)]
     unsafe {
         std::env::set_var("RUST_BACKTRACE", "1");
-        if let Some(path) = android_app.internal_data_path().or_else(|| android_app.external_data_path()) {
+        let base = android_app.external_data_path().map(|p| {
+            let s = p.to_string_lossy();
+            if s.contains("/Android/data/") {
+                PathBuf::from(s.replace("/Android/data/", "/Android/media/"))
+            } else {
+                p
+            }
+        }).or_else(|| android_app.internal_data_path());
+        if let Some(path) = base {
             let tmp = path.join("tmp");
             let _ = std::fs::create_dir_all(&tmp);
             std::env::set_var("TMPDIR", &tmp);
@@ -199,6 +311,9 @@ fn android_main(android_app: AndroidApp) {
     let bridge = saf::Bridge::new(&android_app);
     bridge.request_storage_permission();
 
+    let saf_state = Arc::new(SafState::new());
+    install_saf_launcher(bridge.clone_ref(), Arc::clone(&saf_state));
+
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("PixelCraft"),
@@ -208,6 +323,7 @@ fn android_main(android_app: AndroidApp) {
     };
 
     let app_bridge = bridge.clone_ref();
+    let app_saf_state = Arc::clone(&saf_state);
     let result = eframe::run_native(
         "PixelCraft",
         native,
@@ -221,6 +337,7 @@ fn android_main(android_app: AndroidApp) {
             Ok(Box::new(PixelCraftAndroidApp {
                 inner,
                 bridge: app_bridge,
+                saf_state: app_saf_state,
                 _mcp,
                 intent_warmup: 2,
             }))
