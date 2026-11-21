@@ -2,7 +2,39 @@
 
 ## Unreleased
 
+> **Summary:**  
+> This release officially opens the **ArtCraft Launcher to everyone**—allowing third-party open-source apps to be discovered, installed, and updated directly alongside the suite! We have also added **5 new community applications**, rolled out a comprehensive **documentation overhaul**, resolved **over 15 CVEs**, migrated user storage to **`Android/media`** for easy file access, and launched the unofficial **[Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**.
+
+### 🚀 Major: ArtCraft Launcher Opened to Everyone
+* **Open Community Distribution**: The launcher is now an open hub! Open-source creative desktop and Rust/egui apps can now be indexed right alongside the ArtCraft suite, complete with automatic updates, collapsible sections, and an adaptive mobile view (<680px).
+* **Join the Artcraft Android Discord**: We invite everyone to join the unofficial **[Artcraft Android Discord](https://discord.gg/J8GhXx8tCD)**! Join for updates, community support, or to talk with us. Developers can request porting assistance, submit apps for launcher inclusion, and apply for their own project channels.
+
 ### Added
+* **New Community Applications**: Added full support and launcher indexing for [PCBCraft](https://github.com/tangency-labs/pcbcraft), [FieldCraft](https://github.com/tangency-labs/fieldcraft), [PaperCraft](https://github.com/slyim/papercraft), [Ferrite](https://github.com/OlaProeis/Ferrite), and [PixelCraft](https://github.com/asad-albadi/PixelCraft).
+* **Gestures**: 2-finger panning, pinch zoom, and canvas scrolling across all suite apps.
+* **First-Launch Disclaimer**: Added a first-run community notice modal clarifying our independent, unofficial status.
+
+### 📚 Documentation
+* **Android Porting Guide (`docs/porting-guide.md`)**: Full blueprint for SAF, soft-keyboard IME, and input handling.
+* **Ported Applications Directory (`docs/ported-apps.md`)**: Catalog of all 40 supported applications and repositories.
+* **Expanded FAQ & Security (`README.md` & `SECURITY.md`)**: Detailed project FAQ, vulnerability disclosure process, and submission audit policy.
+
+### 🛡️ Security
+* **Vulnerability Fixes**: Resolved over 15 CVEs (including 7 high-risk vulnerabilities) across CI, SAF URI checks, Termux bridge shims, and MCP endpoints.
+
+### ⚙️ Changed
+* **User-Accessible Storage**: Migrated all storage, autosaves, and caches to `Android/media` so your files remain user-accessible in standard Android file managers.
+* **Official RustGIS Release**: Replaced the custom launcher build with the official RustGIS Android release (`org.rustgis.mobile`).
+* **TraceDraw Canvas Scale**: Now defaults to 85% scale on app start for better framing on mobile.
+
+### 🐛 Fixed
+* **Mouse Clicks**: Fixed right-click and middle-click release events not registering on Android.
+* **Clipboard**: Fixed clipboard crashes and text/image pasting bugs.
+* **Orientation Lock**: Apps now respect when auto-rotate is disabled in Android settings.
+
+---
+
+### Previous Unreleased Changes
 - Added Android port targets and APK build support for:
   - **SolidCraft** (`tangency-labs/solidcraft`): Parametric 3D CAD application in pure Rust with support for `.sc`, `.solidcraft`, `.step`, `.stp`, `.stl`, `.3mf`, `.dxf`, and `.obj` formats.
   - **MaterialCraft** (`storytold/materialcraft`): Node-based procedural PBR material designer with support for `.mcraft`, `.materialcraft`, `.sbs`, and `.mcmat` formats.
