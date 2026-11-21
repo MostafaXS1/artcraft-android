@@ -760,6 +760,31 @@
       ],
       "shots": [],
       "platforms": "Android, macOS, Windows, Linux"
+    },
+    {
+      "id": "pixelcraft",
+      "headline": "Fast, native pixel art editor and animator.",
+      "about": "An open-source pixel art editor and animation studio by Asad. Built in Rust and egui with onion skinning, tilesets, color management, and Aseprite interchange.",
+      "features": [
+        {
+          "title": "Pixel art & animation",
+          "text": "Multi-layer editing, timeline animation, onion skinning, and playback."
+        },
+        {
+          "title": "Tileset & tilemap tools",
+          "text": "Integrated tileset creation, auto-tiling, and tilemap export."
+        },
+        {
+          "title": "Aseprite & format support",
+          "text": "Directly open and export .ase, .aseprite, .pixel, and sprite sheets."
+        },
+        {
+          "title": "Local-first",
+          "text": "All artwork and animations stay entirely on your device with no telemetry."
+        }
+      ],
+      "shots": [],
+      "platforms": "Android, macOS, Windows, Linux"
     }
   ]
 }

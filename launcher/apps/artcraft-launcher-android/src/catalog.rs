@@ -103,6 +103,7 @@ const fn official(
 
 /// Apps whose APK is not in the shared builder release: app id -> release source.
 static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
+    ("rustgis", ReleaseSource { repo: "opengeos/RustGIS", asset_pattern: Some("RustGIS-*-android-arm64.apk") }),
     ("keydeck", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Keydeck*apk") }),
     ("values", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Values*apk") }),
     ("letters", ReleaseSource { repo: "bramble-apps/bramble-office", asset_pattern: Some("Letters*apk") }),
@@ -114,7 +115,7 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 43] = [
+pub static SUITE_ANDROID: [CraftApp; 44] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
@@ -428,6 +429,17 @@ pub static SUITE_ANDROID: [CraftApp; 43] = [
         Some("com.artcraft.ferrite"),
         None,
     ),
+    community(
+        "pixelcraft",
+        "PixelCraft",
+        "Fast, native pixel art editor and animator",
+        [86, 201, 184],
+        "asad-albadi/PixelCraft",
+        "Asad",
+        Some("https://github.com/asad-albadi/PixelCraft"),
+        Some("com.artcraft.pixelcraft"),
+        None,
+    ),
 ];
 
 /// An app by id, from the Android suite.
@@ -450,6 +462,7 @@ pub fn release_source_for(app: &CraftApp) -> ReleaseSource {
 /// `app-catalog.json` can override it for apps that already ship under another id.
 pub fn package_for(app_id: &str) -> String {
     match app_id {
+        "rustgis" => "org.rustgis.mobile".to_string(),
         "tracedraw" => "dev.tracedraw.app".to_string(),
         "keydeck" => "app.bramble.keydeck".to_string(),
         "values" => "app.bramble.values".to_string(),

@@ -94,8 +94,8 @@
         <package android:name="com.artcraft.pdfcraft" />
         <package android:name="com.artcraft.photocraft" />
         <package android:name="com.artcraft.picassosuite" />
+        <package android:name="com.artcraft.pixelcraft" />
         <package android:name="com.artcraft.prowave" />
-        <package android:name="com.artcraft.rustgis" />
         <package android:name="com.artcraft.solidcraft" />
         <package android:name="com.artcraft.soundcraft" />
         <package android:name="com.artcraft.subcraft" />
@@ -107,6 +107,7 @@
         <package android:name="dev.tracedraw.app" />
         <package android:name="io.github.artcraftandroid.capcraft" />
         <package android:name="io.github.artcraftandroid.procraft" />
+        <package android:name="org.rustgis.mobile" />
     </queries>
         <!-- END GENERATED PACKAGE QUERIES -->
 </manifest>
