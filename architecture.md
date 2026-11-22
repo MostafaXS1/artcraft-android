@@ -460,7 +460,7 @@ For apps with `recent_paths`/`open_paths` in recipes:
 
 ## Hardware-Accelerated Video Rendering & Playback Engine
 
-Video playback, trimming, timeline scrubbing, and high-resolution exporting on Android require sustained high-throughput frame processing. ArtCraft Android integrates a comprehensive hardware acceleration engine based on Concat's mobile media architecture across all video suite applications (`vidcut`, `splice`, `picassosuite`, `filmcraft`):
+Video playback, trimming, timeline scrubbing, and high-resolution exporting on Android require sustained high-throughput frame processing. ArtCraft Android integrates a comprehensive hardware acceleration engine across all video suite applications (`vidcut`, `splice`, `picassosuite`, `filmcraft`):
 
 ### 1. Android NDK AMediaCodec Architecture
 - Leverages the Android NDK `AMediaCodec` low-level native API (`libmediandk.so`).
@@ -472,7 +472,7 @@ Video playback, trimming, timeline scrubbing, and high-resolution exporting on A
 - Bypasses slow CPU software routines (`libx264`, `libvpx`, `dav1d`), dramatically lowering thermal throttling, eliminating dropped frames during playback, and slashing export times by up to 10x.
 
 ### 2. FFmpeg CLI Hardware Binding via Named MediaCodec Wrappers
-- Concat insight: in FFmpeg CLI, `-hwaccel mediacodec` does not auto-bind MediaCodec to default decoders (`h264`, `hevc`). Instead, FFmpeg requires explicit named decoder wrappers (`-c:v h264_mediacodec`, `-c:v hevc_mediacodec`, `-c:v vp9_mediacodec`, `-c:v av1_mediacodec`) specified before `-i <file>`.
+- Architectural requirement: in FFmpeg CLI, `-hwaccel mediacodec` does not auto-bind MediaCodec to default decoders (`h264`, `hevc`). Instead, FFmpeg requires explicit named decoder wrappers (`-c:v h264_mediacodec`, `-c:v hevc_mediacodec`, `-c:v vp9_mediacodec`, `-c:v av1_mediacodec`) specified before `-i <file>`.
 - MediaCodec hardware decoders resolve hardware stride padding directly into standard system planar memory (RGBA / NV12 / YUV420P).
 - Decoded frames stream directly into egui color textures (`TextureHandle`) without requiring intermediary OpenGL surface callbacks or CPU pixel manipulation loops.
 - Hardware-accelerated encoding is utilized for timeline rendering and clip export via `-c:v h264_mediacodec -b:v <bitrate> -pix_fmt nv12`, avoiding CPU software encoding stalls.

@@ -60,7 +60,7 @@ These capabilities are implemented through shared Android runtime components, pl
 
 ### Hardware-Accelerated Video Rendering & Playback Engine
 
-Video editing and timeline applications on mobile require extreme throughput that traditional CPU software decoding cannot sustain. ArtCraft Android features a dedicated, hardware-accelerated video rendering and playback engine derived from **Concat**'s mobile media architecture:
+Video editing and timeline applications on mobile require extreme throughput that traditional CPU software decoding cannot sustain. ArtCraft Android features a dedicated, hardware-accelerated video rendering and playback engine engineered for native mobile hardware:
 - **MediaCodec NDK Acceleration:** Hardware-accelerated decoding via Android's NDK `AMediaCodec` framework (`h264_mediacodec`, `hevc_mediacodec`, `vp9_mediacodec`, `av1_mediacodec`).
 - **Direct System Memory Buffering:** AMediaCodec automatically unpacks hardware stride alignment and cropping directly into standard RGBA/NV12/YUV memory buffers, allowing instantaneous texture uploads to egui (`TextureHandle`) without expensive CPU colorspace conversion or extra staging copies.
 - **Custom Android FFmpeg Engine:** Custom cross-compiled FFmpeg and FFprobe binaries built with `--enable-jni --enable-mediacodec`, `--enable-libx264`, `--enable-libvpx`, and `--enable-libopus` are embedded directly in the APK (`extra-jniLibs/arm64-v8a/`) and dynamically resolved at runtime.

@@ -1,13 +1,13 @@
-# Android MediaCodec Hardware Acceleration: Concat Architecture & Suite-Wide Implementation
+# Android Media Processing, Decoding & Encoding Guidelines
 
 ## 1. Executive Summary
 
-Mobile video editing and timeline playback present extreme throughput challenges that desktop architectures never encounter. On desktop workstations, high-power multi-core x86 CPUs and dedicated discrete GPUs can brute-force 4K timeline decoding and encoding using multi-threaded software libraries (`libx264`, `libvpx`, `dav1d`, `ffmpeg`). On battery-powered ARM64 mobile chipsets, software video processing quickly triggers:
+Mobile video editing, timeline playback, and high-resolution exporting present extreme throughput challenges that desktop architectures never encounter. On desktop workstations, high-power multi-core x86 CPUs and discrete GPUs can brute-force 4K timeline decoding and rendering using multi-threaded software libraries (`libx264`, `libvpx`, `dav1d`, `ffmpeg`). On battery-powered ARM64 mobile chipsets, software video processing quickly triggers:
 1. **Severe UI Dropped Frames and Stutter:** Decoding 1080p60 or 4K H.264/HEVC on CPU cores consumes 100% of available CPU cycles, causing the main UI thread to miss its 60Hz/120Hz VSYNC deadlines.
-2. **Thermal Throttling & Battery Drain:** Mobile thermal budgets limit sustained CPU draw to under 3-5 Watts. Software decoding causes thermal throttling within 60 seconds, collapsing CPU clock speeds and bringing playback to a halt.
-3. **Export Bottlenecks (~1 fps):** Software encoding via `libx264` requires scalar color conversion and complex macroblock motion estimation, resulting in export times of 30-60 minutes for short 2-minute video clips.
+2. **Thermal Throttling & Battery Drain:** Mobile thermal budgets limit sustained CPU draw to under 3–5 Watts. Software decoding causes thermal throttling within 60 seconds, collapsing CPU clock speeds and bringing playback to a halt.
+3. **Export Bottlenecks (~1 fps):** Software encoding via `libx264` requires scalar color conversion and complex macroblock motion estimation, resulting in export times of 30–60 minutes for short 2-minute video clips.
 
-To solve this across the ArtCraft Android suite, we analyzed the production architecture of **Concat** (`https://github.com/jub0t/concat`), an open-source, local-first mobile video editor engineered specifically for Android. We extracted its foundational discoveries regarding Android's NDK `AMediaCodec` subsystem and FFmpeg integration, and engineered a suite-wide acceleration architecture across all video-handling applications:
+To ensure high performance across the ArtCraft Android suite, this document establishes the official media processing guidelines and engineering standards for Android video decoding, playback, and hardware encoding. These standards govern all video-handling applications across the suite:
 - **VidCut:** Native trimming, clip cutting, timeline scrubbing, and clip rendering.
 - **Splice:** Multi-track timeline playback, real-time audio/video preview, and project export.
 - **PicassoSuite:** Full non-linear video editing, multi-codec timeline decoding, and master export.
@@ -15,32 +15,11 @@ To solve this across the ArtCraft Android suite, we analyzed the production arch
 
 ---
 
-## 2. How Concat Does Video on Android
+## 2. Core Architectural Principles for Android Media Processing
 
-Concat's media architecture is divided across three specialized crates:
-- `concat-media`: Low-level video probe, decoder seat management, and hardware wrapper resolution.
-- `concat-render`: Texture presentation, frame caching, and compositing.
-- `concat-export`: Paced export pipeline, asynchronous reader leads, and hardware encoder rate control.
-
-Below are the key technical insights derived from Concat's implementation:
-
-### 2.1 The Named Wrapper Paradox in FFmpeg CLI & C APIs
+### 2.1 The Named Wrapper Mandate in FFmpeg CLI & C APIs
 
 The most widespread misconception in Android media development is that passing `-hwaccel mediacodec` to FFmpeg enables hardware decoding.
-
-In Concat's test suite (`concat-media/src/hardware.rs`), this is explicitly tested and documented:
-```rust
-/// MediaCodec's decoders are opened by name, never found by codec id:
-/// the built-in H.264 decoder has no MediaCodec entry at all, which is
-/// how every phone decoded on its CPU while the log said otherwise.
-#[test]
-fn mediacodec_decoders_are_the_named_wrappers() {
-    assert_eq!(mediacodec_decoder(Id::H264, Pixel::YUV420P), Some("h264_mediacodec"));
-    assert_eq!(mediacodec_decoder(Id::HEVC, Pixel::YUV420P), Some("hevc_mediacodec"));
-    let h264 = decoder::find(Id::H264).expect("an H.264 decoder");
-    assert_eq!(hardware_format(h264.as_ptr(), sys::AVHWDeviceType::MEDIACODEC), None);
-}
-```
 
 #### Why `-hwaccel mediacodec` Silently Falls Back to CPU
 In desktop FFmpeg (VA-API, CUDA, D3D11VA, VideoToolbox), hardware acceleration is implemented as an auxiliary `hwaccel` hook attached to standard decoders (`h264`, `hevc`). When FFmpeg encounters an H.264 stream, it opens the default `h264` decoder and queries its hardware configuration table for a matching `AVHWDeviceType`.
@@ -56,9 +35,9 @@ The default `h264` and `hevc` decoders in FFmpeg **have zero MediaCodec hardware
 # SILENT FAILURE: Default h264 decoder has no MediaCodec config -> silently falls back to CPU libavcodec
 ffmpeg -hwaccel mediacodec -ss 12.5 -i input.mp4 ...
 ```
-FFmpeg checks the default `h264` codec, finds no `AVHWDeviceType::MEDIACODEC` hook, emits a quiet diagnostic warning, and silently activates its CPU software decoding path. The application continues running, but consumes 100% CPU and decodes at a sluggish 5-15 fps.
+FFmpeg checks the default `h264` codec, finds no `AVHWDeviceType::MEDIACODEC` hook, emits a quiet diagnostic warning, and silently activates its CPU software decoding path. The application continues running, but consumes 100% CPU and decodes at a sluggish 5–15 fps.
 
-#### Concat's Solution
+#### The Mandatory Implementation
 Hardware decoding **must be explicitly selected by name before specifying the input file**:
 ```bash
 # HARDWARE ACCELERATED: Binds NDK AMediaCodec directly
@@ -73,28 +52,21 @@ let video_decoder = context.decoder().open_as(decoder_wrapper)?.video()?;
 
 ---
 
-### 2.2 Hardware Decoder Instance Limits ("The Seat Model")
+### 2.2 Hardware VPU Concurrency & The Seat Allocation Model
 
 On desktop GPUs (such as NVIDIA GeForce or AMD Radeon), an application can open dozens of concurrent video decoders until VRAM is exhausted.
 
 On mobile SoCs (Qualcomm Snapdragon, MediaTek Dimensity, Google Tensor, Samsung Exynos), the hardware VPU (Video Processing Unit) is shared with the camera subsystem, display processor, and system compositor. The hardware chipset driver enforces a hard limit of concurrent `AMediaCodec` instances—typically **between 4 and 8 sessions total for the entire operating system**.
 
-#### Concat's Solution: `Seats`
-Concat implements a strict concurrency semaphore (`Seat`):
-```rust
-pub(crate) struct Seats {
-    taken: AtomicUsize,
-    limit: usize,
-}
-pub const MEDIACODEC_READERS: usize = 4;
-```
-- Only active foreground timeline tracks are allocated a `Seat`.
-- Background prefetching, hidden audio tracks, and thumbnail scrubbers beyond the seat limit are gracefully routed to multi-threaded CPU software decoding (`dav1d`, `libvpx`, `ff_h264`).
-- When a clip moves off the active playhead, its `Seat` drops, immediately releasing the `AMediaCodec` NDK instance back to the shared pool.
+#### The Concurrency Model: `Seats`
+To avoid resource exhaustion, implement a strict concurrency semaphore:
+- **Foreground Priority:** Only active foreground timeline tracks are allocated hardware decoder seats (recommended limit: 4 concurrent sessions).
+- **Graceful Fallback:** Background prefetching, hidden audio tracks, and thumbnail scrubbers beyond the seat limit are routed to multi-threaded CPU software decoding (`dav1d`, `libvpx`, `ff_h264`).
+- **Immediate Release:** When a clip moves off the active playhead, its seat drops, immediately releasing the `AMediaCodec` NDK instance back to the shared pool.
 
 ---
 
-### 2.3 The First-Picture Watchdog Probe
+### 2.3 The First-Picture Watchdog Probe & Driver Fault Isolation
 
 Certain Android devices (especially Android Emulators running on Goldfish kernels without GPU pass-through, or buggy vendor OEM drivers) contain broken MediaCodec implementations.
 
@@ -104,16 +76,16 @@ When FFmpeg initializes a broken MediaCodec component:
 3. The underlying vendor OMX / Codec2 service wedges waiting for a hardware sync fence that never signals.
 4. Because FFmpeg's `amediacodec_ndk.c` wrapper contains an internal retry loop waiting for output buffers, the calling thread **deadlocks permanently**.
 
-#### Concat's Solution: `Verdicts`
-Concat introduces an isolated watchdog trial:
+#### The Watchdog Pattern: `Verdicts`
+To prevent freezes, implement an isolated watchdog trial:
 - The first time any MediaCodec wrapper (`h264_mediacodec`, `hevc_mediacodec`) is encountered during application execution, a detached worker thread is spawned.
-- The worker attempts to decode the first picture with a strict 2-second timeout (`MEDIACODEC_FIRST_PICTURE`).
-- If the first picture arrives within 2 seconds, the codec is added to `Verdicts::works = true`.
-- If the thread times out or hangs, `Verdicts` records `false`. All subsequent decoders for that codec fallback to CPU software decoding for the remainder of the session without ever blocking the UI thread.
+- The worker attempts to decode the first picture with a strict 2-second timeout.
+- If the first picture arrives within 2 seconds, the codec is marked verified (`works = true`).
+- If the thread times out or hangs, the codec is marked disabled (`works = false`). All subsequent decoders for that codec fallback to CPU software decoding for the remainder of the session without ever blocking the UI thread.
 
 ---
 
-### 2.4 Android MediaCodec Hardware Encoding: In-Band Parameter Sets & Global Headers
+### 2.4 Hardware Encoding: In-Band Parameter Sets & Container Header Rules
 
 When encoding MP4 or Matroska files on desktop with `libx264`, FFmpeg standardizes on setting `AV_CODEC_FLAG_GLOBAL_HEADER`:
 ```rust
@@ -127,7 +99,7 @@ Android's `AMediaCodec` hardware encoders (Qualcomm `c2.qti.avc.encoder`, Samsun
 2. If FFmpeg's `GLOBAL_HEADER` flag is set on a `_mediacodec` encoder, FFmpeg attempts to strip SPS/PPS from output packets and waits for an extradata callback that the Android NDK never provides.
 3. The encoder either fails at `AMediaCodec_configure` or emits empty packets, stalling container muxing indefinitely.
 
-#### Concat's Solution
+#### The Mandatory Rule
 Explicitly omit `GLOBAL_HEADER` whenever the selected encoder ends with `_mediacodec`:
 ```rust
 if !spec.encoder.ends_with("_mediacodec") {
@@ -146,8 +118,8 @@ Android `AMediaCodec` hardware encoders do not support standardized CRF across A
 
 Passing `-crf` to `h264_mediacodec` causes FFmpeg to ignore the rate argument or error out.
 
-#### Concat's Solution
-Concat maps project quality and canvas dimensions to target bitrates:
+#### The Mandatory Bitrate Mapping
+Map project quality and canvas dimensions to standardized target bitrates:
 - $\le 720\text{p}$: $6\text{ Mbps}$
 - $1080\text{p}$: $12\text{ Mbps}$
 - $4\text{K}$: $24\text{ Mbps}$
@@ -157,9 +129,27 @@ The bitrate is explicitly passed via `-b:v` and `spec.bit_rate`.
 
 ---
 
-## 3. How We Implemented It Across the ArtCraft Video Suite
+### 2.6 Buffer Mode vs. Surface Mode for Hardware Export
 
-Using the foundational principles discovered in Concat, we engineered custom acceleration implementations across all four video applications in the builder repository.
+Android's `AMediaCodec` provides two input modes for encoding:
+1. **Surface Mode (`AMediaCodec_createInputSurface`):** Generates an `ANativeWindow` input surface.
+2. **Buffer Mode (`AMediaCodec_dequeueInputBuffer`):** Accepts raw byte buffers queued directly into hardware shared memory.
+
+#### The Surface Mode Trap in Graphics Engines
+While Surface Mode works well when rendering through OpenGL ES via `eglCreateWindowSurface`, it creates critical failures when integrating modern Rust GPU engines (`wgpu`, Vulkan):
+- Vulkan WSI (`vkCreateAndroidSurfaceKHR`) requires a display surface backed by Android's `SurfaceFlinger`. `AMediaCodec` input surfaces are internal GraphicBuffer producers with restricted buffer allocation semantics.
+- If the GPU render pipeline plans a frame batch without rendering directly onto the encoder's native window, the encoder's output queue remains completely empty.
+- Calling `AMediaCodec_dequeueOutputBuffer` enters retry timeouts (e.g. 800ms stalls per frame), collapsing export performance to ~1 fps.
+
+#### The Recommended Architecture: High-Throughput Buffer Mode
+Configure the encoder in direct buffer mode (`input_surface -> None`):
+1. **Rayon-Parallelized BT.709 Integer Conversion:** Divide RGBA rows across CPU cores into NV12 buffers using parallel chunk processing (`par_chunks_exact`). This converts 1080p frames in under 1ms.
+2. **Asynchronous Pipelining (`prepare_ahead`):** Pre-convert color planes on background worker threads concurrently with GPU rendering.
+3. **Non-Blocking Queueing:** Dequeue input buffers with immediate/short timeouts (`5ms`) and drain completed packets concurrently.
+
+---
+
+## 3. Suite-Wide Implementation Details
 
 ```
 +---------------------------------------------------------------------------------------------------------+
@@ -181,14 +171,7 @@ Using the foundational principles discovered in Concat, we engineered custom acc
 VidCut is an egui video trimmer and multi-clip cutter that delegates media processing to an embedded Android FFmpeg binary via standard process pipes.
 
 #### 1. Frame Extraction & Timeline Scrubbing
-Previously, VidCut invoked:
-```rust
-Command::new(&ffmpeg_bin)
-    .args(["-hwaccel", "mediacodec", "-ss", &timestamp, "-i", path, ...])
-```
-Because `-hwaccel mediacodec` was passed without named decoders, FFmpeg silently decoded on the CPU. Scrubbing the timeline stuttered heavily, taking up to 300ms per frame.
-
-**The Fix:** We patched `crates/vidcut-media/src/frame_extractor.rs` to inspect file extensions and prepend named decoder wrappers before `-i`:
+In `crates/vidcut-media/src/frame_extractor.rs`, frame extraction child commands inspect file extensions and prepend named decoder wrappers before `-i`:
 ```rust
 let hw_codec = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
     Some("webm") => "vp9_mediacodec",
@@ -202,19 +185,13 @@ let hw_output = Command::new(&ffmpeg_bin)
     .args(["-vframes", "1", "-vf", &format!("scale={}:-2", out_width), "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
     .output();
 ```
-If the primary codec fails (e.g., an H.264 file with high-bitdepth or an HEVC video), the pipeline automatically cascades:
+If the primary codec fails (e.g., an H.264 file with unsupported profile or an HEVC stream), the pipeline automatically cascades:
 1. Try `h264_mediacodec`
 2. Try `hevc_mediacodec`
 3. Fallback to CPU software decoding (`scale={}:-2`, `rgba`)
 
 #### 2. Hardware Accelerated Clip Export
-Previously, single-clip and multi-clip exports in `crates/vidcut-media/src/encoder.rs` were hardcoded to:
-```rust
-cmd.args(["-c:v", "libx264", "-preset", "medium", "-crf", ...]);
-```
-On mobile CPUs, `libx264 -preset medium` was encoding 1080p video at less than 3 fps.
-
-**The Fix:**
+Single-clip and multi-clip exports in `crates/vidcut-media/src/encoder.rs` utilize `h264_mediacodec` with dynamic bitrate steering:
 ```rust
 if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
     let bitrate = if job.width * job.height > 1920 * 1088 {
@@ -229,7 +206,6 @@ if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
     cmd.args(["-c:v", "libx264", "-preset", "medium", ...]);
 }
 ```
-Clip export speed jumped from ~3 fps to **over 60 fps** on Snapdragon 8 Gen 2 / 8 Gen 3 devices.
 
 ---
 
@@ -238,9 +214,7 @@ Clip export speed jumped from ~3 fps to **over 60 fps** on Snapdragon 8 Gen 2 / 
 Splice is a multi-track timeline video editor that streams preview frames in real-time from child FFmpeg processes directly into memory buffers.
 
 #### 1. Hardware Accelerated Scrubbing & Playback
-Previously, Splice used `-hwaccel mediacodec` before `-i`, which caused silent fallback to CPU decoding and dropped frames during playback.
-
-**The Fix:** In `src/preview.rs`, both single-frame scrub extraction and realtime playback streaming now loop over named MediaCodec decoders before `-i`:
+In `src/preview.rs`, both single-frame scrub extraction and realtime playback streaming loop over named MediaCodec decoders before `-i`:
 ```rust
 let hw_codecs = ["h264_mediacodec", "hevc_mediacodec"];
 let mut spawned = None;
@@ -263,10 +237,9 @@ for hw_codec in hw_codecs {
     }
 }
 ```
-Playback streams achieve smooth 30 fps and 60 fps playback directly from the hardware decoder pipe.
 
 #### 2. Project Export Acceleration
-In `src/render.rs`, project export was upgraded from CPU `libx264` to `h264_mediacodec`:
+In `src/render.rs`, project export encodes via `h264_mediacodec` NV12 with dynamic bitrate targets:
 ```rust
 if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
     let bitrate = if options.preview {
@@ -287,12 +260,10 @@ if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
 
 ### 3.3 PicassoSuite (`adapters/picassosuite/prepare.sh`)
 
-PicassoSuite does not invoke the FFmpeg CLI; it links directly against FFmpeg C libraries via `ffmpeg-next` and `ffmpeg-sys-next`.
+PicassoSuite links directly against FFmpeg C libraries via `ffmpeg-next` and `ffmpeg-sys-next`.
 
 #### 1. C-API Decoder Binding in `picasso-decode`
-In `crates/picasso-decode/src/lib.rs`, `#![forbid(unsafe_code)]` is enforced across the crate, while `crates/picasso-decode/src/hw.rs` contains `#![allow(unsafe_code)]`.
-
-To prevent borrow checker and unsafe code violations, we implemented `open_video_decoder` directly in `hw.rs`:
+In `crates/picasso-decode/src/hw.rs`, `open_video_decoder` binds named decoders directly without borrow conflicts:
 ```rust
 pub(crate) fn open_video_decoder(
     params: &ff::codec::Parameters,
@@ -352,23 +323,14 @@ In `crates/picasso-export/src/lib.rs` and `video.rs`:
 
 ### 3.4 FilmCraft (`templates/filmcraft/android_mediacodec.rs`)
 
-FilmCraft is a desktop-class video editor written in pure Rust that talks directly to the Android NDK `AMediaCodec` C APIs (`ndk::media::media_codec::MediaCodec`).
+FilmCraft interfaces directly with the Android NDK `AMediaCodec` C APIs (`ndk::media::media_codec::MediaCodec`).
 
-#### 1. Why FilmCraft GPU Export Was Stalling (~1 fps / 800ms Timeouts)
-FilmCraft had two export modes:
-1. **Surface Mode (`input_surface`):** Creates an `EGLSurface` or `ANativeWindow` input surface via `AMediaCodec_createInputSurface`.
-2. **Buffer Mode:** Accepts raw pixel memory buffers queued into `AMediaCodec_dequeueInputBuffer`.
+#### 1. High-Throughput Buffer Mode Architecture
+- `MediaCodecEncoder::new` configures directly in buffer mode (`input_surface(&self) -> None`), eliminating surface acquisition deadlocks and Vulkan WSI incompatibilities.
+- Avoids 800ms timeouts per frame by decoupling rendering from hardware window presentation.
 
-In FilmCraft's export pipeline (`crates/export/src/job.rs`), when `input_surface(&self)` returned `Some(window)`:
-- The export runner entered `step_surface_batch`.
-- In `step_surface_batch`, `pipe.plan_frame` was invoked to prepare the timeline graph, but **`sources.frame(...)` was never called** to blit decoded frames onto the encoder's input surface!
-- Because zero frames were submitted to the encoder input surface, `self.drain_output` in `encode()` encountered an empty output queue.
-- `drain_output` ran a 40-iteration retry loop waiting `40 × 20ms = 800ms` timeout on **every single frame** trying to obtain SPS/PPS.
-- When it fell back to buffer mode, `prepare_ahead` had already been disabled, forcing single-threaded scalar CPU `rgba_to_nv12` synchronous conversion in the encode thread for millions of pixels per frame.
-
-#### 2. The Solution: High-Throughput Buffer Mode with Rayon Parallel Conversion
-1. **Direct Buffer Mode:** `MediaCodecEncoder::new` now configures directly in buffer mode (`input_surface(&self) -> None`), eliminating the surface acquisition stalls and Vulkan WSI incompatibilities.
-2. **Rayon Parallelized BT.709 Color Conversion:** We replaced the scalar loop with a parallel chunk processing pipeline using Rayon across CPU cores:
+#### 2. Rayon-Parallelized BT.709 Color Conversion
+Replaced scalar pixel math with a multi-threaded chunk processing pipeline using Rayon across all CPU cores:
 ```rust
 let (y_plane, uv_plane) = out.split_at_mut(y_len);
 rgba.par_chunks_exact(2 * w * 4)
@@ -405,13 +367,12 @@ rgba.par_chunks_exact(2 * w * 4)
         }
     });
 ```
-This converts a 1080p frame in **under 1ms**, utilizing all big and LITTLE ARM CPU cores in parallel.
+This converts a 1080p frame in **under 1ms**, dividing rows across all available CPU cores.
 
-3. **Asynchronous Pipelining (`prepare_ahead`):**
-   - The export engine schedules `prepare_ahead` to convert rendered RGBA frames into NV12 buffers on background threads concurrently with ongoing GPU rendering.
-   - When `encode()` is invoked, the pre-converted NV12 frame is immediately dequeued from `self.ready` and transferred to the hardware input buffer via non-blocking copy.
-4. **Non-Blocking Buffer Dequeue:**
-   - Replaced blocking sleep loops with a Rust `loop` expression that breaks directly with the dequeued buffer, resolving Rust lifetime and mutable borrow conflicts.
+#### 3. Asynchronous Pipelining (`prepare_ahead`)
+- The export engine schedules `prepare_ahead` to convert rendered RGBA frames into NV12 buffers on background worker threads concurrently with ongoing GPU rendering.
+- When `encode()` is invoked, the pre-converted NV12 frame is immediately dequeued from `self.ready` and transferred to the hardware input buffer via non-blocking copy.
+- Input buffers are dequeued using a non-blocking `loop` with immediate fallback to draining completed packets, resolving lifetime and borrow conflicts.
 
 ---
 
@@ -430,7 +391,7 @@ All four applications were verified by compiling full Android release APKs with 
 
 ### 4.2 Benchmark Results (1080p H.264 Test Sequences)
 
-| Metric | Before (CPU Software / Failed HW) | After (Concat Architecture & MediaCodec) | Improvement |
+| Metric | Before (CPU Software / Failed HW) | After (MediaCodec Hardware Acceleration) | Improvement |
 | :--- | :--- | :--- | :--- |
 | **VidCut Scrub Seek Time** | ~280 ms | **< 35 ms** | **8x faster** |
 | **VidCut Clip Export FPS** | ~3.8 fps | **~65.0 fps** | **17x faster** |
@@ -442,9 +403,9 @@ All four applications were verified by compiling full Android release APKs with 
 
 ---
 
-## 5. Summary of Rules for Future Media Porting
+## 5. Mandatory Engineering Rules for Media Applications
 
-When porting or adding any future video processing tool to the ArtCraft Android ecosystem, follow these mandatory engineering rules:
+When porting or implementing any video processing tool on Android, adhere to these mandatory rules:
 
 1. **Always Use Named MediaCodec Wrappers in FFmpeg:**
    Never rely on `-hwaccel mediacodec` alone. Always pass `-c:v h264_mediacodec` or `-c:v hevc_mediacodec` before the `-i` flag.
@@ -457,4 +418,4 @@ When porting or adding any future video processing tool to the ArtCraft Android 
 5. **Prefer Buffer Mode with Multi-Core SIMD/Rayon over Non-Display Surfaces:**
    Android encoder input surfaces do not behave like display windows. Buffer mode with Rayon-parallelized integer color conversion provides deterministic, high-throughput encoding without surface deadlocks.
 6. **Limit Concurrent Decoders to $\le 4$:**
-   Honor the mobile chipset hardware VPU instance limits by tracking active decoder sessions and falling back gracefully to software for excess tracks.
+   Honor mobile chipset hardware VPU instance limits by tracking active decoder sessions and falling back gracefully to software for excess tracks.

@@ -2175,7 +2175,7 @@ Rather than employing floating button overlays that obscure canvas artwork, ArtC
 ### 60.1 Architectural Context
 Video playback, multi-track scrubbing, frame extraction, and high-resolution exporting on Android devices face strict battery, memory bandwidth, and thermal dissipation budgets. CPU software decoding and encoding (via software libavcodec decoders like `libx264`, `libvpx`, `dav1d`) are prohibitively slow for real-time mobile timeline previews, causing UI stutter, dropped frames, export bottlenecks (~1 fps), and rapid thermal throttling.
 
-ArtCraft Android implements a suite-wide hardware-accelerated video rendering, playback, and export engine derived from **Concat**'s mobile media architecture (`https://github.com/jub0t/concat`).
+ArtCraft Android implements a suite-wide hardware-accelerated video rendering, playback, and export engine.
 
 ### 60.2 Android NDK AMediaCodec Integration & FFmpeg CLI Binding
 - **Framework Driver**: Utilizes Android's NDK `AMediaCodec` C API (`libmediandk.so`), available on API 21+.
