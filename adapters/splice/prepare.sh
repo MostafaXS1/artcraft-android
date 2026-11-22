@@ -74,7 +74,7 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-# 1. Hardware accelerated scrubbing
+# 1. Hardware accelerated scrubbing via MediaCodec named wrappers
 old_scrub = '''        std::thread::spawn(move || {
             let mut command = Command::new(&ffmpeg);
             command.args([
@@ -91,23 +91,33 @@ old_scrub = '''        std::thread::spawn(move || {
             let output = command.output();'''
 
 new_scrub = '''        std::thread::spawn(move || {
-            let mut hw_command = Command::new(&ffmpeg);
-            hw_command.args([
-                "-hwaccel",
-                "mediacodec",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-ss",
-                &format!("{seek:.4}"),
-                "-i",
-            ]);
-            hw_command.arg(&proxy);
-            hw_command.args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
-            let output = match hw_command.output() {
-                Ok(out) if out.status.success() && out.stdout.len() >= width as usize * height as usize * 4 => Ok(out),
-                _ => {
+            let hw_codecs = ["h264_mediacodec", "hevc_mediacodec"];
+            let mut hw_success = None;
+            for hw_codec in hw_codecs {
+                let mut hw_command = Command::new(&ffmpeg);
+                hw_command.args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    "-ss",
+                    &format!("{seek:.4}"),
+                    "-c:v",
+                    hw_codec,
+                    "-i",
+                ]);
+                hw_command.arg(&proxy);
+                hw_command.args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+                if let Ok(out) = hw_command.output() {
+                    if out.status.success() && out.stdout.len() >= width as usize * height as usize * 4 {
+                        hw_success = Some(out);
+                        break;
+                    }
+                }
+            }
+            let output = match hw_success {
+                Some(out) => Ok(out),
+                None => {
                     let mut sw_command = Command::new(&ffmpeg);
                     sw_command.args([
                         "-hide_banner",
@@ -127,7 +137,7 @@ new_scrub = '''        std::thread::spawn(move || {
 if old_scrub in s:
     s = s.replace(old_scrub, new_scrub, 1)
 
-# 2. Hardware accelerated playback
+# 2. Hardware accelerated playback via MediaCodec named wrappers
 old_play = '''        std::thread::spawn(move || {
             let mut command = Command::new(&ffmpeg);
             command.args([
@@ -155,29 +165,36 @@ old_play = '''        std::thread::spawn(move || {
             *child_slot.lock().expect("child slot") = Some(child);'''
 
 new_play = '''        std::thread::spawn(move || {
-            let mut hw_command = Command::new(&ffmpeg);
-            hw_command.args([
-                "-hwaccel",
-                "mediacodec",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-ss",
-                &format!("{start:.4}"),
-                "-i",
-            ]);
-            hw_command.arg(&proxy);
-            hw_command.args([
-                "-an", "-vf", "fps=30", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
-            ]);
-            hw_command.stdout(Stdio::piped()).stderr(Stdio::null());
-            let (mut child, mut stdout) = match hw_command.spawn().and_then(|mut c| {
-                let out = c.stdout.take().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no stdout"));
-                out.map(|o| (c, o))
-            }) {
-                Ok(pair) => pair,
-                Err(_) => {
+            let hw_codecs = ["h264_mediacodec", "hevc_mediacodec"];
+            let mut spawned = None;
+            for hw_codec in hw_codecs {
+                let mut hw_command = Command::new(&ffmpeg);
+                hw_command.args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    "-ss",
+                    &format!("{start:.4}"),
+                    "-c:v",
+                    hw_codec,
+                    "-i",
+                ]);
+                hw_command.arg(&proxy);
+                hw_command.args([
+                    "-an", "-vf", "fps=30", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+                ]);
+                hw_command.stdout(Stdio::piped()).stderr(Stdio::null());
+                if let Ok(mut c) = hw_command.spawn() {
+                    if let Some(stdout) = c.stdout.take() {
+                        spawned = Some((c, stdout));
+                        break;
+                    }
+                }
+            }
+            let (mut child, mut stdout) = match spawned {
+                Some(pair) => pair,
+                None => {
                     let mut sw_command = Command::new(&ffmpeg);
                     sw_command.args([
                         "-hide_banner",
@@ -208,6 +225,35 @@ if old_play in s:
     s = s.replace(old_play, new_play, 1)
 
 p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/src/render.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old_render = '''    command.args(["-c:v", "libx264"]);
+    if options.preview {
+        command.args(["-preset", "ultrafast", "-crf", "28", "-level", "3.1"]);
+    } else {
+        command.args(["-preset", "medium", "-crf", "20", "-profile:v", "high"]);
+    }'''
+
+new_render = '''    if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
+        let bitrate = if options.preview { "4M" } else if options.width * options.height > 1920 * 1088 { "24M" } else { "12M" };
+        command.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+    } else {
+        command.args(["-c:v", "libx264"]);
+        if options.preview {
+            command.args(["-preset", "ultrafast", "-crf", "28", "-level", "3.1"]);
+        } else {
+            command.args(["-preset", "medium", "-crf", "20", "-profile:v", "high"]);
+        }
+    }'''
+
+if old_render in s:
+    s = s.replace(old_render, new_render, 1)
+    p.write_text(s)
 PY
 
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"

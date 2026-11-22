@@ -107,7 +107,48 @@ if 'VIDCUT_FFMPEG' not in s:
         'pub fn ffmpeg_available() -> bool {',
         'pub fn ffmpeg_available() -> bool {\n    if let Ok(p) = std::env::var("VIDCUT_FFMPEG") {\n        if std::path::Path::new(&p).exists() {\n            return true;\n        }\n    }'
     )
-    p.write_text(s)
+
+# Hardware accelerated encoding on Android with MediaCodec
+single_old = '''        if seg.has_video {
+            cmd.args(["-c:v", "libx264"]);
+            cmd.args(["-crf", &job.quality.crf().to_string()]);
+            cmd.args(["-preset", "medium"]);'''
+
+single_new = '''        if seg.has_video {
+            if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
+                let bitrate = if job.width * job.height > 1920 * 1088 { "24M" } else if job.width * job.height > 1280 * 720 { "12M" } else { "6M" };
+                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+            } else {
+                cmd.args(["-c:v", "libx264"]);
+                cmd.args(["-crf", &job.quality.crf().to_string()]);
+                cmd.args(["-preset", "medium"]);
+            }'''
+
+multi_old = '''        if has_any_video {
+            cmd.args(["-map", "[outv]"]);
+            cmd.args(["-c:v", "libx264"]);
+            cmd.args(["-crf", &job.quality.crf().to_string()]);
+            cmd.args(["-preset", "medium"]);
+        }'''
+
+multi_new = '''        if has_any_video {
+            cmd.args(["-map", "[outv]"]);
+            if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
+                let bitrate = if job.width * job.height > 1920 * 1088 { "24M" } else if job.width * job.height > 1280 * 720 { "12M" } else { "6M" };
+                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+            } else {
+                cmd.args(["-c:v", "libx264"]);
+                cmd.args(["-crf", &job.quality.crf().to_string()]);
+                cmd.args(["-preset", "medium"]);
+            }
+        }'''
+
+if single_old in s:
+    s = s.replace(single_old, single_new, 1)
+if multi_old in s:
+    s = s.replace(multi_old, multi_new, 1)
+
+p.write_text(s)
 PY
 
 python3 - "$SRC_ABS/crates/vidcut-media/src/frame_extractor.rs" <<'PY'
@@ -121,7 +162,7 @@ if 'VIDCUT_FFMPEG' not in s:
         'let ffmpeg_bin = std::env::var("VIDCUT_FFMPEG").map(std::path::PathBuf::from).unwrap_or_else(|_| ffmpeg_sidecar::paths::ffmpeg_path());'
     )
 
-# Accelerated hardware video decoding via MediaCodec (with clean software fallback)
+# Accelerated hardware video decoding via named MediaCodec wrappers (with clean software fallback)
 old_cmd = '''    let output = Command::new(&ffmpeg_bin)
         .args(["-ss", &format!("{:.6}", timestamp_secs)])
         .arg("-i")
@@ -136,9 +177,13 @@ old_cmd = '''    let output = Command::new(&ffmpeg_bin)
         .output()
         .context("Failed to run ffmpeg for frame extraction")?;'''
 
-new_cmd = '''    let hw_output = Command::new(&ffmpeg_bin)
-        .args(["-hwaccel", "mediacodec"])
+new_cmd = '''    let hw_codec = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("webm") => "vp9_mediacodec",
+        _ => "h264_mediacodec",
+    };
+    let hw_output = Command::new(&ffmpeg_bin)
         .args(["-ss", &format!("{:.6}", timestamp_secs)])
+        .args(["-c:v", hw_codec])
         .arg("-i")
         .arg(path.as_os_str())
         .args(["-vframes", "1"])
@@ -153,8 +198,9 @@ new_cmd = '''    let hw_output = Command::new(&ffmpeg_bin)
     let output = match hw_output {
         Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
         _ => {
-            Command::new(&ffmpeg_bin)
+            let hevc_output = Command::new(&ffmpeg_bin)
                 .args(["-ss", &format!("{:.6}", timestamp_secs)])
+                .args(["-c:v", "hevc_mediacodec"])
                 .arg("-i")
                 .arg(path.as_os_str())
                 .args(["-vframes", "1"])
@@ -164,8 +210,25 @@ new_cmd = '''    let hw_output = Command::new(&ffmpeg_bin)
                 .arg("pipe:1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .output()
-                .context("Failed to run ffmpeg for frame extraction")?
+                .output();
+            match hevc_output {
+                Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
+                _ => {
+                    Command::new(&ffmpeg_bin)
+                        .args(["-ss", &format!("{:.6}", timestamp_secs)])
+                        .arg("-i")
+                        .arg(path.as_os_str())
+                        .args(["-vframes", "1"])
+                        .args(["-vf", &format!("scale={}:-2", out_width)])
+                        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+                        .args(["-v", "error"])
+                        .arg("pipe:1")
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .output()
+                        .context("Failed to run ffmpeg for frame extraction")?
+                }
+            }
         }
     };'''
 

@@ -139,9 +139,56 @@ Replace `-pdfcraft` with any supported application name.
 
 ### Supported Build Targets
 
-All supported build targets can be found in [`docs/ported-apps.md`](docs/ported-apps.md).
+App names are passed as command-line flags, such as `-photocraft` or `-vectorcraft`. Below is the complete catalog of all 40 directly buildable applications:
 
-App names are passed as command-line flags, such as `-photocraft` or `-vectorcraft`.
+#### Official Storytold Suite (16 apps)
+- **PhotoCraft** (`-photocraft`): Professional image editing and retouching
+- **VectorCraft** (`-vectorcraft`): Vector illustration and path design
+- **FilmCraft** (`-filmcraft`): Non-linear video editing, color grading & audio (MediaCodec accelerated)
+- **LightCraft** (`-lightcraft`): Photo library management and RAW photo development
+- **PdfCraft** (`-pdfcraft`): PDF reading, organizing, annotations & security
+- **EffectCraft** (`-effectcraft`): Visual effects, image filters and motion graphics
+- **DesignCraft** (`-designcraft`): Desktop publishing, page layout and editorial design
+- **FigCraft** (`-figcraft`): Diagramming, whiteboarding and UI prototyping
+- **WordCraft** (`-wordcraft`): Document design, typography and word processing
+- **SoundCraft** (`-soundcraft`): Multi-track audio recording, editing and mixing
+- **DeckCraft** (`-deckcraft`): Presentations, slide decks and speaker notes
+- **CadCraft** (`-cadcraft`): 2D and 3D computer-aided design (CAD)
+- **GridCraft** (`-gridcraft`): Spreadsheets, table formulas and data analysis
+- **MaterialCraft** (`-materialcraft`): Procedural 3D material design and PBR textures
+- **TextureCraft** (`-texturecraft`): 3D model texture painting and surface sculpting
+- **AniCraft** (`-anicraft`): Frame-by-frame 2D animation and onion skinning
+
+#### Community Applications with In-Tree Adapters & CI Targets (24 apps)
+- **SubCraft** (`-subcraft`): 3D texture painting directly on 3D models
+- **SolidCraft** (`-solidcraft`): Parametric 3D CAD modeling
+- **BIMCraft** (`-bimcraft`): Building Information Modeling (BIM) & architectural design
+- **CapsuleCraft** (`-capsulecraft`): Note-taking and email message archives using `.eml` files
+- **DiagramCraft** (`-diagramcraft`): Visio-style technical diagrams, flowcharts and stencils
+- **EarthCraft** (`-earthcraft`): Interactive 3D globe explorer and geographic visualization
+- **HumanMotionCraft** (`-humanmotioncraft`): Humanoid character posing, skeletal kinematics & animation
+- **MapCraft** (`-mapcraft`): Brush-based 3D level editor and geometric environment design
+- **NoteCraft** (`-notecraft`): Local-first markdown notebooks and knowledge management
+- **PaintCraft** (`-paintcraft`): Painting, raster sketching and digital canvas illustration
+- **PicassoSuite** (`-picassosuite`): DaVinci Resolve-style video editing suite (MediaCodec accelerated)
+- **ProWave** (`-prowave`): Digital audio workstation (DAW), synthesizer & music production
+- **RustGIS** (`-rustgis`): Geospatial information systems (GIS) and map analysis
+- **TraceDraw** (`-tracedraw`): Vector illustration, bezier tracing and print design
+- **Transit** (`-transit`): Digital audio workstation for sequencing and arrangement
+- **Coiman IDE** (`-coimanide`): Code editor with language servers (LSP), Git and Termux bridge
+- **PCBCraft** (`-pcbcraft`): Printed circuit board design and layout
+- **FieldCraft** (`-fieldcraft`): Finite element analysis and physics simulation
+- **PaperCraft** (`-papercraft`): Local design canvas built in Rust and egui
+- **Ferrite** (`-ferrite`): Fast, lightweight text editor for Markdown and JSON
+- **PixelCraft** (`-pixelcraft`): Fast, native pixel art editor and animator
+- **ClothCraft** (`-clothcraft`): Cloth simulation, garment patterning and 3D draping
+- **Splice** (`-splice`): Fast video editor with MediaCodec hardware accelerated decoding, scrubbing, and export
+- **VidCut** (`-vidcut`): Video trimmer, cutter, and timeline editor with MediaCodec hardware accelerated decoding and export
+
+#### Suite Dashboard
+- **ArtCraft Launcher** (`bash build-launcher.sh`): Centralized Android dashboard for discovering, managing, launching, and updating ArtCraft apps
+
+For external community applications distributed through the launcher catalog, see [`docs/ported-apps.md`](docs/ported-apps.md).
 
 ### Build Options
 

@@ -288,7 +288,249 @@ new = '''    } else if cfg!(target_os = "macos") {
         &[AV_HWDEVICE_TYPE_MEDIACODEC]'''
 if old in s and 'target_os = "android"' not in s:
     s = s.replace(old, new, 1)
-    p.write_text(s)
+
+helper = '''
+pub(crate) fn open_video_decoder(
+    params: &ff::codec::Parameters,
+    time_base: ff::Rational,
+    on_card: bool,
+) -> Result<(ff::decoder::Video, bool), ff::Error> {
+    #[cfg(target_os = "android")]
+    if on_card {
+        let mc_name = match params.id() {
+            ff::codec::Id::H264 => Some("h264_mediacodec"),
+            ff::codec::Id::HEVC => Some("hevc_mediacodec"),
+            ff::codec::Id::VP9 => Some("vp9_mediacodec"),
+            ff::codec::Id::AV1 => Some("av1_mediacodec"),
+            _ => None,
+        };
+        if let Some(name) = mc_name {
+            if let Some(dec) = ff::decoder::find_by_name(name) {
+                if let Ok(mut ctx) = ff::codec::context::Context::from_parameters(params.clone()) {
+                    ctx.set_threading(ff::threading::Config {
+                        kind: ff::threading::Type::Frame,
+                        count: 1,
+                    });
+                    unsafe {
+                        (*ctx.as_mut_ptr()).pkt_timebase = time_base.into();
+                    }
+                    if let Ok(opened) = ctx.decoder().open_as(dec) {
+                        if let Ok(video) = opened.video() {
+                            return Ok((video, true));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut ctx = ff::codec::context::Context::from_parameters(params.clone())?;
+    let attached = on_card && attach(&mut ctx);
+    ctx.set_threading(ff::threading::Config {
+        kind: ff::threading::Type::Frame,
+        count: if attached { 1 } else { 0 },
+    });
+    let video = ctx.decoder().video()?;
+    Ok((video, attached))
+}
+'''
+if 'pub(crate) fn open_video_decoder' not in s:
+    s = s + helper
+
+p.write_text(s)
+PY
+
+# Bind named MediaCodec decoders on Android in picasso-decode
+python3 - "$SRC_ABS/crates/picasso-decode/src/lib.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_card = '''fn card_decoder_exists(params: &ff::codec::parameters::Parameters) -> bool {
+    let Ok(mut probe) = ff::codec::context::Context::from_parameters(params.clone()) else {
+        return false;
+    };
+    hw::attach(&mut probe)
+}'''
+
+new_card = '''fn card_decoder_exists(params: &ff::codec::parameters::Parameters) -> bool {
+    #[cfg(target_os = "android")]
+    {
+        match params.id() {
+            ff::codec::Id::H264 => ff::decoder::find_by_name("h264_mediacodec").is_some(),
+            ff::codec::Id::HEVC => ff::decoder::find_by_name("hevc_mediacodec").is_some(),
+            ff::codec::Id::VP9 => ff::decoder::find_by_name("vp9_mediacodec").is_some(),
+            ff::codec::Id::AV1 => ff::decoder::find_by_name("av1_mediacodec").is_some(),
+            _ => false,
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let Ok(mut probe) = ff::codec::context::Context::from_parameters(params.clone()) else {
+            return false;
+        };
+        hw::attach(&mut probe)
+    }
+}'''
+
+old_dec = '''        let mut context = ff::codec::context::Context::from_parameters(params)?;
+        let on_card = hardware && learnt != Some(false) && hw::attach(&mut context);
+        // Decode on every core: pictures of a 1080p or 4K file do not arrive in time on one. The
+        // card needs no threads, and each would hold more of its memory.
+        context.set_threading(ff::threading::Config {
+            kind: ff::threading::Type::Frame,
+            count: if on_card { 1 } else { 0 },
+        });
+        let decoder = context.decoder().video()?;'''
+
+new_dec = '''        let (decoder, on_card) = hw::open_video_decoder(&params, time_base, hardware && learnt != Some(false))?;'''
+
+if old_card in s:
+    s = s.replace(old_card, new_card, 1)
+if old_dec in s:
+    s = s.replace(old_dec, new_dec, 1)
+p.write_text(s)
+PY
+
+# Add MediaCodec hardware encoder to picasso-export
+python3 - "$SRC_ABS/crates/picasso-export/src/lib.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_hw = '''pub enum Hardware {
+    /// The processor (x264, x265, SVT-AV1 ...): the best picture for the size, the slowest.
+    #[default]
+    Native,
+    /// NVIDIA's NVENC.
+    Nvidia,
+    /// Intel's Quick Sync.
+    Intel,
+    /// AMD's AMF (Windows).
+    Amd,
+    /// Apple's VideoToolbox (macOS).
+    Apple,
+    /// VA-API (Linux, Intel and AMD cards).
+    Vaapi,
+}'''
+
+new_hw = '''pub enum Hardware {
+    #[default]
+    Native,
+    MediaCodec,
+    Nvidia,
+    Intel,
+    Amd,
+    Apple,
+    Vaapi,
+}'''
+
+old_all = '''    pub const ALL: [Self; 6] = [
+        Self::Native,
+        Self::Nvidia,
+        Self::Intel,
+        Self::Amd,
+        Self::Apple,
+        Self::Vaapi,
+    ];'''
+
+new_all = '''    pub const ALL: [Self; 7] = [
+        Self::Native,
+        Self::MediaCodec,
+        Self::Nvidia,
+        Self::Intel,
+        Self::Amd,
+        Self::Apple,
+        Self::Vaapi,
+    ];'''
+
+old_label = '''    pub fn label(self) -> &'static str {
+        match self {
+            Self::Native => "Native",'''
+
+new_label = '''    pub fn label(self) -> &'static str {
+        match self {
+            Self::MediaCodec => "MediaCodec (Android HW)",
+            Self::Native => "Native",'''
+
+old_enc = '''        Some(match (self, codec) {
+            (Self::Nvidia, "h264") => "h264_nvenc",'''
+
+new_enc = '''        Some(match (self, codec) {
+            (Self::MediaCodec, "h264") => "h264_mediacodec",
+            (Self::MediaCodec, "hevc") => "hevc_mediacodec",
+            (Self::Nvidia, "h264") => "h264_nvenc",'''
+
+old_spec_default = '''    pub fn default_spec(preset: Preset) -> ExportSpec {
+        ExportSpec {
+            preset,
+            hardware: Hardware::Native,'''
+
+new_spec_default = '''    pub fn default_spec(preset: Preset) -> ExportSpec {
+        ExportSpec {
+            preset,
+            #[cfg(target_os = "android")]
+            hardware: Hardware::MediaCodec,
+            #[cfg(not(target_os = "android"))]
+            hardware: Hardware::Native,'''
+
+if old_hw in s:
+    s = s.replace(old_hw, new_hw, 1)
+if old_all in s:
+    s = s.replace(old_all, new_all, 1)
+if old_label in s:
+    s = s.replace(old_label, new_label, 1)
+if old_enc in s:
+    s = s.replace(old_enc, new_enc, 1)
+if old_spec_default in s:
+    s = s.replace(old_spec_default, new_spec_default, 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-export/src/video.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_spec = '''    let mut spec = VideoSpec {
+        encoder,
+        pixel: if ten { pixel_10 } else { pixel_8 },
+        hardware: hardware != Hardware::Native,
+        vaapi: hardware == Hardware::Vaapi,
+        options: Vec::new(),
+        bit_rate,
+        global_quality: None,
+        qscale: false,
+        intra: false,
+    };'''
+
+new_spec = '''    let is_mc = encoder.ends_with("_mediacodec");
+    let mut spec = VideoSpec {
+        encoder,
+        pixel: if is_mc { Pixel::NV12 } else if ten { pixel_10 } else { pixel_8 },
+        hardware: hardware != Hardware::Native || is_mc,
+        vaapi: hardware == Hardware::Vaapi,
+        options: Vec::new(),
+        bit_rate: if is_mc && bit_rate == 0 { 16_000_000 } else { bit_rate },
+        global_quality: None,
+        qscale: false,
+        intra: false,
+    };'''
+
+old_hdr = '''        if global_header {
+            flags |= codec::Flags::GLOBAL_HEADER;
+        }'''
+new_hdr = '''        if global_header && !spec.encoder.ends_with("_mediacodec") {
+            flags |= codec::Flags::GLOBAL_HEADER;
+        }'''
+
+if old_spec in s:
+    s = s.replace(old_spec, new_spec, 1)
+if old_hdr in s:
+    s = s.replace(old_hdr, new_hdr, 1)
+p.write_text(s)
 PY
 
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build

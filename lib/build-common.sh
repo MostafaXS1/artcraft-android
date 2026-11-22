@@ -1070,6 +1070,13 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
+    if fix(
+        "crates/platform/Cargo.toml",
+        'log = { workspace = true }\n',
+        'log = { workspace = true }\nrayon = { workspace = true }\n',
+    ):
+        fixed.append("crates/platform/Cargo.toml (rayon dependency)")
+
     # 1a. Allow unsafe code in crates/platform/Cargo.toml for NEON SIMD optimizations.
     if fix(
         "crates/platform/Cargo.toml",

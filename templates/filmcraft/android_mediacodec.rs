@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use rayon::prelude::*;
+
 use filmcraft_codecs::hw::{NalCodec, NalStreamInfo};
 use filmcraft_codecs::{CodecError, DecodedFrame, VideoDecoder};
 use filmcraft_export::{
@@ -22,7 +24,6 @@ use filmcraft_export::{
 };
 use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
-use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::media::media_codec::{
     DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection,
 };
@@ -146,6 +147,8 @@ pub fn factory(
 type Nv12Frame = Vec<u8>;
 
 /// Direct, high-performance BT.709 RGBA to NV12 (YUV420 semi-planar) integer conversion.
+/// Direct, high-performance BT.709 RGBA to NV12 (YUV420 semi-planar) integer conversion.
+/// Parallelized with Rayon across CPU cores for maximum mobile throughput.
 /// Writes directly into contiguous NV12 buffer:
 /// [0..w*h]: Y plane
 /// [w*h..w*h + (w*h)/2]: Interleaved UV plane (U, V, U, V...)
@@ -163,100 +166,147 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
 
     let (y_plane, uv_plane) = out.split_at_mut(y_len);
     let half_h = h / 2;
-    let _half_w = w / 2;
 
-    for y in 0..half_h {
-        let row0 = y * 2;
-        let row1 = row0 + 1;
-        let row0_src = match rgba.get(row0 * w * 4..(row0 + 1) * w * 4) {
-            Some(s) => s,
-            None => continue,
-        };
-        let row1_src = if row1 < h {
-            rgba.get(row1 * w * 4..(row1 + 1) * w * 4).unwrap_or(row0_src)
-        } else {
-            row0_src
-        };
+    if w % 2 == 0 && h % 2 == 0 && rgba.len() >= w * h * 4 {
+        rgba.par_chunks_exact(2 * w * 4)
+            .zip(y_plane.par_chunks_exact_mut(2 * w))
+            .zip(uv_plane.par_chunks_exact_mut(w))
+            .for_each(|((rgba_pair, y_rows), uv_row)| {
+                let (row0_src, row1_src) = rgba_pair.split_at(w * 4);
+                let (y_row0, y_row1) = y_rows.split_at_mut(w);
 
-        let y_rows = match y_plane.get_mut(row0 * w..(row1 + 1).min(h) * w) {
-            Some(s) => s,
-            None => continue,
-        };
-        let (y_row0, y_row1) = if row1 < h {
-            y_rows.split_at_mut(w)
-        } else {
-            (y_rows, &mut [][..])
-        };
-        let uv_row = match uv_plane.get_mut(y * w..(y + 1) * w) {
-            Some(s) => s,
-            None => continue,
-        };
+                let chunk0_iter = row0_src.chunks_exact(8);
+                let chunk1_iter = row1_src.chunks_exact(8);
+                let y0_iter = y_row0.chunks_exact_mut(2);
+                let y1_iter = y_row1.chunks_exact_mut(2);
+                let uv_iter = uv_row.chunks_exact_mut(2);
 
-        let chunk0_iter = row0_src.chunks_exact(8);
-        let chunk1_iter = row1_src.chunks_exact(8);
-        let y0_iter = y_row0.chunks_exact_mut(2);
-        let uv_iter = uv_row.chunks_exact_mut(2);
+                for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
+                    let r00 = c0[0] as i32;
+                    let g00 = c0[1] as i32;
+                    let b00 = c0[2] as i32;
 
-        if !y_row1.is_empty() {
-            let y1_iter = y_row1.chunks_exact_mut(2);
-            for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
-                let r00 = c0[0] as i32;
-                let g00 = c0[1] as i32;
-                let b00 = c0[2] as i32;
+                    let r01 = c0[4] as i32;
+                    let g01 = c0[5] as i32;
+                    let b01 = c0[6] as i32;
 
-                let r01 = c0[4] as i32;
-                let g01 = c0[5] as i32;
-                let b01 = c0[6] as i32;
+                    let r10 = c1[0] as i32;
+                    let g10 = c1[1] as i32;
+                    let b10 = c1[2] as i32;
 
-                let r10 = c1[0] as i32;
-                let g10 = c1[1] as i32;
-                let b10 = c1[2] as i32;
+                    let r11 = c1[4] as i32;
+                    let g11 = c1[5] as i32;
+                    let b11 = c1[6] as i32;
 
-                let r11 = c1[4] as i32;
-                let g11 = c1[5] as i32;
-                let b11 = c1[6] as i32;
+                    // BT.709 integer formula scaled by 256
+                    y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                    y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
 
-                // BT.709 integer formula scaled by 256
-                y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
-                y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+                    y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                    y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
 
-                y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
-                y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+                    let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                    let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                    let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
 
-                let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
-                let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
-                let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+                    uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                }
+            });
+    } else {
+        // Fallback for non-standard or odd dimensions
+        for y in 0..half_h {
+            let row0 = y * 2;
+            let row1 = row0 + 1;
+            let row0_src = match rgba.get(row0 * w * 4..(row0 + 1) * w * 4) {
+                Some(s) => s,
+                None => continue,
+            };
+            let row1_src = if row1 < h {
+                rgba.get(row1 * w * 4..(row1 + 1) * w * 4).unwrap_or(row0_src)
+            } else {
+                row0_src
+            };
 
-                uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-                uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-            }
-        } else {
-            for (((c0, c1), y0), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(uv_iter) {
-                let r00 = c0[0] as i32;
-                let g00 = c0[1] as i32;
-                let b00 = c0[2] as i32;
+            let y_rows = match y_plane.get_mut(row0 * w..(row1 + 1).min(h) * w) {
+                Some(s) => s,
+                None => continue,
+            };
+            let (y_row0, y_row1) = if row1 < h {
+                y_rows.split_at_mut(w)
+            } else {
+                (y_rows, &mut [][..])
+            };
+            let uv_row = match uv_plane.get_mut(y * w..(y + 1) * w) {
+                Some(s) => s,
+                None => continue,
+            };
 
-                let r01 = c0[4] as i32;
-                let g01 = c0[5] as i32;
-                let b01 = c0[6] as i32;
+            let chunk0_iter = row0_src.chunks_exact(8);
+            let chunk1_iter = row1_src.chunks_exact(8);
+            let y0_iter = y_row0.chunks_exact_mut(2);
+            let uv_iter = uv_row.chunks_exact_mut(2);
 
-                let r10 = c1[0] as i32;
-                let g10 = c1[1] as i32;
-                let b10 = c1[2] as i32;
+            if !y_row1.is_empty() {
+                let y1_iter = y_row1.chunks_exact_mut(2);
+                for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
+                    let r00 = c0[0] as i32;
+                    let g00 = c0[1] as i32;
+                    let b00 = c0[2] as i32;
 
-                let r11 = c1[4] as i32;
-                let g11 = c1[5] as i32;
-                let b11 = c1[6] as i32;
+                    let r01 = c0[4] as i32;
+                    let g01 = c0[5] as i32;
+                    let b01 = c0[6] as i32;
 
-                y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
-                y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+                    let r10 = c1[0] as i32;
+                    let g10 = c1[1] as i32;
+                    let b10 = c1[2] as i32;
 
-                let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
-                let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
-                let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+                    let r11 = c1[4] as i32;
+                    let g11 = c1[5] as i32;
+                    let b11 = c1[6] as i32;
 
-                uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
-                uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                    y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+
+                    y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                    y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+
+                    let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                    let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                    let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                    uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                }
+            } else {
+                for (((c0, c1), y0), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(uv_iter) {
+                    let r00 = c0[0] as i32;
+                    let g00 = c0[1] as i32;
+                    let b00 = c0[2] as i32;
+
+                    let r01 = c0[4] as i32;
+                    let g01 = c0[5] as i32;
+                    let b01 = c0[6] as i32;
+
+                    let r10 = c1[0] as i32;
+                    let g10 = c1[1] as i32;
+                    let b10 = c1[2] as i32;
+
+                    let r11 = c1[4] as i32;
+                    let g11 = c1[5] as i32;
+                    let b11 = c1[6] as i32;
+
+                    y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                    y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+
+                    let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                    let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                    let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                    uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                }
             }
         }
     }
@@ -294,89 +344,49 @@ impl MediaCodecEncoder {
             .unwrap_or(2);
         let cbr = s.bitrate_mode == BitrateMode::Cbr;
 
-        let make_format = |surface_mode: bool, with_operating_rate: bool| {
+        let make_format = |with_operating_rate: bool| {
             let mut format = MediaFormat::new();
             format.set_str("mime", "video/avc");
             format.set_i32("width", w as i32);
             format.set_i32("height", h as i32);
-            // COLOR_FormatSurface = 0x7F000789 (2130708361) or COLOR_FormatYUV420SemiPlanar = 21
-            let color_fmt = if surface_mode { 0x7F000789 } else { 21 };
-            format.set_i32("color-format", color_fmt);
+            format.set_i32("color-format", 21); // COLOR_FormatYUV420SemiPlanar
             format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
             format.set_i32("frame-rate", fps.round().max(1.0) as i32);
             format.set_i32("i-frame-interval", key_interval_sec);
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 1000.0);
+                format.set_f32("operating-rate", 120.0);
             }
             format
         };
 
-        let try_init = |surface_mode: bool, with_operating_rate: bool| -> std::result::Result<(MediaCodec, Option<NativeWindow>), String> {
+        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec encoder: {name} (surface_mode={surface_mode})");
-                let lower = name.to_ascii_lowercase();
-                if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
-                    return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU encoder)"));
-                }
+                log::info!("MediaCodec hardware encoder selected: {name}");
             }
 
-            let format = make_format(surface_mode, with_operating_rate);
+            let format = make_format(with_operating_rate);
             codec.configure(&format, None, MediaCodecDirection::Encoder)
                 .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
 
-            let native_win = if surface_mode {
-                let win = codec.create_input_surface()
-                    .map_err(|e| format!("AMediaCodec_createInputSurface failed: {e:?}"))?;
-                if let Err(e) = win.set_buffers_geometry(
-                    w as i32,
-                    h as i32,
-                    Some(HardwareBufferFormat::R8G8B8A8_UNORM),
-                ) {
-                    log::warn!("win.set_buffers_geometry error: {e:?}");
-                } else {
-                    log::info!("win.set_buffers_geometry({w}x{h}, RGBA_8888) succeeded");
-                }
-                Some(win)
-            } else {
-                None
-            };
-
             codec.start()
                 .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
-            Ok((codec, native_win))
+            Ok(codec)
         };
 
-        // Try surface mode first for zero-copy GPU encoding, falling back to buffer mode if needed
-        let (codec, surface) = match try_init(true, true) {
-            Ok(res) => {
-                log::info!("MediaCodec initialized in zero-copy surface mode with operating rate");
-                res
-            }
+        let codec = match try_init(true) {
+            Ok(c) => c,
             Err(e1) => {
-                log::warn!("MediaCodec surface mode fast init failed ({e1}), retrying with minimal format");
-                match try_init(true, false) {
-                    Ok(res) => {
-                        log::info!("MediaCodec initialized in zero-copy surface mode (minimal format)");
-                        res
-                    }
-                    Err(e2) => {
-                        log::warn!("MediaCodec surface mode failed ({e2}), falling back to buffer mode");
-                        match try_init(false, true) {
-                            Ok(res) => res,
-                            Err(e3) => {
-                                log::warn!("MediaCodec buffer fast init failed ({e3}), retrying minimal format");
-                                try_init(false, false).map_err(|e4| format!("Failed to initialize MediaCodec: {e4}"))?
-                            }
-                        }
-                    }
-                }
+                log::warn!("MediaCodec buffer fast init failed ({e1}), retrying minimal format");
+                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec buffer encoder: {e2}"))?
             }
         };
+
+        let surface = None;
 
         let (stride, slice_height) = {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| codec.input_format())) {
@@ -579,11 +589,11 @@ impl MediaCodecEncoder {
 
 impl VideoEncoder for MediaCodecEncoder {
     fn input_surface(&self) -> Option<*mut std::ffi::c_void> {
-        self.surface.as_ref().map(|w| w.ptr().as_ptr() as *mut std::ffi::c_void)
+        None
     }
 
     fn fallback_to_buffer(&mut self) -> bool {
-        self.fallback_to_buffer()
+        true
     }
 
     fn sample_entry(&self) -> SampleEntry {
@@ -610,10 +620,6 @@ impl VideoEncoder for MediaCodecEncoder {
     }
 
     fn prepare_ahead(&self) -> Option<PrepareAhead> {
-        if self.surface.is_some() {
-            // In zero-copy surface mode, GPU renders directly into the hardware surface.
-            return None;
-        }
         let ready = self.ready.clone();
         Some(Arc::new(move |f: &EncoderFrame| {
             let (w, h) = (f.width as usize, f.height as usize);
@@ -626,30 +632,6 @@ impl VideoEncoder for MediaCodecEncoder {
     }
 
     fn encode(&mut self, f: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
-        // Zero-copy surface mode: frame was rendered directly to the encoder's InputSurface on the GPU
-        if self.surface.is_some() && f.rgba.is_empty() {
-            let mut packets = Vec::new();
-            self.drain_output(Duration::from_millis(10), &mut packets)?;
-
-            if self.sps.is_none() || self.pps.is_none() {
-                for _ in 0..40 {
-                    if self.sps.is_some() && self.pps.is_some() {
-                        break;
-                    }
-                    self.drain_output(Duration::from_millis(20), &mut packets)?;
-                }
-            }
-
-            filmcraft_export::note_hw_encode_frame();
-            return Ok(packets);
-        }
-
-        if self.surface.is_some() {
-            if !self.fallback_to_buffer() {
-                return Err(ExportError::Encode("Hardware encoder configured for surface rendering cannot accept CPU byte buffers".into()));
-            }
-        }
-
         if f.hdr.is_some() {
             return Err(ExportError::Unsupported("hardware encoding does not take HDR pictures".into()));
         }
@@ -688,18 +670,19 @@ impl VideoEncoder for MediaCodecEncoder {
         // 2. Drain any pending output buffers immediately without waiting
         self.drain_output(Duration::ZERO, &mut packets)?;
 
-        // 3. Dequeue an input buffer: try non-blocking first.
-        // If the encoder's input queue is full, drain output buffers in a loop with a generous timeout.
-        let mut input_buf = 'outer: loop {
-            for _ in 0..100 {
-                match self.codec.dequeue_input_buffer(Duration::ZERO) {
-                    Ok(DequeuedInputBufferResult::Buffer(b)) => break 'outer b,
-                    _ => {
-                        self.drain_output(Duration::from_millis(50), &mut packets)?;
+        // 3. Dequeue an input buffer: non-blocking fast-path, falling back to brief drain
+        let mut attempts = 0;
+        let mut input_buf = loop {
+            match self.codec.dequeue_input_buffer(Duration::from_millis(5)) {
+                Ok(DequeuedInputBufferResult::Buffer(b)) => break b,
+                _ => {
+                    attempts += 1;
+                    if attempts >= 50 {
+                        return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into()));
                     }
+                    self.drain_output(Duration::from_millis(5), &mut packets)?;
                 }
             }
-            return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out: hardware encoder did not accept new frame within 5s".into()));
         };
 
         // 4. Format directly into NV12 inside the hardware input buffer
@@ -722,7 +705,6 @@ impl VideoEncoder for MediaCodecEncoder {
         if stride == w && slice_height == h {
             // Fast contiguous copy for tightly packed buffers (common case)
             if dst.len() >= total_needed && self.nv12.len() >= total_needed {
-                // SAFETY: dst is valid for total_needed bytes, non-null, and does not overlap with self.nv12.
                 unsafe {
                     std::ptr::copy_nonoverlapping(self.nv12.as_ptr(), dst.as_mut_ptr() as *mut u8, total_needed);
                 }
@@ -771,13 +753,13 @@ impl VideoEncoder for MediaCodecEncoder {
         // 6. Drain any output buffers that finished (non-blocking)
         self.drain_output(Duration::ZERO, &mut packets)?;
 
-        // 7. If this is the start of encoding and SPS/PPS are not yet known, wait for codec config
+        // 7. If this is the start of encoding and SPS/PPS are not yet known, wait briefly for codec config
         if self.sps.is_none() || self.pps.is_none() {
-            for _ in 0..40 { // up to 2 seconds
+            for _ in 0..20 {
                 if self.sps.is_some() && self.pps.is_some() {
                     break;
                 }
-                self.drain_output(Duration::from_millis(50), &mut packets)?;
+                self.drain_output(Duration::from_millis(10), &mut packets)?;
             }
         }
 
@@ -962,7 +944,7 @@ impl MediaCodecDecoder {
             let non_null = std::ptr::NonNull::new(ptr as *mut _)?;
             Some(unsafe { NativeWindow::clone_from_ptr(non_null) })
         });
-        let has_direct = direct_window.is_some();
+        let _has_direct = direct_window.is_some();
 
         let make_format = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| {
             let mut format = MediaFormat::new();
@@ -1018,70 +1000,38 @@ impl MediaCodecDecoder {
             format
         };
 
-        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool, surface: Option<&NativeWindow>| -> std::result::Result<MediaCodec, String> {
+        let try_init = |with_operating_rate: bool, with_color_format: bool, with_csd: bool| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_decoder_type(mime)
                 .ok_or_else(|| format!("MediaCodec::from_decoder_type(\"{mime}\") returned None"))?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec decoder candidate: {name}");
-                let lower = name.to_ascii_lowercase();
-                if lower.starts_with("c2.android.") || lower.starts_with("omx.google.") || lower.contains(".sw.") {
-                    return Err(format!("Rejecting software MediaCodec {name} (slower than native CPU decoder)"));
-                }
+                log::info!("MediaCodec decoder selected: {name}");
             }
 
             let format = make_format(with_operating_rate, with_color_format, with_csd);
-            codec.configure(&format, surface, MediaCodecDirection::Decoder)
+            codec.configure(&format, None, MediaCodecDirection::Decoder)
                 .map_err(|e| format!("AMediaCodec_configure decoder failed: {e:?}"))?;
             codec.start()
                 .map_err(|e| format!("AMediaCodec_start decoder failed: {e:?}"))?;
             Ok(codec)
         };
 
-        let (codec, is_direct_surface) = if has_direct {
-            log::info!("Attempting to initialize MediaCodec decoder with direct surface bridge...");
-            match try_init(true, false, true, direct_window.as_ref()) {
-                Ok(c) => {
-                    log::info!("MediaCodec decoder initialized with direct hardware surface bridge!");
-                    (c, true)
-                }
-                Err(e) => {
-                    log::warn!("Direct surface decoder init failed ({e}), falling back to buffer mode");
-                    filmcraft_codecs::hw::clear_direct_surface();
-                    let c = try_init(true, true, true, None)
-                        .or_else(|e1| {
-                            log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
-                            try_init(false, true, true, None)
-                        })
-                        .or_else(|e2| {
-                            log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
-                            try_init(false, false, true, None)
-                        })
-                        .or_else(|e3| {
-                            log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
-                            try_init(false, false, false, None)
-                        })
-                        .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
-                    (c, false)
-                }
-            }
-        } else {
-            let c = try_init(true, true, true, None)
-                .or_else(|e1| {
-                    log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
-                    try_init(false, true, true, None)
-                })
-                .or_else(|e2| {
-                    log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
-                    try_init(false, false, true, None)
-                })
-                .or_else(|e3| {
-                    log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
-                    try_init(false, false, false, None)
-                })
-                .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
-            (c, false)
-        };
+        let codec = try_init(true, true, true)
+            .or_else(|e1| {
+                log::warn!("MediaCodec decoder fast init failed ({e1}), retrying minimal with color-format");
+                try_init(false, true, true)
+            })
+            .or_else(|e2| {
+                log::warn!("MediaCodec decoder color-format init failed ({e2}), retrying with default format");
+                try_init(false, false, true)
+            })
+            .or_else(|e3| {
+                log::warn!("MediaCodec decoder csd init failed ({e3}), retrying with in-band parameter sets");
+                try_init(false, false, false)
+            })
+            .map_err(|e4| format!("Failed to initialize MediaCodec decoder: {e4}"))?;
+
+        let is_direct_surface = false;
 
         let name = codec.name().unwrap_or_else(|_| default_name.to_string());
         log::info!("MediaCodec decoder initialized successfully: {name} (direct_surface={is_direct_surface})");
