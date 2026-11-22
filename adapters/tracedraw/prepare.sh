@@ -16,15 +16,18 @@ fi
 sed -i 's/^mod android;/pub mod android;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
 sed -i 's/^mod app;/pub mod app;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
 sed -i 's/^mod mcp;/pub mod mcp;/' "$SRC_ABS/apps/tracedraw/src/lib.rs"
-python3 - "$SRC_ABS/apps/tracedraw/src/android.rs" "$SRC_ABS/apps/tracedraw/src/settings.rs" "$SRC_ABS/apps/tracedraw/src/ui/mod.rs" <<'PY'
-import sys
+python3 - "$SRC_ABS/apps/tracedraw/src/android.rs" "$SRC_ABS/apps/tracedraw/src/settings.rs" "$SRC_ABS/apps/tracedraw/src/ui/mod.rs" "$SRC_ABS/apps/tracedraw/src/touch_modifiers.rs" <<'PY'
+import re, sys
 from pathlib import Path
-p_android, p_settings, p_ui = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+p_android, p_settings, p_ui, p_tm = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
 s = p_android.read_text()
 s = s.replace("#[no_mangle]\nfn android_main(", "pub fn android_main(")
 s = s.replace("#[no_mangle]\r\nfn android_main(", "pub fn android_main(")
-if "settings.follow_text_size = false;" not in s:
-    s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    if settings.ui_size == 0.0 { settings.ui_size = 0.85; }\n    settings.save();")
+if "settings.touch_keys = false;" not in s:
+    if "settings.follow_text_size = false;" in s:
+        s = s.replace("settings.follow_text_size = false;", "settings.follow_text_size = false;\n    settings.touch_keys = false;")
+    else:
+        s = s.replace("let mut settings = crate::settings::Settings::load();", "let mut settings = crate::settings::Settings::load();\n    settings.follow_text_size = false;\n    settings.touch_keys = false;\n    if settings.ui_size == 0.0 { settings.ui_size = 0.85; }\n    settings.save();")
 if "let dir = if dir.to_string_lossy().contains" not in s:
     s = s.replace('if let Some(dir) = app.external_data_path() {', 'if let Some(dir) = app.external_data_path() {\n        let dir = if dir.to_string_lossy().contains("/Android/data/") { std::path::PathBuf::from(dir.to_string_lossy().replace("/Android/data/", "/Android/media/")) } else { dir };')
 p_android.write_text(s)
@@ -34,6 +37,8 @@ if "fn default_false() -> bool {\n    false\n}" not in s_set:
     s_set = s_set.replace("fn default_true() -> bool {\n    true\n}", "fn default_true() -> bool {\n    true\n}\n\nfn default_false() -> bool {\n    false\n}")
 s_set = s_set.replace('#[serde(default = "default_true")]\n    pub follow_text_size: bool,', '#[serde(default = "default_false")]\n    pub follow_text_size: bool,')
 s_set = s_set.replace('follow_text_size: true,', 'follow_text_size: false,')
+s_set = s_set.replace('#[serde(default = "default_true")]\n    pub touch_keys: bool,', '#[serde(default = "default_false")]\n    pub touch_keys: bool,')
+s_set = s_set.replace('touch_keys: true,', 'touch_keys: false,')
 p_settings.write_text(s_set)
 
 s_ui = p_ui.read_text()
@@ -41,6 +46,16 @@ target_interface = "pub(crate) fn interface_size(size: f32) -> f32 {\n    if (0.
 replacement_interface = "pub(crate) fn interface_size(size: f32) -> f32 {\n    if (0.5..=4.0).contains(&size) {\n        size\n    } else {\n        #[cfg(target_os = \"android\")]\n        {\n            0.85\n        }\n        #[cfg(not(target_os = \"android\"))]\n        {\n            1.0\n        }\n    }\n}"
 s_ui = s_ui.replace(target_interface, replacement_interface)
 p_ui.write_text(s_ui)
+
+s_tm = p_tm.read_text()
+s_tm, n = re.subn(
+    r"pub fn keys_on_drawing\(app: &mut App, ui: &mut egui::Ui, canvas: egui::Rect\) \{.*?app\.touch_keys_shown = shown;\s*\}",
+    "pub fn keys_on_drawing(app: &mut App, _ui: &mut egui::Ui, _canvas: egui::Rect) {\n    app.touch_keys_shown.clear();\n}",
+    s_tm,
+    flags=re.DOTALL
+)
+if n > 0:
+    p_tm.write_text(s_tm)
 PY
 
 bash "$ROOT/lib/topbar_modifiers.sh" "$SRC_ABS" "$APP" "$TITLE"

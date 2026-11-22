@@ -1,6 +1,6 @@
 //! Integrated toggleable Shift / Ctrl / Alt modifier buttons for the topbar / ribbon.
 //!
-//! Provides `⇧ Shift`, `⌃ Ctrl`, `⌥ Alt` toggle buttons integrated directly into the
+//! Provides `⇧ Shift`, `Ctrl`, `Alt` toggle buttons integrated directly into the
 //! topbar next to menu/tab buttons (File, Edit, etc.).
 //! Real part of the UI (not an overlay), toggleable on/off, matching the app's native visuals.
 
@@ -94,7 +94,7 @@ pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
     }
 }
 
-/// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline into the current UI row.
+/// Renders the toggleable modifier buttons (`⇧ Shift`, `Ctrl`, `Alt`) inline into the current UI row.
 pub fn render_topbar_modifiers(ui: &mut Ui) {
     if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
         return;
@@ -109,9 +109,9 @@ pub fn render_topbar_modifiers(ui: &mut Ui) {
 
     if ui.layout().prefer_right_to_left() {
         ui.add_space(4.0);
-        render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
+        render_toggle_button(ui, "Alt", &ALT_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
+        render_toggle_button(ui, "Ctrl", &CTRL_ACTIVE);
         ui.add_space(4.0);
         render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
         ui.add_space(4.0);
@@ -119,9 +119,9 @@ pub fn render_topbar_modifiers(ui: &mut Ui) {
         ui.add_space(4.0);
         render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
+        render_toggle_button(ui, "Ctrl", &CTRL_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
+        render_toggle_button(ui, "Alt", &ALT_ACTIVE);
         ui.add_space(4.0);
     }
 }

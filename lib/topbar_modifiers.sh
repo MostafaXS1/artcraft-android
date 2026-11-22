@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Integrated toggleable Shift / Ctrl / Alt buttons for topbar / ribbon.
 #
-# Adds real UI toggle buttons (⇧ Shift, ⌃ Ctrl, ⌥ Alt) into the topbar
+# Adds real UI toggle buttons (⇧ Shift, Ctrl, Alt) into the topbar
 # next to menu/tab buttons for 6 apps:
 #   photo (photocraft), vector (vectorcraft), design (designcraft),
 #   word (wordcraft), grid (gridcraft), deck (deckcraft).
