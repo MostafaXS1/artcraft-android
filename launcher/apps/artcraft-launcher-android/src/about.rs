@@ -418,6 +418,71 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
+    AppDetails {
+        id: "rustypainter",
+        headline: "Native tiled painting playground built with egui.",
+        about: "A fast, multithreaded raster and vector painting playground in Rust: infinite tiled canvas, dual-brush engine (Krita SVG tips, Clip Studio & ibisPaint brushes), puppet warp, layer masks, and local co-op painting.",
+        features: &[
+            Feature { title: "Tiled raster canvas", text: "High-resolution multithreaded tiled engine with undo/redo and live layer blend modes." },
+            Feature { title: "Brush compatibility", text: "Imports brush bundles from Krita, Clip Studio Paint, and ibisPaint QR presets." },
+            Feature { title: "Puppet warp & vector tools", text: "Constrained Delaunay triangulation puppet mesh warp and robust vector path booleans." },
+            Feature { title: "Color management", text: "Full ICC color profile support and CMYK conversions powered by Little CMS." },
+        ],
+        shots: &[],
+        platforms: "Linux, macOS, Windows, Android",
+    },
+    AppDetails {
+        id: "splice",
+        headline: "Native timeline video editor with storyboard and effects.",
+        about: "A native multitrack timeline video editor written in Rust: four-track timeline, storyboard, 58 transitions, 38 effects, animated titles, picture-in-picture overlays, voiceover recording, and 16:9 / 9:16 Shorts export.",
+        features: &[
+            Feature { title: "Multitrack timeline", text: "Four-track video/audio timeline with magnetic snapping, trimming, splitting, and ripple edits." },
+            Feature { title: "Transitions & effects", text: "58 video transitions, 38 creative color and visual effects, and animated lower thirds." },
+            Feature { title: "Picture-in-picture", text: "Overlay video and image tracks with animated keyframe transforms." },
+            Feature { title: "Shorts & Reels export", text: "One-click aspect ratio switching between horizontal 16:9 and vertical 9:16 Shorts." },
+        ],
+        shots: &[],
+        platforms: "Linux, macOS, Windows, Android",
+    },
+    AppDetails {
+        id: "vidcut",
+        headline: "Fast, lossless video cutting and trimming.",
+        about: "A lightweight, blazing-fast video cutter that trims and exports video without re-encoding quality loss, built with Rust, egui, and wgpu.",
+        features: &[
+            Feature { title: "Lossless stream cutting", text: "Cut, trim, and reorder video segments in seconds without quality loss." },
+            Feature { title: "Keyframe-accurate seeking", text: "Jump directly to I-frames for instantaneous, exact cuts." },
+            Feature { title: "Pure Rust media probe", text: "Fast media inspection without heavy third-party runtime dependencies." },
+            Feature { title: "Batch export", text: "Export multiple cut ranges into separate clips or joined output files." },
+        ],
+        shots: &[],
+        platforms: "Linux, macOS, Windows, Android",
+    },
+    AppDetails {
+        id: "photonic",
+        headline: "Professional vector illustration and motion graphics editor.",
+        about: "A dark-room native vector design and motion graphics powerhouse in Rust: kurbo/lyon vector geometry, GPU tessellation, multi-format timeline animation, and MCP server control.",
+        features: &[
+            Feature { title: "Precision vector engine", text: "Pen, pencil, boolean ops, variable stroke width, and gradient mesh editing." },
+            Feature { title: "Motion graphics timeline", text: "Keyframed transform and opacity animation with easing curves and multi-ratio reframe." },
+            Feature { title: "GPU-accelerated rendering", text: "Real-time vector and video compositing pipeline powered by wgpu and naga shaders." },
+            Feature { title: "Agent-native MCP bridge", text: "Full Model Context Protocol server exposing canvas state and automation tools." },
+        ],
+        shots: &[],
+        platforms: "Linux, macOS, Windows, Android",
+    },
+    AppDetails {
+        id: "dziwak",
+        headline: "Native photo editor with AI background removal.",
+        about: "A fast, distraction-free photo editor written in Rust with GIMP-inspired tools, layered adjustments, and local CPU-based neural background removal.",
+        features: &[
+            Feature { title: "Local AI background removal", text: "Instant background extraction using U²-Net running entirely offline on CPU." },
+            Feature { title: "Essential retouching tools", text: "Crop, resize, rotate, color curves, levels, and brush retouching." },
+            Feature { title: "Dark & customizable theme", text: "Ergonomic dark theme inspired by GIMP 2.10 and Omarchy design system." },
+            Feature { title: "Zero telemetry", text: "100% offline, privacy-first image editing without external dependencies." },
+        ],
+        shots: &[],
+        platforms: "Linux, macOS, Windows, Android",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

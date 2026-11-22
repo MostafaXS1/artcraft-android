@@ -28,7 +28,7 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 # machine, and a frozen copy no longer compiled.
 python3 - "$SRC_ABS" "$DEST" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 
 src, dest = Path(sys.argv[1]), Path(sys.argv[2])
 upstream = src / "apps" / "photocraft" / "src" / "control_server.rs"
@@ -57,7 +57,7 @@ PY
 # Apply mobile dialog and popup scaling adaptations to upstream ui-egui crates
 python3 - "$SRC_ABS" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 
 src = Path(sys.argv[1])
 ui_lib = src / "crates" / "ui-egui" / "src" / "lib.rs"
@@ -79,8 +79,15 @@ if ui_app.is_file():
 
 if dialogs.is_file():
     s = dialogs.read_text()
-    
-    bad_show_modal = """#[allow(clippy::too_many_arguments)]
+
+    helper = """fn previews_on_canvas(d: &Dialog) -> bool {
+    d.kind == DialogKind::LayerStyle || crate::blur_pins::owns(&d.fields) || crate::adjust_dialog::owns(&d.fields) || d.fields.contains_key("__filter")
+}
+"""
+
+    # Replace show_modal signature & implementation
+    pattern_modal = r'(?ms)(#[allow\([^)]*\)]\s*)?fn show_modal<T>.*?->\s*egui::ModalResponse<T>\s*\{.*?(?=\n/// Whether dialogs have a close box|\npub\(crate\) const CLOSE_BOX)'
+    modal_body = """#[allow(clippy::too_many_arguments)]
 fn show_modal<T>(
     modal: egui::Modal,
     ctx: &egui::Context,
@@ -90,105 +97,72 @@ fn show_modal<T>(
     interactive: bool,
     compact: Option<f32>,
     contents: impl FnOnce(&mut egui::Ui) -> T,
-) -> egui::ModalResponse<T> {"""
-    clean_show_modal = """fn show_modal<T>(
-    modal: egui::Modal,
-    ctx: &egui::Context,
-    id: egui::Id,
-    resizable: Option<(egui::Vec2, egui::Vec2, egui::Vec2)>,
-    fixed: Option<egui::Vec2>,
-    interactive: bool,
-    contents: impl FnOnce(&mut egui::Ui) -> T,
-) -> egui::ModalResponse<T> {"""
-    if bad_show_modal in s:
-        s = s.replace(bad_show_modal, clean_show_modal)
-
-    bad_modal_inner = """        if let Some(size) = fixed.filter(|_| compact.is_none()) {
+) -> egui::ModalResponse<T> {
+    modal.show(ctx, |ui| {
+        // Disable the entire older modal, including its resize grip, not just its body.
+        if !interactive {
+            ui.disable();
+        }
+        if let Some(size) = fixed.filter(|_| compact.is_none()) {
             egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
                 ui.set_clip_rect(ui.clip_rect().expand(8.0));
                 contents(ui)
             })
         } else if let Some((size, min, max)) = resizable.filter(|_| compact.is_none()) {
-            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
-            // dialog's frame that left the title and buttons flush against it (#8199).
             egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
         } else if let Some(h) = compact {
-            egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(h).min_scrolled_height(h).show(ui, contents).inner
+            egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(h).show(ui, contents).inner
         } else {
             contents(ui)
-        }"""
-    old_modal_inner = """        if let Some(size) = fixed {
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
-                ui.set_clip_rect(ui.clip_rect().expand(8.0));
-                contents(ui)
-            })
-        } else if let Some((size, min, max)) = resizable {
-            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
-            // dialog's frame that left the title and buttons flush against it (#8199).
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
-        } else {
-            contents(ui)
-        }"""
-    new_modal_inner = """        let avail = ctx.content_rect().size() - egui::vec2(24.0, 40.0);
-        if let Some(size) = fixed {
-            if size.x <= avail.x && size.y <= avail.y {
-                egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
-                    ui.set_clip_rect(ui.clip_rect().expand(8.0));
-                    contents(ui)
-                })
-            } else {
-                let eff_size = size.min(avail);
-                egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(avail.y.max(120.0)).show(ui, |ui| {
-                    egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(eff_size).show(ui, contents)
-                }).inner
-            }
-        } else if let Some((size, min, max)) = resizable {
-            let max_fit = max.min(avail);
-            let min_fit = min.min(avail);
-            if min.y <= avail.y && min.x <= avail.x {
-                egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max_fit)).min_size(min_fit).max_size(max_fit).show(ui, contents)
-            } else {
-                egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height(avail.y.max(120.0)).show(ui, contents).inner
-            }
-        } else {
-            contents(ui)
-        }"""
-    bad_prev_modal = """        let phone = ctx.content_rect().width() < 600.0;
-        if let Some(size) = fixed.filter(|_| !phone) {
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).fixed_size(size).show(ui, |ui| {
-                ui.set_clip_rect(ui.clip_rect().expand(8.0));
-                contents(ui)
-            })
-        } else if let Some((size, min, max)) = resizable.filter(|_| !phone) {
-            egui::Resize::default().id(id.with("resize")).with_stroke(false).default_size(size.min(max)).min_size(min).max_size(max).show(ui, contents)
-        } else if phone {
-            egui::ScrollArea::vertical().id_salt(id.with("compact-scroll")).max_height((ctx.content_rect().height() - 40.0).max(120.0)).show(ui, contents).inner
-        } else {
-            contents(ui)
-        }"""
-    if "let phone = ctx.screen_rect().width() < 600.0;" in s:
-        s = s.replace("let phone = ctx.screen_rect().width() < 600.0;", "let phone = ctx.content_rect().width() < 600.0;")
-    if bad_prev_modal in s:
-        s = s.replace(bad_prev_modal, new_modal_inner)
-    elif bad_modal_inner in s:
-        s = s.replace(bad_modal_inner, new_modal_inner)
-    elif old_modal_inner in s:
-        s = s.replace(old_modal_inner, new_modal_inner)
+        }
+    })
+}
+"""
+    new_modal = (helper if "fn previews_on_canvas" not in s else "") + modal_body
+    s = re.sub(pattern_modal, new_modal, s)
 
-    old_vars = """        let mut drag = egui::Vec2::ZERO;
-        let mut close_clicked = false;
-        let mut sizing = false;"""
-    new_vars = """        let mut drag = egui::Vec2::ZERO;
+    # Replace sizing & layout variables in show()
+    pattern_vars = r'(?ms)let mut drag = egui::Vec2::ZERO;\s*let mut close_clicked = false;\s*let mut sizing = false;.*?(?=let area = match start)'
+    new_vars = """let mut drag = egui::Vec2::ZERO;
         let mut close_clicked = false;
         let mut sizing = false;
-        let phone = app.compact_layout || ctx.content_rect().width() < 600.0;
-        let on_canvas = phone && (d.kind == DialogKind::LayerStyle || crate::blur_pins::owns(&d.fields) || crate::adjust_dialog::owns(&d.fields) || d.fields.contains_key("__filter"));
-        let screen_h = ctx.content_rect().height();
-        let phone_height = phone.then(|| if on_canvas { (screen_h * 0.4).max(160.0) } else { (screen_h - 40.0).max(120.0) });"""
-    if "let phone = app.compact_layout || ctx.screen_rect().width() < 600.0;" in s:
-        s = s.replace("let phone = app.compact_layout || ctx.screen_rect().width() < 600.0;", "let phone = app.compact_layout || ctx.content_rect().width() < 600.0;")
-    if old_vars in s and "let phone = app.compact_layout" not in s:
-        s = s.replace(old_vars, new_vars)
+        let default_w = if d.kind == DialogKind::NewDocument || d.kind == DialogKind::LayerStyle { 800.0 } else { 440.0 };
+        let default_h = if d.kind == DialogKind::LayerStyle { 550.0 } else if d.kind == DialogKind::NewDocument { 500.0 } else { 360.0 };
+        let content_size = ctx.content_rect().size();
+        let will_cutoff = content_size.x < (default_w + 32.0) || content_size.y < (default_h + 32.0);
+        let phone = (app.compact_layout || content_size.x < 600.0) && will_cutoff;
+        let on_canvas = phone && previews_on_canvas(&d);
+        let screen_h = content_size.y;
+        let phone_height = phone.then(|| if on_canvas { (screen_h * 0.4).max(160.0) } else { (screen_h - 40.0).max(120.0) });
+        """
+    s = re.sub(pattern_vars, new_vars, s)
+
+    # Replace resizable / fixed / show_modal invocation
+    pattern_call = r'(?ms)let resizable = resizable_dialog\(&fields\);.*?let modal = show_modal\(modal, ctx, id, resize, fixed, interactive, (?:outer_scroll, )?\|ui\| \{'
+    new_call = """let resizable = resizable_dialog(&fields).filter(|_| !phone);
+        // Curves reopens at the size it was left at (#8984).
+        let remembered = if is_curves(&fields) { ctx.data_mut(|m| m.get_persisted::<egui::Vec2>(size_id(place))) } else { None };
+        let resize = resizable.map(|size| {
+            let min = resizable_min(&fields);
+            (remembered.unwrap_or(size), min, resizable_max(ctx, &fields, min))
+        });
+        let mut given = None;
+        let fixed = (d.kind == DialogKind::LayerStyle && !phone)
+            .then(|| egui::vec2(800.0, 550.0).min((ctx.content_rect().size() - egui::vec2(40.0, 40.0)).max(egui::vec2(640.0, 360.0))));
+        let outer_scroll = if on_canvas { None } else { phone_height };
+        let modal = show_modal(modal, ctx, id, resize, fixed, interactive, outer_scroll, |ui| {"""
+    s = re.sub(pattern_call, new_call, s)
+
+    # Dialog width inside modal
+    pattern_color_picker = r'(?ms)if color_picker \{\s*ui\.set_width\(crate::color_picker_ui::content_width\(ui\)\);\s*\} else \{.*?ui\.set_max_width\(avail_w\);\s*\}\s*\}'
+    new_color_picker = """if color_picker {
+                ui.set_width(crate::color_picker_ui::content_width(ui));
+            } else if phone && !web {
+                let full = (ctx.content_rect().width() - 48.0).clamp(240.0, default_w);
+                ui.set_min_width(full);
+                ui.set_max_width(full);
+            }"""
+    s = re.sub(pattern_color_picker, new_color_picker, s)
 
     old_widths = """            if !compact {
                 ui.set_min_width(if curves { 300.0 } else { 380.0 });
@@ -225,30 +199,6 @@ fn show_modal<T>(
             }"""
     if old_widths in s:
         s = s.replace(old_widths, new_widths)
-
-    old_color_picker = """            if color_picker {
-                ui.set_width(crate::color_picker_ui::content_width(ui));
-            }"""
-    bad_color_picker = """            if color_picker {
-                ui.set_width(crate::color_picker_ui::content_width(ui));
-            } else if phone && !web {
-                let full = (ctx.content_rect().width() - 48.0).max(240.0);
-                ui.set_min_width(full);
-                ui.set_max_width(full);
-            }"""
-    new_color_picker = """            if color_picker {
-                ui.set_width(crate::color_picker_ui::content_width(ui));
-            } else {
-                let avail_w = (ctx.content_rect().width() - 24.0).max(240.0);
-                if ui.min_rect().width() > avail_w {
-                    ui.set_max_width(avail_w);
-                }
-            }"""
-    if "let avail_w" not in s:
-        if bad_color_picker in s:
-            s = s.replace(bad_color_picker, new_color_picker)
-        elif old_color_picker in s:
-            s = s.replace(old_color_picker, new_color_picker)
 
     old_body = """            if let Some(done) = dialog_body(app, ui, &d, &mut fields, id, interactive) {
                 outcome = Some(done);
@@ -332,7 +282,7 @@ printf 'Generated by artcraft-android-builder; custom SAF adapter sourced from a
 # from the shared table, exactly like the generated launchers do.
 python3 - "$DEST/Cargo.toml" "$ROOT" "$APP" <<'PY'
 from pathlib import Path
-import sys, tomllib
+import re, sys, tomllib
 path, root, app = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 sys.path.insert(0, str(root / "lib"))
 import file_associations

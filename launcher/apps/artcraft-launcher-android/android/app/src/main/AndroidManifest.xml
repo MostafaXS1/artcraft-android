@@ -77,6 +77,7 @@
         <package android:name="com.artcraft.deckcraft" />
         <package android:name="com.artcraft.designcraft" />
         <package android:name="com.artcraft.diagramcraft" />
+        <package android:name="com.artcraft.dziwak" />
         <package android:name="com.artcraft.earthcraft" />
         <package android:name="com.artcraft.effectcraft" />
         <package android:name="com.artcraft.ferrite" />
@@ -94,15 +95,19 @@
         <package android:name="com.artcraft.pcbcraft" />
         <package android:name="com.artcraft.pdfcraft" />
         <package android:name="com.artcraft.photocraft" />
+        <package android:name="com.artcraft.photonic" />
         <package android:name="com.artcraft.picassosuite" />
         <package android:name="com.artcraft.pixelcraft" />
         <package android:name="com.artcraft.prowave" />
+        <package android:name="com.artcraft.rustypainter" />
         <package android:name="com.artcraft.solidcraft" />
         <package android:name="com.artcraft.soundcraft" />
+        <package android:name="com.artcraft.splice" />
         <package android:name="com.artcraft.subcraft" />
         <package android:name="com.artcraft.texturecraft" />
         <package android:name="com.artcraft.transit" />
         <package android:name="com.artcraft.vectorcraft" />
+        <package android:name="com.artcraft.vidcut" />
         <package android:name="com.artcraft.wordcraft" />
         <package android:name="com.jackharvest.shapecraft" />
         <package android:name="dev.tracedraw.app" />

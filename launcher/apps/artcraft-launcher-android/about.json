@@ -219,7 +219,7 @@
         },
         {
           "title": "AI in-betweening",
-          "text": "A trained transformer in-betweener that runs in plain Rust — no Python, PyTorch or ONNX at run time."
+          "text": "A trained transformer in-betweener that runs in plain Rust \u2014 no Python, PyTorch or ONNX at run time."
         },
         {
           "title": "Game-ready export",
@@ -257,7 +257,7 @@
     {
       "id": "notecraft",
       "headline": "A clean-room OneNote for local files and your own sync.",
-      "about": "An open-source, clean-room recreation of the OneNote notebook experience, built around local files. Keep notebooks, sections, pages, pictures and attachments as ordinary folders and files on your device, and sync or back them up with the tools you already trust — no NoteCraft server and no account.",
+      "about": "An open-source, clean-room recreation of the OneNote notebook experience, built around local files. Keep notebooks, sections, pages, pictures and attachments as ordinary folders and files on your device, and sync or back them up with the tools you already trust \u2014 no NoteCraft server and no account.",
       "features": [
         {
           "title": "Real notebooks",
@@ -406,7 +406,7 @@
         },
         {
           "title": "Your files",
-          "text": "A clean-room .cdr reader (versions 1–27) and writer (versions 7–27), plus SVG, PDF, AI, EPS, DXF, PSD, EMF, WMF, HPGL and text documents."
+          "text": "A clean-room .cdr reader (versions 1\u201327) and writer (versions 7\u201327), plus SVG, PDF, AI, EPS, DXF, PSD, EMF, WMF, HPGL and text documents."
         },
         {
           "title": "Native and light",
@@ -414,7 +414,7 @@
         },
         {
           "title": "Runs in the browser",
-          "text": "The whole editor compiles to WebAssembly and runs at tracedraw.github.io — nothing to install; on a tablet it installs as a full-screen, offline-capable app."
+          "text": "The whole editor compiles to WebAssembly and runs at tracedraw.github.io \u2014 nothing to install; on a tablet it installs as a full-screen, offline-capable app."
         },
         {
           "title": "Ready for scripts and agents",
@@ -472,7 +472,7 @@
         },
         {
           "title": "VS Code themes",
-          "text": "Any VS Code theme, chosen in Preferences: Color Theme — Dark Modern and your existing themes included."
+          "text": "Any VS Code theme, chosen in Preferences: Color Theme \u2014 Dark Modern and your existing themes included."
         },
         {
           "title": "Private and offline",
@@ -485,7 +485,7 @@
     {
       "id": "keydeck",
       "headline": "Open and edit Keynote presentations.",
-      "about": "Free desktop apps that open, edit and save Apple Keynote files — and work with PowerPoint too. Presentations on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Values and Letters.\n\nOn Android 8+, beta.",
+      "about": "Free desktop apps that open, edit and save Apple Keynote files \u2014 and work with PowerPoint too. Presentations on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Values and Letters.\n\nOn Android 8+, beta.",
       "features": [
         {
           "title": "Real .key files",
@@ -514,11 +514,11 @@
     {
       "id": "values",
       "headline": "Open and edit Numbers spreadsheets.",
-      "about": "Free desktop apps that open, edit and save Apple Numbers files — and work with Excel too. Spreadsheets on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Keydeck and Letters.\n\nOn Android 8+, beta.",
+      "about": "Free desktop apps that open, edit and save Apple Numbers files \u2014 and work with Excel too. Spreadsheets on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Keydeck and Letters.\n\nOn Android 8+, beta.",
       "features": [
         {
           "title": "Real .numbers files",
-          "text": "Opens and saves Numbers spreadsheets, and Microsoft Excel .xlsx too — formulas and formatting kept as Excel."
+          "text": "Opens and saves Numbers spreadsheets, and Microsoft Excel .xlsx too \u2014 formulas and formatting kept as Excel."
         },
         {
           "title": "Full spreadsheet power",
@@ -539,7 +539,7 @@
     {
       "id": "letters",
       "headline": "Open and edit Pages documents.",
-      "about": "Free desktop apps that open, edit and save Apple Pages files — and work with Word too. Word processing and page layout on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Keydeck and Values.\n\nOn Android 8+, beta.",
+      "about": "Free desktop apps that open, edit and save Apple Pages files \u2014 and work with Word too. Word processing and page layout on your computer with no account, no subscription and no tracking. Part of Bramble Office, alongside Keydeck and Values.\n\nOn Android 8+, beta.",
       "features": [
         {
           "title": "Real .pages files",
@@ -564,7 +564,7 @@
     {
       "id": "procraft",
       "headline": "Painting for tablets, with its own Rust engine.",
-      "about": "An open-source painting app for Android tablets (and Windows and Linux), with its own Rust engine and GPU renderer: a Kotlin/Jetpack Compose UI on Android, and the same interface in egui on the desktop. Pressure-sensitive brushes, layers with blend modes, adjustments, selection and transform, animation and 3D painting — written from scratch.",
+      "about": "An open-source painting app for Android tablets (and Windows and Linux), with its own Rust engine and GPU renderer: a Kotlin/Jetpack Compose UI on Android, and the same interface in egui on the desktop. Pressure-sensitive brushes, layers with blend modes, adjustments, selection and transform, animation and 3D painting \u2014 written from scratch.",
       "features": [
         {
           "title": "Painting",
@@ -593,7 +593,7 @@
     {
       "id": "capcraft",
       "headline": "Mobile video editing, open source.",
-      "about": "CapCraft is an open-source reimplementation of the CapCut experience for Android, written in Rust with a Kotlin/Jetpack Compose UI. Timeline editing with keyframes, 100+ filters, transitions, text templates, captions and sound — no account and no watermark.\n\nA beta, built by Bearinmind. Not affiliated with or endorsed by the makers of CapCut.",
+      "about": "CapCraft is an open-source reimplementation of the CapCut experience for Android, written in Rust with a Kotlin/Jetpack Compose UI. Timeline editing with keyframes, 100+ filters, transitions, text templates, captions and sound \u2014 no account and no watermark.\n\nA beta, built by Bearinmind. Not affiliated with or endorsed by the makers of CapCut.",
       "features": [
         {
           "title": "Timeline editing",
@@ -618,11 +618,11 @@
     {
       "id": "concat",
       "headline": "The free, open-source, local-first video editor.",
-      "about": "A free, open-source video editor for macOS, Windows, Linux and Android. It covers what most edits need: auto-captions, text-to-speech, background removal, keyframe animation, effects and titles, multi-track cutting, 4K export — with none of the catches: no watermark, no account, no subscription, no upload.\n\nEverything runs on your machine, and the AI models download once and work offline after that.",
+      "about": "A free, open-source video editor for macOS, Windows, Linux and Android. It covers what most edits need: auto-captions, text-to-speech, background removal, keyframe animation, effects and titles, multi-track cutting, 4K export \u2014 with none of the catches: no watermark, no account, no subscription, no upload.\n\nEverything runs on your machine, and the AI models download once and work offline after that.",
       "features": [
         {
           "title": "Local AI",
-          "text": "Auto-captions, text-to-speech with voice cloning, and background removal — all on your machine, offline after the models download once."
+          "text": "Auto-captions, text-to-speech with voice cloning, and background removal \u2014 all on your machine, offline after the models download once."
         },
         {
           "title": "Cut fast",
@@ -785,6 +785,156 @@
       ],
       "shots": [],
       "platforms": "Android, macOS, Windows, Linux"
+    },
+    {
+      "id": "clothcraft",
+      "headline": "Native garment editor with CPU FEM drape simulation.",
+      "about": "An open-source garment editor and drape simulator by erythrofr. Features 2D pattern authoring, 3D fitting, double-precision CPU FEM reference, VBD solver, and OGC contact detection.",
+      "features": [
+        {
+          "title": "2D Pattern Authoring",
+          "text": "Parametric drafting, seams, darts, and pattern import from SVG and DXF."
+        },
+        {
+          "title": "3D Fitting & Drape",
+          "text": "Interactive 3D garment fitting on OBJ mannequins and animated avatars."
+        },
+        {
+          "title": "FEM & VBD Physics",
+          "text": "Accurate physical drape simulation with Vertex Block Descent and contact handling."
+        },
+        {
+          "title": "Completely Offline",
+          "text": "Runs entirely on your device with zero cloud tracking or subscriptions."
+        }
+      ],
+      "shots": [],
+      "platforms": "Android, macOS, Windows, Linux"
+    },
+    {
+      "id": "rustypainter",
+      "headline": "Native tiled painting playground built with egui.",
+      "about": "A fast, multithreaded raster and vector painting playground in Rust: infinite tiled canvas, dual-brush engine (Krita SVG tips, Clip Studio & ibisPaint brushes), puppet warp, layer masks, and local co-op painting.",
+      "features": [
+        {
+          "title": "Tiled raster canvas",
+          "text": "High-resolution multithreaded tiled engine with undo/redo and live layer blend modes."
+        },
+        {
+          "title": "Brush compatibility",
+          "text": "Imports brush bundles from Krita, Clip Studio Paint, and ibisPaint QR presets."
+        },
+        {
+          "title": "Puppet warp & vector tools",
+          "text": "Constrained Delaunay triangulation puppet mesh warp and robust vector path booleans."
+        },
+        {
+          "title": "Color management",
+          "text": "Full ICC color profile support and CMYK conversions powered by Little CMS."
+        }
+      ],
+      "shots": [],
+      "platforms": "Linux, macOS, Windows, Android"
+    },
+    {
+      "id": "splice",
+      "headline": "Native timeline video editor with storyboard and effects.",
+      "about": "A native multitrack timeline video editor written in Rust: four-track timeline, storyboard, 58 transitions, 38 effects, animated titles, picture-in-picture overlays, voiceover recording, and 16:9 / 9:16 Shorts export.",
+      "features": [
+        {
+          "title": "Multitrack timeline",
+          "text": "Four-track video/audio timeline with magnetic snapping, trimming, splitting, and ripple edits."
+        },
+        {
+          "title": "Transitions & effects",
+          "text": "58 video transitions, 38 creative color and visual effects, and animated lower thirds."
+        },
+        {
+          "title": "Picture-in-picture",
+          "text": "Overlay video and image tracks with animated keyframe transforms."
+        },
+        {
+          "title": "Shorts & Reels export",
+          "text": "One-click aspect ratio switching between horizontal 16:9 and vertical 9:16 Shorts."
+        }
+      ],
+      "shots": [],
+      "platforms": "Linux, macOS, Windows, Android"
+    },
+    {
+      "id": "vidcut",
+      "headline": "Fast, lossless video cutting and trimming.",
+      "about": "A lightweight, blazing-fast video cutter that trims and exports video without re-encoding quality loss, built with Rust, egui, and wgpu.",
+      "features": [
+        {
+          "title": "Lossless stream cutting",
+          "text": "Cut, trim, and reorder video segments in seconds without quality loss."
+        },
+        {
+          "title": "Keyframe-accurate seeking",
+          "text": "Jump directly to I-frames for instantaneous, exact cuts."
+        },
+        {
+          "title": "Pure Rust media probe",
+          "text": "Fast media inspection without heavy third-party runtime dependencies."
+        },
+        {
+          "title": "Batch export",
+          "text": "Export multiple cut ranges into separate clips or joined output files."
+        }
+      ],
+      "shots": [],
+      "platforms": "Linux, macOS, Windows, Android"
+    },
+    {
+      "id": "photonic",
+      "headline": "Professional vector illustration and motion graphics editor.",
+      "about": "A dark-room native vector design and motion graphics powerhouse in Rust: kurbo/lyon vector geometry, GPU tessellation, multi-format timeline animation, and MCP server control.",
+      "features": [
+        {
+          "title": "Precision vector engine",
+          "text": "Pen, pencil, boolean ops, variable stroke width, and gradient mesh editing."
+        },
+        {
+          "title": "Motion graphics timeline",
+          "text": "Keyframed transform and opacity animation with easing curves and multi-ratio reframe."
+        },
+        {
+          "title": "GPU-accelerated rendering",
+          "text": "Real-time vector and video compositing pipeline powered by wgpu and naga shaders."
+        },
+        {
+          "title": "Agent-native MCP bridge",
+          "text": "Full Model Context Protocol server exposing canvas state and automation tools."
+        }
+      ],
+      "shots": [],
+      "platforms": "Linux, macOS, Windows, Android"
+    },
+    {
+      "id": "dziwak",
+      "headline": "Native photo editor with AI background removal.",
+      "about": "A fast, distraction-free photo editor written in Rust with GIMP-inspired tools, layered adjustments, and local CPU-based neural background removal.",
+      "features": [
+        {
+          "title": "Local AI background removal",
+          "text": "Instant background extraction using U\u00b2-Net running entirely offline on CPU."
+        },
+        {
+          "title": "Essential retouching tools",
+          "text": "Crop, resize, rotate, color curves, levels, and brush retouching."
+        },
+        {
+          "title": "Dark & customizable theme",
+          "text": "Ergonomic dark theme inspired by GIMP 2.10 and Omarchy design system."
+        },
+        {
+          "title": "Zero telemetry",
+          "text": "100% offline, privacy-first image editing without external dependencies."
+        }
+      ],
+      "shots": [],
+      "platforms": "Linux, macOS, Windows, Android"
     }
   ]
 }

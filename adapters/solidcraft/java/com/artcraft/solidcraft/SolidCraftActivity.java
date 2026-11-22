@@ -991,7 +991,8 @@ public final class SolidCraftActivity extends NativeActivity {
         applyImmersiveFullscreen();
         Window window = getWindow();
         if (window != null) {
-            window.getDecorView().post(this::applyImmersiveFullscreen);
+            window.setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        window.getDecorView().post(this::applyImmersiveFullscreen);
         }
         // Keep the interface below a desktop window's title bar, driven by the window's own inset
         // dispatches so a resize, a windowing-mode change or a title bar coming and going all

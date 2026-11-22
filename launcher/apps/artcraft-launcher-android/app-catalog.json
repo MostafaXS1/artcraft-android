@@ -654,6 +654,96 @@
       "site": "https://github.com/asad-albadi/PixelCraft",
       "bundle": "com.artcraft.pixelcraft",
       "image": "pixelcraft.png"
+    },
+    {
+      "id": "clothcraft",
+      "name": "ClothCraft",
+      "tagline": "Native garment editor and CPU FEM drape simulation",
+      "color": [
+        30,
+        136,
+        229
+      ],
+      "repo": "erythrofr/ClothCraft",
+      "publisher": "erythrofr",
+      "site": "https://github.com/erythrofr/ClothCraft",
+      "bundle": "com.artcraft.clothcraft",
+      "image": "clothcraft.png"
+    },
+    {
+      "id": "rustypainter",
+      "name": "RustyPainter",
+      "tagline": "Native tiled painting playground built with egui",
+      "color": [
+        235,
+        120,
+        60
+      ],
+      "repo": "Vectra777/rusty-painter",
+      "publisher": "Vectra777",
+      "site": "https://github.com/Vectra777/rusty-painter",
+      "bundle": "com.artcraft.rustypainter",
+      "image": "rustypainter.png"
+    },
+    {
+      "id": "splice",
+      "name": "Splice",
+      "tagline": "Timeline video editor with storyboard, transitions and effects",
+      "color": [
+        160,
+        60,
+        220
+      ],
+      "repo": "GeneticxCln/Splice",
+      "publisher": "GeneticxCln",
+      "site": "https://github.com/GeneticxCln/Splice",
+      "bundle": "com.artcraft.splice",
+      "image": "splice.png"
+    },
+    {
+      "id": "vidcut",
+      "name": "VidCut",
+      "tagline": "Lossless video trimmer and cutter",
+      "color": [
+        240,
+        80,
+        80
+      ],
+      "repo": "goriant-studio/VidCut",
+      "publisher": "goriant-studio",
+      "site": "https://github.com/goriant-studio/VidCut",
+      "bundle": "com.artcraft.vidcut",
+      "image": "vidcut.png"
+    },
+    {
+      "id": "photonic",
+      "name": "Photonic",
+      "tagline": "Vector motion graphics, animation and design editor",
+      "color": [
+        0,
+        200,
+        180
+      ],
+      "repo": "unn-corp/Photonic",
+      "publisher": "unn-corp",
+      "site": "https://github.com/unn-corp/Photonic",
+      "bundle": "com.artcraft.photonic",
+      "image": "photonic.png"
+    },
+    {
+      "id": "dziwak",
+      "name": "Dziwak",
+      "tagline": "Image editor with background removal and retouching tools",
+      "color": [
+        70,
+        150,
+        230
+      ],
+      "repo": "wasyleque/dziwak",
+      "publisher": "wasyleque",
+      "site": "https://github.com/wasyleque/dziwak",
+      "bundle": "com.artcraft.dziwak",
+      "image": "dziwak.png"
     }
   ]
 }

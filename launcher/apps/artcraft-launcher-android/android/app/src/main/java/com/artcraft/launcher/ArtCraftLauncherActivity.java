@@ -23,6 +23,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
@@ -123,6 +124,9 @@ public class ArtCraftLauncherActivity extends GameActivity {
     @Override
     protected void onCreate(android.os.Bundle state) {
         super.onCreate(state);
+        if (getWindow() != null) {
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        }
 
         bridge = new File(getFilesDir(), "bridge");
         updater = new Updater(this);

@@ -5,6 +5,7 @@ MODE="${1:-}"
 shift || true
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 export GIT_LFS_SKIP_SMUDGE=1
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 cd "$ROOT"
 
 usage() {
@@ -33,7 +34,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft rustypainter splice vidcut photonic dziwak
 
 Examples:
   bash build.sh -photocraft
@@ -176,6 +177,11 @@ case "$APP" in
     ferrite) TITLE="Ferrite" ;;
     pixelcraft) TITLE="PixelCraft" ;;
     clothcraft) TITLE="ClothCraft" ;;
+    rustypainter) TITLE="RustyPainter" ;;
+    splice) TITLE="Splice" ;;
+    vidcut) TITLE="VidCut" ;;
+    photonic) TITLE="Photonic" ;;
+    dziwak) TITLE="Dziwak" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -253,6 +259,21 @@ elif [[ "$APP" == "pixelcraft" ]]; then
 elif [[ "$APP" == "clothcraft" ]]; then
     REPO="https://github.com/erythrofr/ClothCraft.git"
     APP_ORIGIN="https://github.com/erythrofr/ClothCraft"
+elif [[ "$APP" == "rustypainter" ]]; then
+    REPO="https://github.com/Vectra777/rusty-painter.git"
+    APP_ORIGIN="https://github.com/Vectra777/rusty-painter"
+elif [[ "$APP" == "splice" ]]; then
+    REPO="https://github.com/GeneticxCln/Splice.git"
+    APP_ORIGIN="https://github.com/GeneticxCln/Splice"
+elif [[ "$APP" == "vidcut" ]]; then
+    REPO="https://github.com/goriant-studio/VidCut.git"
+    APP_ORIGIN="https://github.com/goriant-studio/VidCut"
+elif [[ "$APP" == "photonic" ]]; then
+    REPO="https://github.com/unn-corp/Photonic.git"
+    APP_ORIGIN="https://github.com/unn-corp/Photonic"
+elif [[ "$APP" == "dziwak" ]]; then
+    REPO="https://github.com/wasyleque/dziwak.git"
+    APP_ORIGIN="https://github.com/wasyleque/dziwak"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -308,7 +329,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft rustypainter splice vidcut photonic dziwak "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -592,7 +613,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|ferrite|clothcraft)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|ferrite|clothcraft|rustypainter|splice|vidcut|photonic|dziwak)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
@@ -2629,8 +2650,37 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
-        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
-            sed -i '/source: egui::MouseWheelSource::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" || "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
+            sed -i -e '/source: egui::MouseWheelSource::/d' -e '/phase: TouchPhase::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+        fi
+        if [[ "$APP" == "rustypainter" || "$APP" == "vidcut" || "$APP" == "photonic" ]]; then
+            python3 - "$SRC/apps/$APP-android/src/mobile_text_bar.rs" <<'PY'
+from pathlib import Path
+import sys, re
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    s = s.replace("CornerRadius", "Rounding")
+    s = s.replace("Rounding::same(8)", "Rounding::same(8.0)")
+    s = s.replace("Rounding::same(5)", "Rounding::same(5.0)")
+    s = s.replace("ctx.content_rect()", "ctx.input(|i| i.raw.screen_rect).unwrap_or(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 1000.0)))")
+    s = re.sub(r'ui\.painter\(\)\.rect\(\s*bar_rect,\s*Rounding::same\(8\.0\),\s*bg_color,\s*stroke,\s*egui::StrokeKind::Inside,\s*\);',
+               'ui.painter().rect_filled(bar_rect, Rounding::same(8.0), bg_color); ui.painter().rect_stroke(bar_rect, Rounding::same(8.0), stroke);', s)
+    s = re.sub(r'ui\.painter\(\)\.rect\(\s*r,\s*Rounding::same\(5\.0\),\s*fill,\s*btn_stroke,\s*egui::StrokeKind::Inside,\s*\);',
+               'ui.painter().rect_filled(r, Rounding::same(5.0), fill); ui.painter().rect_stroke(r, Rounding::same(5.0), btn_stroke);', s)
+    p.write_text(s)
+PY
+        fi
+        if [[ "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
+            python3 - "$SRC/apps/$APP-android/src/system_fonts.rs" <<'PY'
+from pathlib import Path
+import sys, re
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    s = re.sub(r'(?ms)pub fn install_system_fonts\(ctx: &egui::Context\) \{.*?^\}', 'pub fn install_system_fonts(_ctx: &egui::Context) {}', s)
+    p.write_text(s)
+PY
         fi
     fi
 else
@@ -2671,7 +2721,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "rustypainter", "splice", "vidcut", "photonic", "dziwak"):
         tg = android_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
             tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -2716,7 +2766,7 @@ if android_dir.exists():
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
-            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
+            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "rustypainter", "splice", "vidcut", "photonic", "dziwak"):
                 tg = android_dir / "src" / "touch_gestures.rs"
                 if tg.is_file():
                     tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -6750,7 +6800,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "rustypainter", "splice", "vidcut", "photonic", "dziwak"):
         tg = staging_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
             tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -7370,14 +7420,14 @@ if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" 
 elif [[ "$APP" == "ferrite" ]]; then
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit-0.34" "$SRC/vendor/egui-winit"
-elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
     # SolidCraft, PCBCraft and FieldCraft prepare.sh handle their own egui/winit setup
     echo "Skipping builder egui-winit copy for $APP (handled by prepare.sh)"
 else
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
     # SolidCraft, PCBCraft and FieldCraft prepare.sh handle all egui/egui-winit/egui-wgpu patching
     echo "Skipping egui patching for $APP (handled by prepare.sh)"
 else
@@ -7439,6 +7489,7 @@ else:
 tomllib.loads(s)
 p.write_text(s)
 PY
+cargo update -p rfd --manifest-path "$SRC/Cargo.toml" 2>/dev/null || true
 fi
 
 # Some apps also use arboard (the clipboard) from a crate in the launcher's dependency graph
@@ -7519,6 +7570,7 @@ fi
 # longer masquerade as touch) and patch it into the workspace. PDFCraft already ships a
 # forked winit on the same upstream base: only its Android backend directory is
 # overwritten, so its non-Android customizations and its existing patch entry survive.
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "rustypainter" && "$APP" != "splice" && "$APP" != "vidcut" && "$APP" != "photonic" && "$APP" != "dziwak" ]]; then
 echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
 mkdir -p "$SRC/vendor"
 if [[ -d "$SRC/vendor/winit" ]]; then
@@ -7707,6 +7759,8 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
+cargo update -p winit --manifest-path "$SRC/Cargo.toml" 2>/dev/null || true
+fi
 
 # egui-wgpu's lost-surface recovery kept the old surface alive while it created the new one: the
 # old `SurfaceState` owns the old `wgpu::Surface`, and it lived until the end of the function, so
@@ -7768,7 +7822,7 @@ else:
     winit_rs.write_text(text)
     print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
 PY
-elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
+elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" || "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
     # SolidCraft, FieldCraft, PCBCraft and Ferrite handle their own graphics backend
     echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
 elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
@@ -7780,7 +7834,7 @@ else
 fi
 
 # Skip egui-wgpu patching for SolidCraft, FieldCraft, PCBCraft and Ferrite - prepare.sh handles it
-if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" ]]; then
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" && "$APP" != "rustypainter" && "$APP" != "splice" && "$APP" != "vidcut" && "$APP" != "photonic" && "$APP" != "dziwak" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -7832,6 +7886,7 @@ if entry not in s:
     tomllib.loads(s)
     p.write_text(s)
 PY
+cargo update -p android-activity --manifest-path "$SRC/Cargo.toml" 2>/dev/null || true
 
 # sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
 # Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).
@@ -8228,7 +8283,7 @@ rm -rf "$ANDROID_DIR/jniLibs"
 # For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" || "$APP" == "rustypainter" || "$APP" == "splice" || "$APP" == "vidcut" || "$APP" == "photonic" || "$APP" == "dziwak" ]]; then
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then

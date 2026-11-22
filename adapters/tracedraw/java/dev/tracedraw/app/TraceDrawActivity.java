@@ -30,6 +30,7 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.os.Process;
@@ -153,6 +154,9 @@ public class TraceDrawActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (getWindow() != null) {
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        }
         Window win = getWindow();
         if (win != null) {
             win.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);

@@ -215,7 +215,7 @@ pub fn show_text_bar(ctx: &Context) {
     };
 
     // Only display if the context actually wants keyboard input or is editing text
-    if !ctx.egui_wants_keyboard_input() && ctx.output(|o| o.ime.is_none()) {
+    if !ctx.wants_keyboard_input() && ctx.output(|o| o.ime.is_none()) {
         if let Ok(mut b) = BAR_BUTTONS.lock() {
             b.clear();
         }
@@ -225,7 +225,7 @@ pub fn show_text_bar(ctx: &Context) {
     // Determine if text is currently selected
     let has_selection = egui::text_edit::TextEditState::load(ctx, field_id)
         .and_then(|state| state.cursor.char_range())
-        .map_or(false, |range| !range.is_empty());
+        .map_or(false, |range| range.primary.index != range.secondary.index);
 
     // The context bar only appears when text is selected (Cut, Copy, Paste, Delete)
     if !has_selection {

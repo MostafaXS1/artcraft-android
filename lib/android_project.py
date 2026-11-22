@@ -150,6 +150,10 @@ def manifest_xml(android_meta):
         )
         if application.get(key) is not None
     ]
+    if "hardware_accelerated" in application:
+        app_attrs.append(f'android:hardwareAccelerated="{"true" if application["hardware_accelerated"] else "false"}"')
+    else:
+        app_attrs.append('android:hardwareAccelerated="true"')
     lines.append(f'    <application {" ".join(app_attrs)}>')
 
     activities = _as_list(application.get("activity")) or [{}]
@@ -157,6 +161,7 @@ def manifest_xml(android_meta):
         # ndk-build2 defaults the name to "" (an unset android:name); every app the builder
         # ships names its Activity, so this only mirrors the default for completeness.
         attrs = [f'android:name="{_esc(activity.get("name", ""))}"']
+        attrs.append('android:hardwareAccelerated="true"')
         for key, attr in ACTIVITY_ATTRS:
             if activity.get(key) is not None:
                 attrs.append(f'{attr}="{_esc(activity[key])}"')

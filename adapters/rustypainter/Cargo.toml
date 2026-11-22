@@ -1,0 +1,67 @@
+[package]
+name = "rustypainter-android"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rusty-painter = { path = "../.." }
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
+egui = "0.29"
+winit = { version = "0.30", default-features = false }
+rfd = { version = "0.17", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+jni = "0.22"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+android_logger = "0.14"
+
+[package.metadata.android]
+package = "com.artcraft.rustypainter"
+apk_name = "rustypainter-0.1.0"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "RustyPainter"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".RustyPainterActivity"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+window_soft_input_mode = "stateAlwaysHidden|adjustResize"
+label = "RustyPainter"
+launch_mode = "singleTask"
+orientation = "unspecified"
+exported = true
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "rustypainter_android"

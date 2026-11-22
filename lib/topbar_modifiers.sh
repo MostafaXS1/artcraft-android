@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Integrated toggleable Shift / Ctrl / Alt buttons for topbar / ribbon.
 #
-# Adds real UI toggle buttons (⇧ Shift, Ctrl, Alt) into the topbar
+# Adds real UI toggle buttons (⇧ Shift, ⌃ Ctrl, ⌥ Alt) into the topbar
 # next to menu/tab buttons for 6 apps:
 #   photo (photocraft), vector (vectorcraft), design (designcraft),
 #   word (wordcraft), grid (gridcraft), deck (deckcraft).
@@ -43,6 +43,9 @@ if not ui_egui_src.is_dir():
 # 1. Copy topbar_modifiers.rs into crates/ui-egui/src/topbar_modifiers.rs
 template_file = "topbar_modifiers_disabled.rs" if no_buttons else "topbar_modifiers.rs"
 shutil.copy2(root / "templates" / "android" / template_file, ui_egui_src / "topbar_modifiers.rs")
+font_file = root / "templates" / "android" / "modifier_symbols.ttf"
+if font_file.is_file():
+    shutil.copy2(font_file, ui_egui_src / "modifier_symbols.ttf")
 
 # 2. Register pub mod topbar_modifiers; in crates/ui-egui/src/lib.rs
 lib_rs = ui_egui_src / "lib.rs"

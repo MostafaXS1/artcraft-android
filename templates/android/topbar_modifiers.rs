@@ -1,12 +1,42 @@
 //! Integrated toggleable Shift / Ctrl / Alt modifier buttons for the topbar / ribbon.
 //!
-//! Provides `⇧ Shift`, `Ctrl`, `Alt` toggle buttons integrated directly into the
+//! Provides `⇧ Shift`, `⌃ Ctrl`, `⌥ Alt` toggle buttons integrated directly into the
 //! topbar next to menu/tab buttons (File, Edit, etc.).
 //! Real part of the UI (not an overlay), toggleable on/off, matching the app's native visuals.
 
 use egui::{vec2, Color32, CornerRadius, Modifiers, Pos2, Rect, Response, Stroke, Ui, WidgetText};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+
+const MODIFIER_FONT_BYTES: &[u8] = include_bytes!("modifier_symbols.ttf");
+static FONT_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+fn ensure_modifier_fonts(ctx: &egui::Context) {
+    if FONT_INSTALLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let already = ctx.fonts(|f| f.definitions().font_data.contains_key("modifier-symbols"));
+    if already {
+        FONT_INSTALLED.store(true, Ordering::Relaxed);
+        return;
+    }
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "modifier-symbols",
+        egui::FontData::from_static(MODIFIER_FONT_BYTES),
+        vec![
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+        ],
+    ));
+    ctx.request_repaint();
+    FONT_INSTALLED.store(true, Ordering::Relaxed);
+}
 
 /// Whether a hardware keyboard is attached.
 ///
@@ -94,7 +124,7 @@ pub fn apply_to_raw_input(physical: &Modifiers, raw: &mut egui::RawInput) {
     }
 }
 
-/// Renders the toggleable modifier buttons (`⇧ Shift`, `Ctrl`, `Alt`) inline into the current UI row.
+/// Renders the toggleable modifier buttons (`⇧ Shift`, `⌃ Ctrl`, `⌥ Alt`) inline into the current UI row.
 pub fn render_topbar_modifiers(ui: &mut Ui) {
     if option_env!("ARTCRAFT_NO_BUTTONS").is_some() {
         return;
@@ -104,14 +134,15 @@ pub fn render_topbar_modifiers(ui: &mut Ui) {
         // get in the way.
         return;
     }
+    ensure_modifier_fonts(ui.ctx());
     ui.spacing_mut().item_spacing.x = 6.0;
     ui.spacing_mut().button_padding = vec2(6.0, 3.0);
 
     if ui.layout().prefer_right_to_left() {
         ui.add_space(4.0);
-        render_toggle_button(ui, "Alt", &ALT_ACTIVE);
+        render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "Ctrl", &CTRL_ACTIVE);
+        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
         ui.add_space(4.0);
         render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
         ui.add_space(4.0);
@@ -119,9 +150,9 @@ pub fn render_topbar_modifiers(ui: &mut Ui) {
         ui.add_space(4.0);
         render_toggle_button(ui, "⇧ Shift", &SHIFT_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "Ctrl", &CTRL_ACTIVE);
+        render_toggle_button(ui, "⌃ Ctrl", &CTRL_ACTIVE);
         ui.add_space(4.0);
-        render_toggle_button(ui, "Alt", &ALT_ACTIVE);
+        render_toggle_button(ui, "⌥ Alt", &ALT_ACTIVE);
         ui.add_space(4.0);
     }
 }
