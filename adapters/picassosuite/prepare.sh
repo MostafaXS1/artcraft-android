@@ -314,9 +314,25 @@ pub(crate) fn open_video_decoder(
                     unsafe {
                         (*ctx.as_mut_ptr()).pkt_timebase = time_base.into();
                     }
-                    if let Ok(opened) = ctx.decoder().open_as(dec) {
+                    let mut opts = ff::Dictionary::new();
+                    opts.set("ndk_codec", "1");
+                    opts.set("low_power", "0");
+                    if let Ok(opened) = ctx.decoder().open_as_with(dec, opts) {
                         if let Ok(video) = opened.video() {
                             return Ok((video, true));
+                        }
+                    } else if let Ok(mut ctx2) = ff::codec::context::Context::from_parameters(params.clone()) {
+                        ctx2.set_threading(ff::threading::Config {
+                            kind: ff::threading::Type::Frame,
+                            count: 1,
+                        });
+                        unsafe {
+                            (*ctx2.as_mut_ptr()).pkt_timebase = time_base.into();
+                        }
+                        if let Ok(opened) = ctx2.decoder().open_as(dec) {
+                            if let Ok(video) = opened.video() {
+                                return Ok((video, true));
+                            }
                         }
                     }
                 }
@@ -592,6 +608,7 @@ old_mc_opts = '''        if choice.low_power {
         }'''
 new_mc_opts = '''        if spec.encoder.ends_with("_mediacodec") {
             options.set("threads", "4");
+            options.set("ndk_codec", "1");
         }
         if choice.low_power {
             options.set("low_power", "1");
@@ -605,8 +622,84 @@ if old_b_frames in s:
     s = s.replace(old_b_frames, new_b_frames, 1)
 if old_opens in s and "if name.ends_with(\"_mediacodec\")" not in s:
     s = s.replace(old_opens, new_opens, 1)
-if old_mc_opts in s and 'options.set("threads", "4");' not in s:
+if old_mc_opts in s:
     s = s.replace(old_mc_opts, new_mc_opts, 1)
+else:
+    s = s.replace('options.set("threads", "4");', 'options.set("threads", "4");\n            options.set("ndk_codec", "1");', 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-export/src/yuv.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_yuv = '''pub fn rgba_to_yuv(
+    rgba: &[u8],
+    (w, h): (usize, usize),
+    layout: Layout,
+    planes: &mut [&mut [u8]],
+    strides: &[usize],
+    full: bool,
+) {
+    let bytes = if layout.ten_bit { 2 } else { 1 };'''
+
+new_yuv = '''pub fn rgba_to_yuv(
+    rgba: &[u8],
+    (w, h): (usize, usize),
+    layout: Layout,
+    planes: &mut [&mut [u8]],
+    strides: &[usize],
+    full: bool,
+) {
+    if layout.step == (2, 2) && !layout.ten_bit && layout.interleaved && w % 2 == 0 && h % 2 == 0 && planes.len() >= 2 {
+        let y_stride = strides.first().copied().unwrap_or(w);
+        let uv_stride = strides.get(1).copied().unwrap_or(w);
+        let (y_plane_ref, rest) = planes.split_first_mut().unwrap();
+        let y_plane = &mut **y_plane_ref;
+        let uv_plane = &mut *rest[0];
+        let half_h = h / 2;
+        let half_w = w / 2;
+        for cy in 0..half_h {
+            let y0 = cy * 2;
+            let y1 = y0 + 1;
+            let src_row0 = &rgba[y0 * w * 4..(y0 + 1) * w * 4];
+            let src_row1 = &rgba[y1 * w * 4..(y1 + 1) * w * 4];
+
+            for cx in 0..half_w {
+                let x0 = cx * 2;
+                let x1 = x0 + 1;
+                let px00 = &src_row0[x0 * 4..x0 * 4 + 3];
+                let px01 = &src_row0[x1 * 4..x1 * 4 + 3];
+                let px10 = &src_row1[x0 * 4..x0 * 4 + 3];
+                let px11 = &src_row1[x1 * 4..x1 * 4 + 3];
+
+                let (y00, _, _) = yuv709(px00[0] as f32, px00[1] as f32, px00[2] as f32, full);
+                let (y01, _, _) = yuv709(px01[0] as f32, px01[1] as f32, px01[2] as f32, full);
+                let (y10, _, _) = yuv709(px10[0] as f32, px10[1] as f32, px10[2] as f32, full);
+                let (y11, _, _) = yuv709(px11[0] as f32, px11[1] as f32, px11[2] as f32, full);
+
+                y_plane[y0 * y_stride + x0] = byte(y00);
+                y_plane[y0 * y_stride + x1] = byte(y01);
+                y_plane[y1 * y_stride + x0] = byte(y10);
+                y_plane[y1 * y_stride + x1] = byte(y11);
+
+                let avg_r = (px00[0] as u32 + px01[0] as u32 + px10[0] as u32 + px11[0] as u32) as f32 * 0.25;
+                let avg_g = (px00[1] as u32 + px01[1] as u32 + px10[1] as u32 + px11[1] as u32) as f32 * 0.25;
+                let avg_b = (px00[2] as u32 + px01[2] as u32 + px10[2] as u32 + px11[2] as u32) as f32 * 0.25;
+
+                let (_, cb, cr) = yuv709(avg_r, avg_g, avg_b, full);
+                uv_plane[cy * uv_stride + cx * 2] = byte(cb);
+                uv_plane[cy * uv_stride + cx * 2 + 1] = byte(cr);
+            }
+        }
+        return;
+    }
+    let bytes = if layout.ten_bit { 2 } else { 1 };'''
+
+if old_yuv in s:
+    s = s.replace(old_yuv, new_yuv, 1)
 p.write_text(s)
 PY
 

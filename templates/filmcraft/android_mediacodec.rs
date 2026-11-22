@@ -483,7 +483,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 240.0);
+                format.set_f32("operating-rate", 1000.0);
             }
             format
         };
@@ -521,7 +521,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 240.0);
+                format.set_f32("operating-rate", 1000.0);
             }
             format
         };
@@ -615,7 +615,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 240.0);
+                format.set_f32("operating-rate", 1000.0);
             }
             format
         };
@@ -813,8 +813,8 @@ impl VideoEncoder for MediaCodecEncoder {
         if self.surface.is_some() {
             // Surface mode: frame was rendered directly to the input surface by ExportRenderer
             let mut packets = Vec::new();
-            // Drain output: wait briefly (up to 4ms) to allow MediaCodec to process the surface buffer and release swapchain image
-            self.drain_output(Duration::from_millis(4), &mut packets)?;
+            // Drain output: non-blocking retrieval of any packets encoded by MediaCodec
+            self.drain_output(Duration::ZERO, &mut packets)?;
             filmcraft_export::note_hw_encode_frame();
             return Ok(packets);
         }
@@ -834,11 +834,14 @@ impl VideoEncoder for MediaCodecEncoder {
         // 3. Dequeue an input buffer: non-blocking fast-path, falling back to brief drain
         let mut attempts = 0;
         let mut input_buf = loop {
-            match self.codec.dequeue_input_buffer(Duration::from_millis(5)) {
+            if let Ok(DequeuedInputBufferResult::Buffer(b)) = self.codec.dequeue_input_buffer(Duration::ZERO) {
+                break b;
+            }
+            match self.codec.dequeue_input_buffer(Duration::from_millis(2)) {
                 Ok(DequeuedInputBufferResult::Buffer(b)) => break b,
                 _ => {
                     attempts += 1;
-                    if attempts >= 50 {
+                    if attempts >= 100 {
                         return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into()));
                     }
                     self.drain_output(Duration::from_millis(2), &mut packets)?;
@@ -1089,7 +1092,8 @@ impl MediaCodecDecoder {
             }
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 240.0);
+                format.set_f32("operating-rate", 1000.0);
+                format.set_i32("low-latency", 1);
             }
 
             if with_csd {
@@ -1462,10 +1466,10 @@ impl VideoDecoder for MediaCodecDecoder {
             .queue_input_buffer(input_buf, 0, total_bytes, pts as u64, 0)
             .map_err(|e| CodecError::Decode(format!("queue_input_buffer failed: {e:?}")))?;
 
-        // 5. Drain any ready output frames non-blocking, with a small 2ms window if none were ready yet
+        // 5. Drain any ready output frames non-blocking, with a small 4ms window if none were ready yet
         self.drain_output(Duration::ZERO, &mut frames)?;
         if frames.is_empty() {
-            self.drain_output(Duration::from_millis(2), &mut frames)?;
+            self.drain_output(Duration::from_millis(4), &mut frames)?;
         }
         filmcraft_codecs::hw::note_hw_frames(frames.len());
 

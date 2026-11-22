@@ -182,6 +182,26 @@ if multi_scale_old in s:
 if multi_old in s:
     s = s.replace(multi_old, multi_new, 1)
 
+old_input = '''    for seg in &job.segments {
+        // Seek before input is the fast path for ffmpeg.
+        cmd.args(["-ss", &format!("{:.6}", seg.source_start)]);
+        cmd.args(["-t", &format!("{:.6}", seg.duration)]);
+        cmd.args(["-i", &seg.source_path.to_string_lossy()]);
+    }'''
+
+new_input = '''    for seg in &job.segments {
+        // Seek before input is the fast path for ffmpeg.
+        if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
+            cmd.args(["-hwaccel", "mediacodec"]);
+        }
+        cmd.args(["-ss", &format!("{:.6}", seg.source_start)]);
+        cmd.args(["-t", &format!("{:.6}", seg.duration)]);
+        cmd.args(["-i", &seg.source_path.to_string_lossy()]);
+    }'''
+
+if old_input in s:
+    s = s.replace(old_input, new_input, 1)
+
 # Ensure threads 4 and max_muxing_queue_size are present even if previously patched
 s = s.replace(
     'cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);',

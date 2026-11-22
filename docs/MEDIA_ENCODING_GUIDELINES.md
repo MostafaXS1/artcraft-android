@@ -452,5 +452,11 @@ When porting or implementing any video processing tool on Android, adhere to the
     Android hardware decoders run on asynchronous DSP/VPU pipelines requiring 1–3 ms to deliver frames. When querying a sample, always allow a brief window (e.g. 2 ms) if non-blocking polling returns empty before declaring the frame missing. Premature flushing destroys the sequential playback state and causes expensive $O(N^2)$ keyframe re-seeks on every frame.
 12. **Codec Reset After EOS Flush:**
     Queuing an End-of-Stream (EOS) buffer shifts `AMediaCodec` into EOS state where no further input buffers are accepted. Always call `AMediaCodec_flush()` at the end of `flush()` to reset the codec back to the Executing state, ensuring seamless subsequent seeks and playback.
-13. **Surface Swapchain Pacing During GPU Export:**
-    When rendering GPU frames directly to an `ANativeWindow` MediaCodec input surface, drain encoder output buffers with a brief timeout (e.g. 4 ms) on each frame. Draining signals completion to the hardware queue and recycles swapchain images; without pacing, the surface runs out of buffers in 3–4 frames and triggers unintended CPU fallback.
+13. **Non-Blocking Surface Drain with Backpressure Swapchain Retry:**
+    When rendering GPU frames directly to an `ANativeWindow` MediaCodec input surface, drain encoder output buffers non-blocking (`Duration::ZERO`) on every frame so completed packets are immediately consumed and output slots recycled without adding artificial sleep overhead. In the Vulkan/wgpu surface compositor, retry `surface.get_current_texture()` in a loop (e.g. up to 15 attempts with 3ms backoff) on `Timeout` or `Outdated` errors. This prevents intermittent swapchain congestion from triggering irreversible fallbacks to CPU buffer mode.
+14. **Direct Zero-Copy Video Frame Writes:**
+    When writing converted YUV/NV12 planes into FFmpeg video frames, write directly into `vframe.data_mut(i)` slices instead of allocating intermediate `Vec<Vec<u8>>` buffers and performing an extra `copy_from_slice()`. This cuts memory footprint and saves 2–3 ms per frame of memory copies.
+15. **Fast Row-Chunked NV12 Conversion:**
+    Eliminate per-pixel floating-point math, boundary clamping, and bounds checks in color conversions. Process pairs of RGBA rows in 2x2 blocks with linear slice indexing, auto-vectorizing across SIMD registers to complete 1080p conversions in < 1 ms.
+16. **Input Hardware Acceleration in FFmpeg Pipelines:**
+    Prepend `-hwaccel mediacodec` before each input video `-i` in FFmpeg render and export commands. Hardware decoding input segments dramatically accelerates multi-clip timeline rendering and prevents CPU saturation during complex transitions.

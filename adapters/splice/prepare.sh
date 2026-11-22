@@ -309,6 +309,26 @@ else:
         '"-c:v", "h264_mediacodec",\n            "-b:v", bitrate,\n            "-pix_fmt", "nv12",\n            "-g", "60",\n            "-threads", "4",\n            "-max_muxing_queue_size", "1024",\n        ]);'
     )
 
+old_input = '''        } else {
+            // Project files can be shared, so a media path must only ever be
+            // opened as a local file, never as a URL or other protocol.
+            command.args(["-protocol_whitelist", "file"]);
+            command.arg("-i").arg(&input.path);
+        }'''
+
+new_input = '''        } else {
+            // Project files can be shared, so a media path must only ever be
+            // opened as a local file, never as a URL or other protocol.
+            command.args(["-protocol_whitelist", "file"]);
+            if (std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android")) && !input.image {
+                command.args(["-hwaccel", "mediacodec"]);
+            }
+            command.arg("-i").arg(&input.path);
+        }'''
+
+if old_input in s:
+    s = s.replace(old_input, new_input, 1)
+
 if 'command.args(["-nostdin", "-threads", "4"]);' not in s:
     s = s.replace('command.arg("-y");', 'command.arg("-y");\n    command.args(["-nostdin", "-threads", "4"]);', 1)
 p.write_text(s)
