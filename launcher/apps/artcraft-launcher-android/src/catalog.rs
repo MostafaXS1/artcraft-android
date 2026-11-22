@@ -115,7 +115,7 @@ static RELEASE_OVERRIDES: &[(&str, ReleaseSource)] = &[
 
 /// The Android suite, in the order getartcraft.com lists the official apps, then the
 /// community apps. Every entry must have an icon in `ui-egui`'s `app_icon_png`.
-pub static SUITE_ANDROID: [CraftApp; 50] = [
+pub static SUITE_ANDROID: [CraftApp; 48] = [
     official("photocraft", "PhotoCraft", "Image editing", [47, 123, 245], "storytold/photocraft", Some("https://discord.gg/artcraft")),
     official("vectorcraft", "VectorCraft", "Vector illustration", [232, 87, 63], "storytold/vectorcraft", Some("https://discord.gg/artcraft")),
     official("filmcraft", "FilmCraft", "Video editing, color and sound", [139, 92, 246], "storytold/filmcraft", Some("https://discord.gg/artcraft")),
@@ -452,17 +452,6 @@ pub static SUITE_ANDROID: [CraftApp; 50] = [
         None,
     ),
     community(
-        "rustypainter",
-        "RustyPainter",
-        "Native tiled painting playground built with egui",
-        [235, 120, 60],
-        "Vectra777/rusty-painter",
-        "Vectra777",
-        Some("https://github.com/Vectra777/rusty-painter"),
-        Some("com.artcraft.rustypainter"),
-        None,
-    ),
-    community(
         "splice",
         "Splice",
         "Timeline video editor with storyboard, transitions and effects",
@@ -493,17 +482,6 @@ pub static SUITE_ANDROID: [CraftApp; 50] = [
         "unn-corp",
         Some("https://github.com/unn-corp/Photonic"),
         Some("com.artcraft.photonic"),
-        None,
-    ),
-    community(
-        "dziwak",
-        "Dziwak",
-        "Image editor with background removal and retouching tools",
-        [70, 150, 230],
-        "wasyleque/dziwak",
-        "wasyleque",
-        Some("https://github.com/wasyleque/dziwak"),
-        Some("com.artcraft.dziwak"),
         None,
     ),
 ];

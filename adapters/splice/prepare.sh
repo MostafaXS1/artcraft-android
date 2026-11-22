@@ -34,6 +34,40 @@ PY
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
+
+echo "Bundling ffmpeg and ffprobe for Splice..."
+FFMPEG_DIR="$DEST/extra-jniLibs/arm64-v8a"
+mkdir -p "$FFMPEG_DIR"
+bash "$ROOT/lib/ffmpeg_android.sh" "$FFMPEG_DIR" "libsplice_ffmpeg.so" "libsplice_ffprobe.so"
+
+python3 - "$SRC_ABS/src/ffmpeg.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old_which = 'fn which(binary: &str) -> Result<PathBuf> {'
+new_which = '''fn which(binary: &str) -> Result<PathBuf> {
+    if binary == "ffmpeg" {
+        if let Ok(var) = std::env::var("SPLICE_FFMPEG") {
+            let p = PathBuf::from(var);
+            if p.is_file() {
+                return Ok(p);
+            }
+        }
+    }
+    if binary == "ffprobe" {
+        if let Ok(var) = std::env::var("SPLICE_FFPROBE") {
+            let p = PathBuf::from(var);
+            if p.is_file() {
+                return Ok(p);
+            }
+        }
+    }'''
+if old_which in s and 'SPLICE_FFMPEG' not in s:
+    s = s.replace(old_which, new_which, 1)
+    p.write_text(s)
+PY
+
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 python3 - "$DEST/src/system_fonts.rs" <<'PY'
 from pathlib import Path

@@ -197,6 +197,7 @@ pub fn android_main(android_app: AndroidApp) {
     let saf_state = Arc::new(SafState::new());
     install_saf_launcher(bridge.clone_ref(), Arc::clone(&saf_state));
 
-    let _ = photonic_app::run_android(android_app);
-    std::process::exit(0);
+    if let Err(error) = photonic_app::run_android(android_app) {
+        log::error!("Photonic exited with error: {error:#}");
+    }
 }

@@ -362,11 +362,9 @@ ASSOCIATIONS = {
     "pixelcraft": ["pixel", "ase", "aseprite", "png", "gif"],
     "ferrite": ["md", "markdown", "txt", "json", "toml", "yaml", "yml", "csv"],
     "clothcraft": ["clothcraft", "obj", "svg", "dxf", "gltf", "glb", "json"],
-    "rustypainter": ["rp", "kra", "ora", "png", "jpg", "jpeg", "webp"],
     "splice": ["splice", "mp4", "mov", "mkv", "avi", "wav", "mp3"],
     "vidcut": ["mp4", "mkv", "mov", "avi", "webm"],
     "photonic": ["photon", "svg", "json"],
-    "dziwak": ["png", "jpg", "jpeg", "webp"],
     "coimanide": [
         "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
         "md", "markdown", "txt", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "java", "kt", "kts",

@@ -9,6 +9,17 @@ ADAPTER="$ROOT/adapters/vidcut"
 DEST="$SRC_ABS/apps/$APP-android"
 
 # Update root Cargo.toml to add workspace member
+if [[ -f "$SRC_ABS/.cargo/config.toml" ]]; then
+    python3 - "$SRC_ABS/.cargo/config.toml" <<'PY'
+from pathlib import Path
+import sys, re
+p = Path(sys.argv[1])
+s = p.read_text()
+s = re.sub(r'(?m)^\s*target-dir\s*=\s*"[^"]*"\s*$', '', s)
+p.write_text(s)
+PY
+fi
+
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
 import re, sys
@@ -47,6 +58,70 @@ PY
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
+
+echo "Bundling ffmpeg and ffprobe for VidCut..."
+FFMPEG_DIR="$DEST/extra-jniLibs/arm64-v8a"
+mkdir -p "$FFMPEG_DIR"
+bash "$ROOT/lib/ffmpeg_android.sh" "$FFMPEG_DIR" "libvidcut_ffmpeg.so" "libvidcut_ffprobe.so"
+
+python3 - "$SRC_ABS/crates/vidcut-media/src/ffmpeg_manager.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+s = s.replace(
+    'let is_present = sidecar_path()\n        .map(|p| p.exists())\n        .unwrap_or(false);',
+    'let is_present = sidecar_path().map(|p| p.exists()).unwrap_or(false) || std::env::var("VIDCUT_FFMPEG").map(|p| std::path::Path::new(&p).exists()).unwrap_or(false);'
+)
+s = s.replace(
+    'sidecar_path()\n        .map(|p| p.exists())\n        .unwrap_or(false)',
+    'sidecar_path().map(|p| p.exists()).unwrap_or(false) || std::env::var("VIDCUT_FFMPEG").map(|p| std::path::Path::new(&p).exists()).unwrap_or(false)'
+)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/vidcut-media/src/decoder.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+if 'VIDCUT_FFPROBE' not in s:
+    s = s.replace(
+        'fn ffprobe_bin() -> String {',
+        'fn ffprobe_bin() -> String {\n    if let Ok(p) = std::env::var("VIDCUT_FFPROBE") {\n        if std::path::Path::new(&p).exists() {\n            return p;\n        }\n    }'
+    )
+    p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/vidcut-media/src/encoder.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+if 'VIDCUT_FFMPEG' not in s:
+    s = s.replace(
+        'let ffmpeg_bin = ffmpeg_sidecar::paths::ffmpeg_path();',
+        'let ffmpeg_bin = std::env::var("VIDCUT_FFMPEG").map(std::path::PathBuf::from).unwrap_or_else(|_| ffmpeg_sidecar::paths::ffmpeg_path());'
+    )
+    s = s.replace(
+        'pub fn ffmpeg_available() -> bool {',
+        'pub fn ffmpeg_available() -> bool {\n    if let Ok(p) = std::env::var("VIDCUT_FFMPEG") {\n        if std::path::Path::new(&p).exists() {\n            return true;\n        }\n    }'
+    )
+    p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/vidcut-media/src/frame_extractor.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+if 'VIDCUT_FFMPEG' not in s:
+    s = s.replace(
+        'let ffmpeg_bin = ffmpeg_sidecar::paths::ffmpeg_path();',
+        'let ffmpeg_bin = std::env::var("VIDCUT_FFMPEG").map(std::path::PathBuf::from).unwrap_or_else(|_| ffmpeg_sidecar::paths::ffmpeg_path());'
+    )
+    p.write_text(s)
+PY
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 python3 - "$DEST/src/system_fonts.rs" <<'PY'
 from pathlib import Path

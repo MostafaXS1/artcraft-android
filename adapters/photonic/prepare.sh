@@ -110,6 +110,27 @@ if "android-activity" not in s:
 p.write_text(s)
 PY
 
+# Patch alpha_mode in crates/photonic-render/src/renderer/mod.rs
+python3 - "$SRC_ABS/crates/photonic-render/src/renderer/mod.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old_alpha = '''    let Some(alpha_mode) = caps.alpha_modes.first().copied() else {
+        return Err(anyhow!("surface has no compatible alpha modes"));
+    };'''
+new_alpha = '''    let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Auto) {
+        wgpu::CompositeAlphaMode::Auto
+    } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+        wgpu::CompositeAlphaMode::Opaque
+    } else {
+        caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto)
+    };'''
+if old_alpha in s:
+    s = s.replace(old_alpha, new_alpha, 1)
+    p.write_text(s)
+PY
+
 # Add run_android to crates/photonic-app/src/main.rs and create src/lib.rs
 python3 - "$SRC_ABS/crates/photonic-app" <<'PY'
 from pathlib import Path
@@ -117,6 +138,24 @@ import sys, re
 app_dir = Path(sys.argv[1])
 main_rs = app_dir / "src" / "main.rs"
 s = main_rs.read_text()
+
+# Handle suspended and safe capture_rx
+if "fn suspended(&mut self" not in s:
+    s = s.replace(
+        "impl ApplicationHandler for PhotonicWinitApp {",
+        "impl ApplicationHandler for PhotonicWinitApp {\n    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {\n        tracing::info!(\"Window suspended — clearing render state\");\n        self.state = None;\n    }"
+    )
+
+s = s.replace(
+    'let capture_rx = self.capture_rx.take().expect("capture_rx already consumed");',
+    'let capture_rx = self.capture_rx.take().unwrap_or_else(|| std::sync::mpsc::channel().1);'
+)
+
+# Do not exit on transient surface errors
+s = s.replace(
+    'error!(%error, "GPU surface failed; closing Photonic cleanly");\n                        event_loop.exit();\n                        return;',
+    'error!(%error, "GPU surface error during frame");\n                        return;'
+)
 
 # Inject mobile scaling in render_frame
 if "ctx.screen_rect().width() < 600.0" not in s:

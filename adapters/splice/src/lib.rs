@@ -14,6 +14,49 @@ mod saf;
 const SAF_BRIDGE_MARKER: &str = "ARTCRAFT_SPLICE_SAF_BRIDGE_V1";
 const ANDROID_SHELL_MARKER: &str = "ARTCRAFT_SPLICE_ANDROID_SHELL_V1";
 
+const FFMPEG_BUNDLE_NAME: &str = "libsplice_ffmpeg.so";
+const FFPROBE_BUNDLE_NAME: &str = "libsplice_ffprobe.so";
+
+fn bundled_bin(name: &str) -> Option<PathBuf> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    let library = maps.lines().find_map(|line| {
+        let path = line.split_whitespace().last()?;
+        (path.ends_with(".so") && path.contains("/lib/")).then(|| PathBuf::from(path))
+    })?;
+    let program = library.parent()?.join(name);
+    program.is_file().then_some(program)
+}
+
+fn install_ffmpeg_env() {
+    if let Some(ffmpeg) = bundled_bin(FFMPEG_BUNDLE_NAME) {
+        log::info!("Splice: using bundled ffmpeg at {}", ffmpeg.display());
+        unsafe {
+            std::env::set_var("SPLICE_FFMPEG", &ffmpeg);
+        }
+    } else {
+        log::warn!("Splice: no bundled ffmpeg found");
+    }
+    if let Some(ffprobe) = bundled_bin(FFPROBE_BUNDLE_NAME) {
+        log::info!("Splice: using bundled ffprobe at {}", ffprobe.display());
+        unsafe {
+            std::env::set_var("SPLICE_FFPROBE", &ffprobe);
+        }
+    } else {
+        log::warn!("Splice: no bundled ffprobe found");
+    }
+    if let Ok(maps) = std::fs::read_to_string("/proc/self/maps") {
+        if let Some(lib_dir) = maps.lines().find_map(|l| {
+            let p = l.split_whitespace().last()?;
+            (p.ends_with(".so") && p.contains("/lib/")).then(|| PathBuf::from(p))
+        }).and_then(|p| p.parent().map(|p| p.to_path_buf())) {
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            unsafe {
+                std::env::set_var("PATH", format!("{}:{}", lib_dir.display(), current_path));
+            }
+        }
+    }
+}
+
 static ALIVE: AtomicBool = AtomicBool::new(true);
 
 fn install_persist_env(app: &AndroidApp) -> PathBuf {
@@ -241,6 +284,7 @@ pub fn android_main(android_app: AndroidApp) {
     log::info!("{SAF_BRIDGE_MARKER} ready ({ANDROID_SHELL_MARKER})");
 
     install_persist_env(&android_app);
+    install_ffmpeg_env();
     system_fonts::install_font_env(&android_app);
     apply_immersive_fullscreen(&android_app);
 
@@ -261,7 +305,7 @@ pub fn android_main(android_app: AndroidApp) {
     let bridge_for_app = bridge.clone();
     let state_for_app = Arc::clone(&saf_state);
 
-    let _ = eframe::run_native(
+    let result = eframe::run_native(
         "Splice",
         options,
         Box::new(move |cc| {
@@ -286,5 +330,7 @@ pub fn android_main(android_app: AndroidApp) {
             }))
         }),
     );
-    std::process::exit(0);
+    if let Err(error) = result {
+        log::error!("Splice exited with error: {error}");
+    }
 }

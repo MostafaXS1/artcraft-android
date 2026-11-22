@@ -36,8 +36,8 @@ OPUS_SHA256="${OPUS_SHA256:-65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e4694161
 FFMPEG_7_1_1_SHA256="733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
 FFMPEG_SHA256="${FFMPEG_SHA256:-$FFMPEG_7_1_1_SHA256}"
 
-if [[ -x "$PREFIX/bin/ffmpeg" ]]; then
-    echo "ffmpeg for Android is already built: $PREFIX/bin/ffmpeg"
+if [[ -x "$PREFIX/bin/ffmpeg" && -x "$PREFIX/bin/ffprobe" ]]; then
+    echo "ffmpeg and ffprobe for Android are already built: $PREFIX/bin/ffmpeg, $PREFIX/bin/ffprobe"
 else
     # --- The NDK toolchain -------------------------------------------------
     if [[ -n "${ANDROID_NDK_HOME:-}" && -d "$ANDROID_NDK_HOME" ]]; then
@@ -85,6 +85,10 @@ else
     build_lib() {
         local name="$1" url="$2" version="$3" configure_args="${4:-}" expected_sha256="${5:-}"
         local build_dir="$WORK/$name"
+        if [[ -f "$PREFIX/lib/lib${name}.a" || ( "$name" == "libvpx" && -f "$PREFIX/lib/libvpx.a" ) ]]; then
+            echo "$name is already built: skipping"
+            return 0
+        fi
         echo "Building $name for Android..."
         rm -rf "$build_dir"
         mkdir -p "$build_dir"
@@ -197,9 +201,10 @@ else
         --disable-debug \
         --disable-x86asm \
         --disable-programs \
-        --enable-ffmpeg
-    # The program is what AniCraft runs, so it is built after the libraries.
-    make -j"$JOBS" ffmpeg
+        --enable-ffmpeg \
+        --enable-ffprobe
+    # The programs are what AniCraft and Splice run, so they are built after the libraries.
+    make -j"$JOBS" ffmpeg ffprobe
     make install
     cd "$ROOT"
     # The sources and the object files are large; only the installed program is kept.
@@ -211,6 +216,16 @@ if [[ -n "$INSTALL_DIR" ]]; then
     cp -f "$PREFIX/bin/ffmpeg" "$INSTALL_DIR/$INSTALL_NAME"
     chmod 0755 "$INSTALL_DIR/$INSTALL_NAME"
     echo "Installed the Android ffmpeg as $INSTALL_DIR/$INSTALL_NAME"
+    if [[ -f "$PREFIX/bin/ffprobe" && $# -ge 3 ]]; then
+        INSTALL_PROBE_NAME="$3"
+        cp -f "$PREFIX/bin/ffprobe" "$INSTALL_DIR/$INSTALL_PROBE_NAME"
+        chmod 0755 "$INSTALL_DIR/$INSTALL_PROBE_NAME"
+        echo "Installed the Android ffprobe as $INSTALL_DIR/$INSTALL_PROBE_NAME"
+    fi
 fi
 echo "ffmpeg for Android: $PREFIX/bin/ffmpeg"
 "$PREFIX/bin/ffmpeg" -version 2>/dev/null | head -1 || true
+if [[ -f "$PREFIX/bin/ffprobe" ]]; then
+    echo "ffprobe for Android: $PREFIX/bin/ffprobe"
+    "$PREFIX/bin/ffprobe" -version 2>/dev/null | head -1 || true
+fi

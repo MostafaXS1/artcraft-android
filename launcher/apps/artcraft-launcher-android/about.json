@@ -812,31 +812,6 @@
       "platforms": "Android, macOS, Windows, Linux"
     },
     {
-      "id": "rustypainter",
-      "headline": "Native tiled painting playground built with egui.",
-      "about": "A fast, multithreaded raster and vector painting playground in Rust: infinite tiled canvas, dual-brush engine (Krita SVG tips, Clip Studio & ibisPaint brushes), puppet warp, layer masks, and local co-op painting.",
-      "features": [
-        {
-          "title": "Tiled raster canvas",
-          "text": "High-resolution multithreaded tiled engine with undo/redo and live layer blend modes."
-        },
-        {
-          "title": "Brush compatibility",
-          "text": "Imports brush bundles from Krita, Clip Studio Paint, and ibisPaint QR presets."
-        },
-        {
-          "title": "Puppet warp & vector tools",
-          "text": "Constrained Delaunay triangulation puppet mesh warp and robust vector path booleans."
-        },
-        {
-          "title": "Color management",
-          "text": "Full ICC color profile support and CMYK conversions powered by Little CMS."
-        }
-      ],
-      "shots": [],
-      "platforms": "Linux, macOS, Windows, Android"
-    },
-    {
       "id": "splice",
       "headline": "Native timeline video editor with storyboard and effects.",
       "about": "A native multitrack timeline video editor written in Rust: four-track timeline, storyboard, 58 transitions, 38 effects, animated titles, picture-in-picture overlays, voiceover recording, and 16:9 / 9:16 Shorts export.",
@@ -906,31 +881,6 @@
         {
           "title": "Agent-native MCP bridge",
           "text": "Full Model Context Protocol server exposing canvas state and automation tools."
-        }
-      ],
-      "shots": [],
-      "platforms": "Linux, macOS, Windows, Android"
-    },
-    {
-      "id": "dziwak",
-      "headline": "Native photo editor with AI background removal.",
-      "about": "A fast, distraction-free photo editor written in Rust with GIMP-inspired tools, layered adjustments, and local CPU-based neural background removal.",
-      "features": [
-        {
-          "title": "Local AI background removal",
-          "text": "Instant background extraction using U\u00b2-Net running entirely offline on CPU."
-        },
-        {
-          "title": "Essential retouching tools",
-          "text": "Crop, resize, rotate, color curves, levels, and brush retouching."
-        },
-        {
-          "title": "Dark & customizable theme",
-          "text": "Ergonomic dark theme inspired by GIMP 2.10 and Omarchy design system."
-        },
-        {
-          "title": "Zero telemetry",
-          "text": "100% offline, privacy-first image editing without external dependencies."
         }
       ],
       "shots": [],
