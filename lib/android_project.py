@@ -156,8 +156,11 @@ def manifest_xml(android_meta):
         # ships names its Activity, so this only mirrors the default for completeness.
         attrs = [f'android:name="{_esc(activity.get("name", ""))}"']
         for key, attr in ACTIVITY_ATTRS:
-            if activity.get(key) is not None:
-                attrs.append(f'{attr}="{_esc(activity[key])}"')
+            value = activity.get(key)
+            if key == "orientation" and value in (None, "unspecified"):
+                value = "user"
+            if value is not None:
+                attrs.append(f'{attr}="{_esc(value)}"')
         if activity.get("exported") is not None:
             attrs.append(f'android:exported="{"true" if activity["exported"] else "false"}"')
         lines.append(f'        <activity {" ".join(attrs)}>')
