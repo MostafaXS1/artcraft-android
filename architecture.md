@@ -26,6 +26,7 @@ This document describes the end-to-end architecture of the ArtCraft Android Buil
 - [Clipboard](#clipboard)
 - [Updates](#updates)
 - [Icons and Theming](#icons-and-theming)
+- [Hardware-Accelerated Video Rendering & Playback Engine](#hardware-accelerated-video-rendering--playback-engine)
 - [Mouse, Touch, Scrolling, and Input](#mouse-touch-scrolling-and-input)
 - [Back Button Handling](#back-button-handling)
 - [Lifecycle, Fullscreen, and Edge-to-Edge](#lifecycle-fullscreen-and-edge-to-edge)
@@ -43,13 +44,13 @@ This document describes the end-to-end architecture of the ArtCraft Android Buil
 ## Overview
 
 The ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Android APKs from official upstream repositories of the ArtCraft suite and community creative tools. It uses a hybrid approach:
-- Directly builds 32 applications and the standalone ArtCraft Launcher APK.
+- Directly builds 40 applications and the standalone ArtCraft Launcher APK.
 - For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="81"`).
-- For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 19 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, etc.).
+- For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 27 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, VidCut, Splice, ClothCraft, etc.).
 - It vendors and patches dependencies (`winit`, `egui-winit`, `rfd`, `arboard`, `egui-wgpu`, `android-activity`, `krilla`, `ffmpeg-sys-next`, `midir`, etc.) to add Android-specific desktop input (mouse/trackpad hover, wheel, gestures), system clipboard via JNI, SAF integration, ANR-safe non-blocking lifecycles, and surface recovery fixes.
-- It shares runtime modules (SAF bridge, system fonts, update checker) across generated launchers and adapters; soft-keyboard input uses `android-activity`'s native GameActivity IME.
+- It shares runtime modules (SAF bridge, system fonts, update checker, hardware-accelerated video rendering) across generated launchers and adapters; soft-keyboard input uses `android-activity`'s native GameActivity IME.
 - It manages SDK/NDK/JDK discovery and bootstrap, automated Gradle packaging, local keystore signing, and release artifact verification.
-- The overall ecosystem supports 40 applications across official Storytold releases, in-tree community adapters, and external community releases indexed by the ArtCraft Launcher (see [`docs/ported-apps.md`](docs/ported-apps.md)).
+- The overall ecosystem supports 48 applications across official Storytold releases, in-tree community adapters, and external community releases indexed by the ArtCraft Launcher (see [`docs/ported-apps.md`](docs/ported-apps.md)).
 
 ---
 
@@ -62,14 +63,14 @@ artcraft-android-builder/
 ├── build-launcher.sh        # Dedicated build script for ArtCraft Launcher APK
 ├── clean.sh                 # Workspace cleanup script
 ├── lib/
-│   ├── build-common.sh      # Main orchestrator script (~4100 lines)
+│   ├── build-common.sh      # Main orchestrator script (~8400 lines)
 │   ├── android_project.py   # Generates AndroidManifest.xml, Gradle project, themes
 │   ├── app_icons.py         # Generates adaptive and legacy launcher icons
 │   ├── file_associations.py  # Central intent filter and MIME registry
 │   ├── scrolling.sh         # App-side two-finger scroll and momentum patches
 │   ├── ime.sh               # Soft keyboard Backspace return patches (WordCraft)
 │   ├── subcraft.sh          # SubCraft file handoff patch (files::deliver_android)
-│   ├── ffmpeg_android.sh    # Builds Android FFmpeg / libvpx / opus libraries
+│   ├── ffmpeg_android.sh    # Builds Android FFmpeg / libvpx / opus / mediacodec libraries
 │   └── wordcraft_opt.sh     # WordCraft layout and typing performance optimizations
 ├── templates/
 │   ├── android/             # Shared Java and Rust runtime modules
@@ -82,17 +83,17 @@ artcraft-android-builder/
 ├── launcher/                # ArtCraft Launcher suite source code
 │   ├── Cargo.toml
 │   ├── apps/
-│   │   ├── artcraft-launcher-android/ # Android launcher app & catalog
+│   │   ├── artcraft-launcher-android/ # Android launcher app & catalog (47 apps)
 │   │   ├── artcraft-launcher-web/     # Web launcher target
 │   │   └── artcraft-launcher/         # Desktop launcher binary
 │   └── crates/
 │       ├── core/            # Catalog, versioning, release metadata
 │       ├── native/          # Platform runtime utilities
 │       └── ui-egui/         # egui user interface components
-├── adapters/                # 19 per-app custom adapters (photocraft, vectorcraft, coimanide, etc.)
+├── adapters/                # 27 per-app custom adapters (photocraft, vectorcraft, coimanide, etc.)
 ├── vendor/                  # 15 vendored and patched native crates
 ├── docs/                    # Technical documentation
-│   ├── ported-apps.md       # Complete index of all 40 ported applications
+│   ├── ported-apps.md       # Complete index of all 48 ported applications
 │   ├── porting-guide.md     # Detailed porting processes and runtime bridges
 │   ├── ci-workflow.md       # CI/CD architecture and pipeline reference
 │   └── FILMCRAFT_OPTIMIZATION_ROADMAP.md # Video pipeline performance roadmap
@@ -114,18 +115,18 @@ Notes:
 
 ## Supported Apps
 
-ArtCraft Android supports **44 applications** across the suite, categorized into:
+ArtCraft Android supports **48 applications** across the suite, categorized into:
 
 1. **Official Storytold Suite (16 apps):**
    `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`, `materialcraft`, `texturecraft`, `anicraft`.
-2. **Community Applications with In-Tree Adapters & Direct CI Builds (20 apps):**
-   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`, `pcbcraft`, `fieldcraft`, `papercraft`, `ferrite`.
+2. **Community Applications with In-Tree Adapters & Direct CI Builds (24 apps):**
+   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`, `pcbcraft`, `fieldcraft`, `papercraft`, `ferrite`, `pixelcraft`, `clothcraft`, `splice`, `vidcut`.
 3. **Community Applications Tracked via Launcher Catalog (7 apps):**
    `keydeck`, `values`, `letters`, `procraft`, `capcraft`, `concat`, `shapecraft`.
 4. **ArtCraft Launcher (1 app):**
    `launcher` (`artcraft-launcher-android`).
 
-All 36 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
+All 40 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
 
 ---
 
@@ -457,6 +458,42 @@ For apps with `recent_paths`/`open_paths` in recipes:
 
 ---
 
+## Hardware-Accelerated Video Rendering & Playback Engine
+
+Video playback, trimming, and multi-track scrubbing on Android require sustained high-throughput frame decoding. ArtCraft Android integrates a dedicated hardware acceleration pipeline based on Concat's mobile media engine across all video applications (`vidcut`, `splice`, `picassosuite`, `filmcraft`):
+
+### 1. Android NDK AMediaCodec Architecture
+- Leverages the Android NDK `AMediaCodec` low-level native API (`libmediandk.so`).
+- Dedicated hardware video decoders for major mobile codecs:
+  - H.264 / AVC (`h264_mediacodec`)
+  - HEVC / H.265 (`hevc_mediacodec`)
+  - VP9 (`vp9_mediacodec`)
+  - AV1 (`av1_mediacodec`)
+- Bypasses slow CPU software decoding routines (`libx264`, `libvpx`, `dav1d`), dramatically lowering thermal throttling and battery consumption during playback and scrubbing.
+
+### 2. Direct Uncopied Memory Path & Zero-Staging Buffers
+- MediaCodec hardware decoders accessed through FFmpeg's `-hwaccel mediacodec` / `amediacodec_ndk` wrapper resolve hardware stride padding and crop boundaries directly into standard system planar memory (RGBA / NV12 / YUV420P).
+- Decoded frames are converted directly into egui color textures (`TextureHandle`) without requiring intermediary OpenGL surface callbacks or CPU pixel manipulation loops.
+
+### 3. Builder-Level FFmpeg Toolchain (`lib/ffmpeg_android.sh`)
+- Automated cross-compilation pipeline produces standalone Android ARM64 `ffmpeg` and `ffprobe` binaries.
+- Configured with `--enable-jni --enable-mediacodec --enable-libx264 --enable-libvpx --enable-libopus --disable-vulkan`.
+- Embedded inside the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories, requiring zero Termux or external packages.
+
+### 4. Per-Application Adaptations
+- **VidCut (`adapters/vidcut/prepare.sh`)**:
+  - `crates/vidcut-media/src/frame_extractor.rs`: Patched to prepend `-hwaccel mediacodec` to frame extraction child commands.
+  - Automatic fallback to multi-threaded CPU software extraction if hardware decoding reports non-zero exit or unsupported stream format.
+- **Splice (`adapters/splice/prepare.sh`)**:
+  - `src/preview.rs`: Timeline scrub seeking and streaming playback loops spawn `ffmpeg -hwaccel mediacodec` pipes directly to stdout RGBA buffers with automated CPU fallback.
+- **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
+  - `vendor/ffmpeg-sys-next/build.rs`: Patched to enable `--enable-mediacodec --enable-jni` automatically on `target_os == "android"`.
+  - `crates/picasso-decode/src/hw.rs`: Injects `AV_HWDEVICE_TYPE_MEDIACODEC` into Android hardware device discovery.
+- **FilmCraft**:
+  - Utilizes native `AMediaCodec` hardware decoder in `crates/platform/src/android_mediacodec.rs` with Vulkan and GLES surface integration.
+
+---
+
 ## Mouse, Touch, Scrolling, and Input
 
 - Patched winit provides proper mouse support (hover, buttons, wheel, trackpad) vs touch-only
@@ -537,6 +574,10 @@ Located in `adapters/` (23 custom adapters):
 - **fieldcraft**: Finite element analysis and simulation, GPU mesh simulation crates, 24-bit depth buffer, clamped texture limits (8192), SAF storage migration
 - **papercraft**: Local vector design and infinite canvas, SAF document import/export, multi-touch pinch zoom/pan/rotate
 - **ferrite**: Lightweight Markdown/JSON text editor, custom `termios` shim (`vendor/termios`), GameActivity IME soft keyboard bridge and dynamic viewport resize
+- **pixelcraft**: Fast native pixel art editor and animator, touch canvas navigation and pixel grid scaling
+- **clothcraft**: Cloth simulation and garment patterning, DXF/SVG pattern import, multi-touch draped mesh navigation
+- **splice**: Fast video editor with MediaCodec hardware accelerated decoding, scrubbing, and stream playback
+- **vidcut**: Video trimmer, cutter, and timeline editor with MediaCodec hardware accelerated frame extraction
 
 Adapter README (`adapters/README.md`) explains when to use adapters vs generated launcher.
 
@@ -550,7 +591,7 @@ Fifteen patched dependencies are maintained in `vendor/`:
 - **egui_dock**: Docking tab panels for egui workspaces
 - **egui-wgpu** / **egui-wgpu-0.36**: Surface recovery fix (release old surface before creating new)
 - **egui-winit** / **egui-winit-0.36**: Android clipboard backend via JNI
-- **ffmpeg-sys-next**: NDK FFmpeg C bindings
+- **ffmpeg-sys-next**: NDK FFmpeg C bindings with automatic Android MediaCodec decode hardware acceleration
 - **krilla** / **krilla-svg**: Vector graphics and PDF rendering engine
 - **midir**: Android MIDI subsystem backend
 - **rfd**: Android backend routing through `rfd::artcraft_saf`
@@ -563,8 +604,8 @@ Fifteen patched dependencies are maintained in `vendor/`:
 ## CI/CD
 
 See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
-- **Dynamic Matrix Evaluation (`prepare`):** Evaluates inputs and commit message directives (`[build: wordcraft]`, `[build: launcher]`, `[skip ci]`), dynamically building only the requested apps or the full 32-app matrix.
-- **Parallel Builds:** Builds all 32 applications and the ArtCraft Launcher in parallel runner matrix jobs.
+- **Dynamic Matrix Evaluation (`prepare`):** Evaluates inputs and commit message directives (`[build: wordcraft]`, `[build: launcher]`, `[skip ci]`), dynamically building only the requested apps or the full 40-app matrix.
+- **Parallel Builds:** Builds all 40 applications and the ArtCraft Launcher in parallel runner matrix jobs.
 - **Triggers:** Push to branches/tags, manual dispatch (mode: release/debug, source_version: stable/main, release_build).
 - **Concurrency Control:** Cancels in-progress runs for the same git reference to prevent runner queue starvation.
 - **Caching:** Multi-tier caching with `sccache` (GHA backend for C/C++ and Rust object files), Cargo registry/git db, and Gradle caches.
@@ -597,7 +638,7 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 - **Font links**: must be in internal storage (external can't symlink)
 - **Intent pending**: only adapters define it; generated launchers may have watcher issues if not handled
 - **isHighDensityDevice naming**: returns true for small screens (width < 600dp), not high DPI
-- **Supported scale**: 32 directly buildable applications + ArtCraft Launcher, with 40 applications documented across the ecosystem in `docs/ported-apps.md`
+- **Supported scale**: 40 directly buildable applications + ArtCraft Launcher, with 48 applications documented across the ecosystem in `docs/ported-apps.md`
 
 ---
 
@@ -619,10 +660,10 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 | `templates/android/saf_bridge.rs` | Rust SAF JNI bridge |
 | `templates/android/system_fonts.rs` | System fonts |
 | `templates/android/UpdateCheck.java` | Update checker |
-| `adapters/*` | 19 custom adapters |
+| `adapters/*` | 27 custom adapters |
 | `vendor/*` | 15 patched dependencies |
 | `.github/workflows/build.yml` | CI/CD build matrix workflow |
 | `README.md` | General overview and quickstart |
-| `docs/ported-apps.md` | Comprehensive index of all 40 ported applications |
+| `docs/ported-apps.md` | Comprehensive index of all 48 ported applications |
 | `docs/porting-guide.md` | Detailed step-by-step porting processes and runtime bridges |
 | `docs/ci-workflow.md` | Detailed CI/CD documentation |

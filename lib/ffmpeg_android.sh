@@ -193,6 +193,8 @@ else
         --enable-static \
         --disable-shared \
         --enable-pic \
+        --enable-jni \
+        --enable-mediacodec \
         --enable-gpl \
         --enable-libx264 \
         --enable-libvpx \

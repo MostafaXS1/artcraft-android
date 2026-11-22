@@ -112,7 +112,7 @@ PY
 
 python3 - "$SRC_ABS/crates/vidcut-media/src/frame_extractor.rs" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 if 'VIDCUT_FFMPEG' not in s:
@@ -120,7 +120,58 @@ if 'VIDCUT_FFMPEG' not in s:
         'let ffmpeg_bin = ffmpeg_sidecar::paths::ffmpeg_path();',
         'let ffmpeg_bin = std::env::var("VIDCUT_FFMPEG").map(std::path::PathBuf::from).unwrap_or_else(|_| ffmpeg_sidecar::paths::ffmpeg_path());'
     )
-    p.write_text(s)
+
+# Accelerated hardware video decoding via MediaCodec (with clean software fallback)
+old_cmd = '''    let output = Command::new(&ffmpeg_bin)
+        .args(["-ss", &format!("{:.6}", timestamp_secs)])
+        .arg("-i")
+        .arg(path.as_os_str())
+        .args(["-vframes", "1"])
+        .args(["-vf", &format!("scale={}:-2", out_width)])
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+        .args(["-v", "error"])
+        .arg("pipe:1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context("Failed to run ffmpeg for frame extraction")?;'''
+
+new_cmd = '''    let hw_output = Command::new(&ffmpeg_bin)
+        .args(["-hwaccel", "mediacodec"])
+        .args(["-ss", &format!("{:.6}", timestamp_secs)])
+        .arg("-i")
+        .arg(path.as_os_str())
+        .args(["-vframes", "1"])
+        .args(["-vf", &format!("scale={}:-2", out_width)])
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+        .args(["-v", "error"])
+        .arg("pipe:1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+
+    let output = match hw_output {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
+        _ => {
+            Command::new(&ffmpeg_bin)
+                .args(["-ss", &format!("{:.6}", timestamp_secs)])
+                .arg("-i")
+                .arg(path.as_os_str())
+                .args(["-vframes", "1"])
+                .args(["-vf", &format!("scale={}:-2", out_width)])
+                .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+                .args(["-v", "error"])
+                .arg("pipe:1")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .context("Failed to run ffmpeg for frame extraction")?
+        }
+    };'''
+
+if old_cmd in s:
+    s = s.replace(old_cmd, new_cmd)
+p.write_text(s)
 PY
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 python3 - "$DEST/src/system_fonts.rs" <<'PY'

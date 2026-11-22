@@ -274,6 +274,23 @@ cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
 sed -i '/source: egui::MouseWheelSource::/d' "$DEST/src/touch_gestures.rs" 2>/dev/null || true
 [[ -f "$ADAPTER/src/mcp_http.rs" ]] || cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
 
+# Enable MediaCodec hardware decode backend in picasso-decode
+python3 - "$SRC_ABS/crates/picasso-decode/src/hw.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = '''    } else if cfg!(target_os = "macos") {
+        &[AV_HWDEVICE_TYPE_VIDEOTOOLBOX]'''
+new = '''    } else if cfg!(target_os = "macos") {
+        &[AV_HWDEVICE_TYPE_VIDEOTOOLBOX]
+    } else if cfg!(target_os = "android") {
+        &[AV_HWDEVICE_TYPE_MEDIACODEC]'''
+if old in s and 'target_os = "android"' not in s:
+    s = s.replace(old, new, 1)
+    p.write_text(s)
+PY
+
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build
 mkdir -p "$SRC_ABS/.cargo"
 cat > "$SRC_ABS/.cargo/config.toml" <<EOF

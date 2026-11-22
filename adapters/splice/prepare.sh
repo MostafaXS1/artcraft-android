@@ -68,6 +68,148 @@ if old_which in s and 'SPLICE_FFMPEG' not in s:
     p.write_text(s)
 PY
 
+python3 - "$SRC_ABS/src/preview.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# 1. Hardware accelerated scrubbing
+old_scrub = '''        std::thread::spawn(move || {
+            let mut command = Command::new(&ffmpeg);
+            command.args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-ss",
+                &format!("{seek:.4}"),
+                "-i",
+            ]);
+            command.arg(&proxy);
+            command.args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+            let output = command.output();'''
+
+new_scrub = '''        std::thread::spawn(move || {
+            let mut hw_command = Command::new(&ffmpeg);
+            hw_command.args([
+                "-hwaccel",
+                "mediacodec",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-ss",
+                &format!("{seek:.4}"),
+                "-i",
+            ]);
+            hw_command.arg(&proxy);
+            hw_command.args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+            let output = match hw_command.output() {
+                Ok(out) if out.status.success() && out.stdout.len() >= width as usize * height as usize * 4 => Ok(out),
+                _ => {
+                    let mut sw_command = Command::new(&ffmpeg);
+                    sw_command.args([
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-nostdin",
+                        "-ss",
+                        &format!("{seek:.4}"),
+                        "-i",
+                    ]);
+                    sw_command.arg(&proxy);
+                    sw_command.args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+                    sw_command.output()
+                }
+            };'''
+
+if old_scrub in s:
+    s = s.replace(old_scrub, new_scrub, 1)
+
+# 2. Hardware accelerated playback
+old_play = '''        std::thread::spawn(move || {
+            let mut command = Command::new(&ffmpeg);
+            command.args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-ss",
+                &format!("{start:.4}"),
+                "-i",
+            ]);
+            command.arg(&proxy);
+            command.args([
+                "-an", "-vf", "fps=30", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+            ]);
+            command.stdout(Stdio::piped()).stderr(Stdio::null());
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(_) => return,
+            };
+            let mut stdout = match child.stdout.take() {
+                Some(stdout) => stdout,
+                None => return,
+            };
+            *child_slot.lock().expect("child slot") = Some(child);'''
+
+new_play = '''        std::thread::spawn(move || {
+            let mut hw_command = Command::new(&ffmpeg);
+            hw_command.args([
+                "-hwaccel",
+                "mediacodec",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-ss",
+                &format!("{start:.4}"),
+                "-i",
+            ]);
+            hw_command.arg(&proxy);
+            hw_command.args([
+                "-an", "-vf", "fps=30", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+            ]);
+            hw_command.stdout(Stdio::piped()).stderr(Stdio::null());
+            let (mut child, mut stdout) = match hw_command.spawn().and_then(|mut c| {
+                let out = c.stdout.take().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no stdout"));
+                out.map(|o| (c, o))
+            }) {
+                Ok(pair) => pair,
+                Err(_) => {
+                    let mut sw_command = Command::new(&ffmpeg);
+                    sw_command.args([
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-nostdin",
+                        "-ss",
+                        &format!("{start:.4}"),
+                        "-i",
+                    ]);
+                    sw_command.arg(&proxy);
+                    sw_command.args([
+                        "-an", "-vf", "fps=30", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+                    ]);
+                    sw_command.stdout(Stdio::piped()).stderr(Stdio::null());
+                    match sw_command.spawn().and_then(|mut c| {
+                        let out = c.stdout.take().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no stdout"));
+                        out.map(|o| (c, o))
+                    }) {
+                        Ok(pair) => pair,
+                        Err(_) => return,
+                    }
+                }
+            };
+            *child_slot.lock().expect("child slot") = Some(child);'''
+
+if old_play in s:
+    s = s.replace(old_play, new_play, 1)
+
+p.write_text(s)
+PY
+
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 python3 - "$DEST/src/system_fonts.rs" <<'PY'
 from pathlib import Path

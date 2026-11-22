@@ -215,7 +215,7 @@ pub fn show_text_bar(ctx: &Context) {
     };
 
     // Only display if the context actually wants keyboard input or is editing text
-    if !ctx.wants_keyboard_input() && ctx.output(|o| o.ime.is_none()) {
+    if !ctx.egui_wants_keyboard_input() && ctx.output(|o| o.ime.is_none()) {
         if let Ok(mut b) = BAR_BUTTONS.lock() {
             b.clear();
         }

@@ -2641,7 +2641,11 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
         if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
-            sed -i -e '/source: egui::MouseWheelSource::/d' -e '/phase: TouchPhase::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+            sed -i '/source: egui::MouseWheelSource::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+        fi
+        if [[ "$APP" == "vidcut" || "$APP" == "splice" ]]; then
+            sed -i '/phase: TouchPhase::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+            sed -i 's/egui_wants_keyboard_input/wants_keyboard_input/g' "$SRC/apps/$APP-android/src/mobile_text_bar.rs" 2>/dev/null || true
         fi
         if [[ "$APP" == "vidcut" ]]; then
             python3 - "$SRC/apps/$APP-android/src/mobile_text_bar.rs" <<'PY'

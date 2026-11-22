@@ -179,7 +179,14 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
-                raw.modifiers = mods;
+                raw.events.push(Event::ModifiersChanged(mods));
+                raw.events.push(Event::Key {
+                    key: Key::ControlLeft,
+                    physical_key: Some(Key::ControlLeft),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: mods,
+                });
                 raw.events.push(Event::Key {
                     key: Key::Z,
                     physical_key: Some(Key::Z),
@@ -194,7 +201,14 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: mods,
                 });
-                raw.modifiers = Modifiers::NONE;
+                raw.events.push(Event::Key {
+                    key: Key::ControlLeft,
+                    physical_key: Some(Key::ControlLeft),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                });
+                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             3 => {
@@ -206,7 +220,21 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
-                raw.modifiers = mods;
+                raw.events.push(Event::ModifiersChanged(mods));
+                raw.events.push(Event::Key {
+                    key: Key::ControlLeft,
+                    physical_key: Some(Key::ControlLeft),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: mods,
+                });
+                raw.events.push(Event::Key {
+                    key: Key::ShiftLeft,
+                    physical_key: Some(Key::ShiftLeft),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: mods,
+                });
                 raw.events.push(Event::Key {
                     key: Key::Z,
                     physical_key: Some(Key::Z),
@@ -221,7 +249,27 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: mods,
                 });
-                raw.modifiers = Modifiers::NONE;
+                raw.events.push(Event::Key {
+                    key: Key::ShiftLeft,
+                    physical_key: Some(Key::ShiftLeft),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: Modifiers {
+                        alt: false,
+                        ctrl: true,
+                        shift: false,
+                        mac_cmd: false,
+                        command: true,
+                    },
+                });
+                raw.events.push(Event::Key {
+                    key: Key::ControlLeft,
+                    physical_key: Some(Key::ControlLeft),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                });
+                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             _ => {}

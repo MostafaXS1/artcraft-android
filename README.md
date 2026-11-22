@@ -58,6 +58,15 @@ Connect a keyboard and mouse, use a trackpad, or work directly on a touchscreen.
 
 These capabilities are implemented through shared Android runtime components, platform compatibility patches, and app-specific adapters.
 
+### Hardware-Accelerated Video Rendering & Playback Engine
+
+Video editing and timeline applications on mobile require extreme throughput that traditional CPU software decoding cannot sustain. ArtCraft Android features a dedicated, hardware-accelerated video rendering and playback engine derived from **Concat**'s mobile media architecture:
+- **MediaCodec NDK Acceleration:** Hardware-accelerated decoding via Android's NDK `AMediaCodec` framework (`h264_mediacodec`, `hevc_mediacodec`, `vp9_mediacodec`, `av1_mediacodec`).
+- **Direct System Memory Buffering:** AMediaCodec automatically unpacks hardware stride alignment and cropping directly into standard RGBA/NV12/YUV memory buffers, allowing instantaneous texture uploads to egui (`TextureHandle`) without expensive CPU colorspace conversion or extra staging copies.
+- **Custom Android FFmpeg Engine:** Custom cross-compiled FFmpeg and FFprobe binaries built with `--enable-jni --enable-mediacodec`, `--enable-libx264`, `--enable-libvpx`, and `--enable-libopus` are embedded directly in the APK (`extra-jniLibs/arm64-v8a/`) and dynamically resolved at runtime.
+- **Adaptive Fallback:** Intelligent fallback to multi-threaded CPU software decoding if hardware decoders encounter unsupported profiles or codec constraints.
+- **Suite-Wide Integration:** Active across all video timeline and editing applications: **VidCut**, **Splice**, **PicassoSuite**, and **FilmCraft**.
+
 
 [**Download the latest APKs**](https://github.com/MostafaXS1/artcraft-android/releases/)
 
@@ -65,9 +74,9 @@ These capabilities are implemented through shared Android runtime components, pl
 
 The ArtCraft applications originate from the official Storytold repositories and community creative suites. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them natively on Android.
 
-The ecosystem currently supports **40 applications**:
+The ecosystem currently supports **48 applications**:
 - **16 Official Storytold Suite applications** (PhotoCraft, VectorCraft, FilmCraft, WordCraft, etc.)
-- **16 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, etc.)
+- **24 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, Splice, VidCut, ClothCraft, etc.)
 - **7 External community applications** indexed and tracked via the launcher catalog
 - **ArtCraft Launcher:** A dedicated Android dashboard for installing, launching, and updating the suite
 

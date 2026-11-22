@@ -61,6 +61,7 @@
 - [57. Mobile Text Selection Context Bar](#57-mobile-text-selection-context-bar)
 - [58. Integrated Topbar Modifier Controls](#58-integrated-topbar-modifier-controls)
 - [59. Platform Hardening & Build Reliability](#59-platform-hardening--build-reliability)
+- [60. Hardware-Accelerated Video Rendering & Playback Engine (MediaCodec NDK & FFmpeg Integration)](#60-hardware-accelerated-video-rendering--playback-engine-mediacodec-ndk--ffmpeg-integration)
 
 ## 1. Project Overview
 
@@ -80,12 +81,10 @@ From `lib/build-common.sh` and `README.md`:
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
-anicraft bimcraft capsulecraft diagramcraft earthcraft
-humanmotioncraft mapcraft notecraft paintcraft picassosuite
-prowave rustgis tracedraw transit coimanide
-pcbcraft fieldcraft papercraft ferrite
+notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
+rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft splice vidcut
 ```
-Total: 36 apps. CI matrix builds all of them.
+Total: 40 buildable applications + 1 ArtCraft Launcher = 41 built by repository; 7 external community applications tracked via launcher catalog; 48 applications across the ecosystem.
 
 ## 3. Repository Structure
 
@@ -98,22 +97,25 @@ artcraft-android-builder/
 ├── README.md               # User documentation
 ├── CHANGELOG.md            # Change history
 ├── lib/
-│   ├── build-common.sh     # Main orchestrator (~4110 lines)
+│   ├── build-common.sh     # Main orchestrator (~8400 lines)
 │   ├── android_project.py  # Generates AndroidManifest.xml, Gradle project, themes
 │   ├── app_icons.py        # Generates adaptive/legacy launcher icons
 │   ├── file_associations.py # Central intent filter registry
 │   ├── scrolling.sh        # Two-finger scroll/momentum patches
 │   ├── ime.sh              # WordCraft Backspace-at-paragraph-start patch
-│   └── subcraft.sh         # SubCraft file handoff patch
+│   ├── subcraft.sh         # SubCraft file handoff patch
+│   └── ffmpeg_android.sh   # Builds Android FFmpeg / libvpx / opus / mediacodec libraries
 ├── templates/
 │   ├── android/            # Shared Java/Rust modules
 │   │   ├── SafActivity.java
 │   │   ├── saf_bridge.rs
 │   │   ├── system_fonts.rs
+│   │   ├── mobile_text_bar.rs
+│   │   ├── touch_gestures.rs
 │   │   └── UpdateCheck.java
 │   └── gradle/             # Gradle wrapper template
-├── adapters/               # Per-app custom adapters
-├── vendor/                 # Vendored patched crates
+├── adapters/               # 27 per-app custom adapters
+├── vendor/                 # 15 vendored patched crates
 ├── .github/workflows/      # CI configuration
 ├── docs/                   # Documentation
 ├── source/                 # Upstream checkouts (per-app, preserved)
@@ -139,10 +141,10 @@ The system uses a hybrid approach:
 ### 4.2 Build Configuration
 **Constants in `lib/build-common.sh`:**
 ```bash
-BUILDER_VERSION="0.2.0"
+BUILDER_VERSION="0.7.1"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
-GENERATOR_VERSION="55"  # Bumped when generated launcher template changes
+GENERATOR_VERSION="81"  # Bumped when generated launcher template changes
 ```
 
 **Repository mappings:**
@@ -2165,4 +2167,41 @@ Rather than employing floating button overlays that obscure canvas artwork, ArtC
 ### 59.3 AniCraft Brand Identity Refresh
 - **Upstream Asset Sync**: AniCraft upstream introduced an updated official engraved rabbit mascot icon across high-resolution tile formats.
 - **Asset Pipeline**: Master vector and raster assets (`adapters/anicraft/assets/app-icon/`) are processed via `lib/app_icons.py` to generate full-bleed adaptive vector layers (`res/mipmap-*/ic_launcher.png`, `ic_launcher_foreground.xml`) and legacy mipmaps, ensuring consistent presentation across modern Android launcher grids.
+
+---
+
+## 60. Hardware-Accelerated Video Rendering & Playback Engine (MediaCodec NDK & FFmpeg Integration)
+
+### 60.1 Architectural Context
+Video playback, multi-track scrubbing, and frame extraction on Android devices face strict battery, memory bandwidth, and thermal dissipation budgets. CPU software decoding (via software libavcodec decoders) is prohibitively slow for real-time mobile timeline previews, causing UI stutter, dropped frames, and rapid thermal throttling.
+
+ArtCraft Android implements a suite-wide hardware-accelerated video rendering and playback engine derived from **Concat**'s mobile media architecture (`https://github.com/jub0t/concat`).
+
+### 60.2 Android NDK AMediaCodec Integration
+- **Framework Driver**: Utilizes Android's NDK `AMediaCodec` C API (`libmediandk.so`), available on API 21+.
+- **Hardware Decoders**:
+  - H.264 / AVC: `h264_mediacodec`
+  - HEVC / H.265: `hevc_mediacodec`
+  - VP9: `vp9_mediacodec`
+  - AV1: `av1_mediacodec`
+- **Zero-Staging Memory Path**: In FFmpeg's `amediacodec_ndk` wrapper, decoded output buffers have hardware alignment stride and cropping already resolved, returning standard planar (RGBA/NV12/YUV420P) memory buffers. This allows direct texture upload to egui (`TextureHandle`) with zero intermediate staging copies and without requiring OpenGL surface context sharing.
+
+### 60.3 Builder-Level Custom FFmpeg Pipeline (`lib/ffmpeg_android.sh`)
+- Automated build script cross-compiles FFmpeg for `aarch64-linux-android` with:
+  - `--enable-jni --enable-mediacodec`
+  - `--enable-libx264 --enable-libvpx --enable-libopus`
+  - `--disable-vulkan --disable-static --enable-shared`
+- Output binaries (`ffmpeg`, `ffprobe`) are bundled into the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories.
+
+### 60.4 Video Suite Integration Details
+1. **VidCut (`adapters/vidcut/prepare.sh`)**:
+   - `crates/vidcut-media/src/frame_extractor.rs`: Prepend `-hwaccel mediacodec` to frame extraction child commands with automatic multi-threaded CPU fallback on error.
+2. **Splice (`adapters/splice/prepare.sh`)**:
+   - `src/preview.rs`: Timeline scrub seeking and streaming playback loops spawn `ffmpeg -hwaccel mediacodec` child process pipes directly to stdout RGBA buffers with automated CPU fallback.
+3. **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
+   - `vendor/ffmpeg-sys-next/build.rs`: Configures `--enable-mediacodec --enable-jni` automatically on `target_os == "android"`.
+   - `crates/picasso-decode/src/hw.rs`: Injects `AV_HWDEVICE_TYPE_MEDIACODEC` into Android hardware device discovery.
+4. **FilmCraft**:
+   - Direct integration via `crates/platform/src/android_mediacodec.rs` providing zero-copy `AMediaCodec` decode and Vulkan/GLES surface presentation.
+
 
