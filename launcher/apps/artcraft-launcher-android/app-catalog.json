@@ -699,21 +699,6 @@
       "site": "https://github.com/goriant-studio/VidCut",
       "bundle": "com.artcraft.vidcut",
       "image": "vidcut.png"
-    },
-    {
-      "id": "photonic",
-      "name": "Photonic",
-      "tagline": "Vector motion graphics, animation and design editor",
-      "color": [
-        0,
-        200,
-        180
-      ],
-      "repo": "unn-corp/Photonic",
-      "publisher": "unn-corp",
-      "site": "https://github.com/unn-corp/Photonic",
-      "bundle": "com.artcraft.photonic",
-      "image": "photonic.png"
     }
   ]
 }

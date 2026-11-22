@@ -364,7 +364,6 @@ ASSOCIATIONS = {
     "clothcraft": ["clothcraft", "obj", "svg", "dxf", "gltf", "glb", "json"],
     "splice": ["splice", "mp4", "mov", "mkv", "avi", "wav", "mp3"],
     "vidcut": ["mp4", "mkv", "mov", "avi", "webm"],
-    "photonic": ["photon", "svg", "json"],
     "coimanide": [
         "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
         "md", "markdown", "txt", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "java", "kt", "kts",

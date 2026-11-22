@@ -444,19 +444,6 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Linux, macOS, Windows, Android",
     },
-    AppDetails {
-        id: "photonic",
-        headline: "Professional vector illustration and motion graphics editor.",
-        about: "A dark-room native vector design and motion graphics powerhouse in Rust: kurbo/lyon vector geometry, GPU tessellation, multi-format timeline animation, and MCP server control.",
-        features: &[
-            Feature { title: "Precision vector engine", text: "Pen, pencil, boolean ops, variable stroke width, and gradient mesh editing." },
-            Feature { title: "Motion graphics timeline", text: "Keyframed transform and opacity animation with easing curves and multi-ratio reframe." },
-            Feature { title: "GPU-accelerated rendering", text: "Real-time vector and video compositing pipeline powered by wgpu and naga shaders." },
-            Feature { title: "Agent-native MCP bridge", text: "Full Model Context Protocol server exposing canvas state and automation tools." },
-        ],
-        shots: &[],
-        platforms: "Linux, macOS, Windows, Android",
-    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's
