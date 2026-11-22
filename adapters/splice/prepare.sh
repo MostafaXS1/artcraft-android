@@ -268,8 +268,6 @@ import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
 
-pattern = r'(\s+if std::env::var\("SPLICE_FFMPEG"\).*?command\.args\(\[\s*"-pix_fmt",\s*"yuv420p",\s*"-g",\s*"60",\s*"-keyint_min",\s*"30",\s*"-sc_threshold",\s*"0",\s*\]\);)|(\s+command\.args\(\["-c:v",\s*"libx264"\]\);.*?command\.args\(\[\s*"-pix_fmt",\s*"yuv420p",\s*"-g",\s*"60",\s*"-keyint_min",\s*"30",\s*"-sc_threshold",\s*"0",\s*\]\);)'
-
 replacement = '''    if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
         let bitrate = if options.preview { "4M" } else if options.width * options.height > 1920 * 1088 { "24M" } else { "12M" };
         command.args([
@@ -300,10 +298,20 @@ replacement = '''    if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os
         ]);
     }'''
 
-m = re.search(pattern, s, re.DOTALL)
-if m:
-    s = s[:m.start()] + '\n' + replacement + s[m.end():]
-    p.write_text(s)
+if 'h264_mediacodec' not in s:
+    pattern = r'(\s+command\.args\(\["-c:v",\s*"libx264"\]\);.*?command\.args\(\[\s*"-pix_fmt",\s*"yuv420p",\s*"-g",\s*"60",\s*"-keyint_min",\s*"30",\s*"-sc_threshold",\s*"0",\s*\]\);)'
+    m = re.search(pattern, s, re.DOTALL)
+    if m:
+        s = s[:m.start()] + '\n' + replacement + s[m.end():]
+else:
+    s = s.replace(
+        '"-c:v", "h264_mediacodec",\n            "-b:v", bitrate,\n            "-pix_fmt", "nv12",\n            "-g", "60",\n        ]);',
+        '"-c:v", "h264_mediacodec",\n            "-b:v", bitrate,\n            "-pix_fmt", "nv12",\n            "-g", "60",\n            "-threads", "4",\n            "-max_muxing_queue_size", "1024",\n        ]);'
+    )
+
+if 'command.args(["-nostdin", "-threads", "4"]);' not in s:
+    s = s.replace('command.arg("-y");', 'command.arg("-y");\n    command.args(["-nostdin", "-threads", "4"]);', 1)
+p.write_text(s)
 PY
 
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"

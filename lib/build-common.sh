@@ -860,6 +860,22 @@ def fix_all(rel: str, old: str, new: str) -> bool:
     return True
 
 
+def fix_or_update(rel: str, olds: list, new: str) -> bool:
+    """Replace any matching string from `olds` in `rel` with `new`, unless `new` is already present."""
+    path = src / rel
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    if new in text:
+        return False
+    for old in olds:
+        if old in text:
+            path.write_text(text.replace(old, new, 1))
+            return True
+    return False
+
+
 fixed = []
 if app == "photocraft":
     # "load each persisted preset set independently" added `export_presets` to the serialised
@@ -2158,7 +2174,7 @@ elif app == "filmcraft":
         '        let surface = self.surface.as_ref()?;\n'
         '        let format = self.surface_format?;\n'
         '        match plan {\n'
-        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } | FramePlan::Image(_) => {\n'
         '                if device_failed() {\n'
         '                    return None;\n'
         '                }\n'
@@ -2179,7 +2195,6 @@ elif app == "filmcraft":
         '                timing::add_frame();\n'
         '                Some(true)\n'
         '            }\n'
-        '            FramePlan::Image(_) => None,\n'
         '        }\n'
         '    }\n\n'
         '    pub fn render_to_surface(\n'
@@ -2203,6 +2218,72 @@ elif app == "filmcraft":
         '    ) -> Option<Vec<u8>> {\n'
         '        let plan = plan_frame(project, seq, t, opts, self.compositor.caps(), sources);\n'
         '        match &plan {\n'
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } | FramePlan::Image(_) => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(&plan);\n'
+        '                let (_w, _h, px) = self.compositor.render_export_rgba8(&plan, Some(&prep))?;\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                timing::add_frame();\n'
+        '                Some(px)\n'
+        '            }\n'
+        '        }\n'
+        '    }\n\n'
+        '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
+    ):
+        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer bind_surface, render_to_surface and render_rgba8)")
+
+    fix(
+        "crates/gpu/src/export_renderer.rs",
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(plan);\n'
+        '                let surface_tex = match surface.get_current_texture() {\n'
+        '                    wgpu::CurrentSurfaceTexture::Success(tex) | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,\n'
+        '                    e => {\n'
+        '                        log::warn!("Surface get_current_texture failed: {e:?}");\n'
+        '                        return None;\n'
+        '                    }\n'
+        '                };\n'
+        '                let view = surface_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());\n'
+        '                self.compositor.render_to_view(plan, Some(&prep), &view, format)?;\n'
+        '                self.queue.present(surface_tex);\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                timing::add_frame();\n'
+        '                Some(true)\n'
+        '            }\n'
+        '            FramePlan::Image(_) => None,\n',
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } | FramePlan::Image(_) => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(plan);\n'
+        '                let surface_tex = match surface.get_current_texture() {\n'
+        '                    wgpu::CurrentSurfaceTexture::Success(tex) | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,\n'
+        '                    e => {\n'
+        '                        log::warn!("Surface get_current_texture failed: {e:?}");\n'
+        '                        return None;\n'
+        '                    }\n'
+        '                };\n'
+        '                let view = surface_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());\n'
+        '                self.compositor.render_to_view(plan, Some(&prep), &view, format)?;\n'
+        '                self.queue.present(surface_tex);\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                timing::add_frame();\n'
+        '                Some(true)\n'
+        '            }\n',
+    )
+    fix(
+        "crates/gpu/src/export_renderer.rs",
         '            FramePlan::Layers { .. } | FramePlan::Composite { .. } => {\n'
         '                if device_failed() {\n'
         '                    return None;\n'
@@ -2215,12 +2296,20 @@ elif app == "filmcraft":
         '                timing::add_frame();\n'
         '                Some(px)\n'
         '            }\n'
-        '            FramePlan::Image(_) => None,\n'
-        '        }\n'
-        '    }\n\n'
-        '    pub fn render(&mut self, project: &Project, seq: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> Option<Image> {\n',
-    ):
-        fixed.append("crates/gpu/src/export_renderer.rs (ExportRenderer bind_surface, render_to_surface and render_rgba8)")
+        '            FramePlan::Image(_) => None,\n',
+        '            FramePlan::Layers { .. } | FramePlan::Composite { .. } | FramePlan::Image(_) => {\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                let prep = prepare(&plan);\n'
+        '                let (_w, _h, px) = self.compositor.render_export_rgba8(&plan, Some(&prep))?;\n'
+        '                if device_failed() {\n'
+        '                    return None;\n'
+        '                }\n'
+        '                timing::add_frame();\n'
+        '                Some(px)\n'
+        '            }\n',
+    )
 
     # 16. Support surface rendering and fast GPU RGBA8 dispatch in Pipeline.
     if fix(
@@ -2296,22 +2385,8 @@ elif app == "filmcraft":
         '    /// R\'G\'B\' floats (3 per pixel).\n'
         '    pub fn frame(&self, f: i64, sources: &dyn SourceProvider) -> (Vec<u8>, Vec<f32>) {\n',
         '    pub fn bind_surface(&self, window_ptr: *mut std::ffi::c_void) -> bool {\n'
-        '        if !self.can_surface_render() {\n'
+        '        if !self.can_surface_render() || window_ptr.is_null() {\n'
         '            return false;\n'
-        '        }\n'
-        '        let is_1to1 = (self.opts.scale - 1.0).abs() < 1e-4;\n'
-        '        if cfg!(target_os = "android") {\n'
-        '            if is_1to1 {\n'
-        '                filmcraft_codecs::hw::set_direct_surface(window_ptr, self.w, self.h);\n'
-        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
-        '                log::info!("Pipeline configured direct 1:1 decoder-to-encoder hardware surface bridge for {}x{}", self.w, self.h);\n'
-        '                return true;\n'
-        '            } else if let Some(decoder_win) = filmcraft_codecs::hw::init_surface_scaler(window_ptr, self.src_w, self.src_h, self.w, self.h) {\n'
-        '                filmcraft_codecs::hw::set_direct_surface(decoder_win, self.src_w, self.src_h);\n'
-        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
-        '                log::info!("Pipeline configured zero-copy HardwareSurfaceScaler: {}x{} -> {}x{}", self.src_w, self.src_h, self.w, self.h);\n'
-        '                return true;\n'
-        '            }\n'
         '        }\n'
         '        if let Some(pool) = &self.renderer {\n'
         '            let (w, h) = (self.w, self.h);\n'
@@ -2357,12 +2432,6 @@ elif app == "filmcraft":
         '        filmcraft_render::plan::plan_frame(&self.project, self.seq, t, self.opts, self.surface_caps(), sources)\n'
         '    }\n\n'
         '    pub fn render_plan_to_surface(&self, plan: &filmcraft_render::plan::FramePlan) -> Option<bool> {\n'
-        '        if filmcraft_codecs::hw::has_direct_surface() {\n'
-        '            if filmcraft_codecs::hw::has_surface_scaler() {\n'
-        '                return Some(filmcraft_codecs::hw::blit_surface_scaler());\n'
-        '            }\n'
-        '            return Some(true);\n'
-        '        }\n'
         '        let mut guard = self.surface_renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);\n'
         '        let r = guard.as_mut()?;\n'
         '        r.render_plan_to_surface(plan)\n'
@@ -2376,6 +2445,35 @@ elif app == "filmcraft":
         '    pub fn frame(&self, f: i64, sources: &dyn SourceProvider) -> (Vec<u8>, Vec<f32>) {\n',
     ):
         fixed.append("crates/export/src/pipeline.rs (Pipeline bind_surface and render_to_surface)")
+
+    fix(
+        "crates/export/src/pipeline.rs",
+        '        let is_1to1 = (self.opts.scale - 1.0).abs() < 1e-4;\n'
+        '        if cfg!(target_os = "android") {\n'
+        '            if is_1to1 {\n'
+        '                filmcraft_codecs::hw::set_direct_surface(window_ptr, self.w, self.h);\n'
+        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '                log::info!("Pipeline configured direct 1:1 decoder-to-encoder hardware surface bridge for {}x{}", self.w, self.h);\n'
+        '                return true;\n'
+        '            } else if let Some(decoder_win) = filmcraft_codecs::hw::init_surface_scaler(window_ptr, self.src_w, self.src_h, self.w, self.h) {\n'
+        '                filmcraft_codecs::hw::set_direct_surface(decoder_win, self.src_w, self.src_h);\n'
+        '                self.surface_bound.store(true, std::sync::atomic::Ordering::Relaxed);\n'
+        '                log::info!("Pipeline configured zero-copy HardwareSurfaceScaler: {}x{} -> {}x{}", self.src_w, self.src_h, self.w, self.h);\n'
+        '                return true;\n'
+        '            }\n'
+        '        }\n',
+        '',
+    )
+    fix(
+        "crates/export/src/pipeline.rs",
+        '        if filmcraft_codecs::hw::has_direct_surface() {\n'
+        '            if filmcraft_codecs::hw::has_surface_scaler() {\n'
+        '                return Some(filmcraft_codecs::hw::blit_surface_scaler());\n'
+        '            }\n'
+        '            return Some(true);\n'
+        '        }\n',
+        '',
+    )
 
     # 17. Bind surface in Exporter::set_up and use step_surface_batch for zero-copy hardware encoding.
     if fix(
@@ -2425,7 +2523,7 @@ elif app == "filmcraft":
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
         '    fn step_surface_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n'
         '        let f = self.next;\n'
-        '        let batch_size = if cfg!(target_os = "android") { 64 } else { self.batch_len() };\n'
+        '        let batch_size = if cfg!(target_os = "android") { 8 } else { self.batch_len() };\n'
         '        let end = self.next.saturating_add(batch_size).min(self.f1);\n'
         '        if end <= f {\n'
         '            return Err(ExportError::Encode("internal: an empty batch was rendered".into()));\n'
@@ -2450,7 +2548,6 @@ elif app == "filmcraft":
         '        let pipe_h = pipe.h;\n'
         '        for fi in f..end {\n'
         '            if progress.cancel.load(Ordering::Relaxed) {\n'
-        '                filmcraft_codecs::hw::clear_direct_surface();\n'
         '                filmcraft_codecs::release_idle();\n'
         '                return Err(ExportError::Cancelled);\n'
         '            }\n'
@@ -2459,7 +2556,6 @@ elif app == "filmcraft":
         '            let rendered = timed(Stage::Render, || pipe.render_plan_to_surface(&plan));\n'
         '            if rendered != Some(true) {\n'
         '                log::warn!("Hardware surface render fallback at frame {fi}; switching to buffer batch");\n'
-        '                filmcraft_codecs::hw::clear_direct_surface();\n'
         '                filmcraft_codecs::release_idle();\n'
         '                let _ = self.venc.fallback_to_buffer();\n'
         '                return self.step_batch(sources, progress);\n'
@@ -2476,6 +2572,7 @@ elif app == "filmcraft":
         '                Err(e) => return Err(e),\n'
         '            };\n'
         '            self.queued.extend(packets);\n'
+        '            progress.done.fetch_add(1, Ordering::Relaxed);\n'
         '            if cuts.contains(&(fi + 1)) {\n'
         '                let mux_res = timed(Stage::Mux, || -> Result<()> {\n'
         '                    if self.mux.is_none() && self.mxf.is_none() {\n'
@@ -2489,7 +2586,6 @@ elif app == "filmcraft":
         '                timed(Stage::Audio, || self.write_audio(pcm))?;\n'
         '            }\n'
         '        }\n'
-        '        progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);\n'
         '        self.next = end;\n'
         '        Ok(Step::Progress)\n'
         '    }\n\n'
@@ -2497,6 +2593,129 @@ elif app == "filmcraft":
         '    fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter step_surface_batch implementation)")
+
+    fix(
+        "crates/export/src/job.rs",
+        '        let batch_size = if cfg!(target_os = "android") { 64 } else { self.batch_len() };\n',
+        '        let batch_size = if cfg!(target_os = "android") { 8 } else { self.batch_len() };\n',
+    )
+    fix(
+        "crates/export/src/job.rs",
+        '            let packets = match timed(Stage::Encode, || self.venc.encode(&fr)) {\n'
+        '                Ok(p) => p,\n'
+        '                Err(e) => return Err(e),\n'
+        '            };\n'
+        '            self.queued.extend(packets);\n'
+        '            if cuts.contains(&(fi + 1)) {\n',
+        '            let packets = match timed(Stage::Encode, || self.venc.encode(&fr)) {\n'
+        '                Ok(p) => p,\n'
+        '                Err(e) => return Err(e),\n'
+        '            };\n'
+        '            self.queued.extend(packets);\n'
+        '            progress.done.fetch_add(1, Ordering::Relaxed);\n'
+        '            if cuts.contains(&(fi + 1)) {\n',
+    )
+    fix(
+        "crates/export/src/job.rs",
+        '        progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);\n'
+        '        self.next = end;\n'
+        '        Ok(Step::Progress)\n'
+        '    }\n\n'
+        '    /// Encode (and mux) the batch starting at `self.next`',
+        '        self.next = end;\n'
+        '        Ok(Step::Progress)\n'
+        '    }\n\n'
+        '    /// Encode (and mux) the batch starting at `self.next`',
+    )
+
+    fix(
+        "crates/export/src/job.rs",
+        '        if self.overlapping() { overlap_batch(batch, frame_bytes(self.pipe.w, self.pipe.h, self.pipe.hdr_out), self.budget) } else { batch }\n',
+        '        let len = if self.overlapping() { overlap_batch(batch, frame_bytes(self.pipe.w, self.pipe.h, self.pipe.hdr_out), self.budget) } else { batch };\n'
+        '        if cfg!(target_os = "android") { len.min(8) } else { len }\n',
+    )
+    fix(
+        "crates/export/src/job.rs",
+        '    fn encode_batch(&mut self, f: i64, frames: Vec<Frame>, sources: &dyn SourceProvider) -> Result<Encoded> {\n',
+        '    fn encode_batch(&mut self, f: i64, frames: Vec<Frame>, sources: &dyn SourceProvider, progress: &Progress) -> Result<Encoded> {\n',
+    )
+    fix(
+        "crates/export/src/job.rs",
+        '        for (k, frame) in frames.into_iter().enumerate() {\n'
+        '            let fi = f + k as i64;\n'
+        '            let packets = timed(Stage::Encode, || self.encode(std::slice::from_ref(&frame), fi))?;\n'
+        '            self.queued.extend(packets);\n'
+        '            if cuts.contains(&(fi + 1)) {\n',
+        '        for (k, frame) in frames.into_iter().enumerate() {\n'
+        '            let fi = f + k as i64;\n'
+        '            let packets = timed(Stage::Encode, || self.encode(std::slice::from_ref(&frame), fi))?;\n'
+        '            self.queued.extend(packets);\n'
+        '            progress.done.fetch_add(1, Ordering::Relaxed);\n'
+        '            if cuts.contains(&(fi + 1)) {\n',
+    )
+    fix(
+        "crates/export/src/job.rs",
+        '        let Some((a, b)) = plan else {\n'
+        '            return match self.encode_batch(f, frames, sources)? {\n'
+        '                Encoded::Pending => Ok(Step::Pending),\n'
+        '                Encoded::Done => {\n'
+        '                    progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);\n'
+        '                    self.next = end;\n'
+        '                    Ok(Step::Progress)\n'
+        '                }\n'
+        '            };\n'
+        '        };\n'
+        '        let pipe = self.pipe.clone();\n'
+        '        let mut slot: Option<std::thread::Result<Option<Vec<Frame>>>> = None;\n'
+        '        let mut encode_done: Option<web_time::Instant> = None;\n'
+        '        let encoded = rayon::in_place_scope(|s| {\n'
+        '            s.spawn(|_| {\n'
+        '                slot = Some(catch_unwind(AssertUnwindSafe(|| timed(Stage::Render, || render_batch(&pipe, a, b, sources, prepare.as_ref(), f0)))));\n'
+        '            });\n'
+        '            let r = self.encode_batch(f, frames, sources);\n'
+        '            encode_done = Some(web_time::Instant::now());\n'
+        '            r\n'
+        '        });\n'
+        '        // the scope returned only now: what is left since the encoding ended is waiting for the render\n'
+        '        if let Some(t) = encode_done {\n'
+        '            note_stage(Stage::Wait, t.elapsed());\n'
+        '        }\n'
+        '        match encoded? {\n'
+        '            Encoded::Pending => Ok(Step::Pending),\n'
+        '            Encoded::Done => {\n'
+        '                self.overlapped_steps += 1;\n'
+        '                progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);\n'
+        '                self.next = end;\n',
+        '        let Some((a, b)) = plan else {\n'
+        '            return match self.encode_batch(f, frames, sources, progress)? {\n'
+        '                Encoded::Pending => Ok(Step::Pending),\n'
+        '                Encoded::Done => {\n'
+        '                    self.next = end;\n'
+        '                    Ok(Step::Progress)\n'
+        '                }\n'
+        '            };\n'
+        '        };\n'
+        '        let pipe = self.pipe.clone();\n'
+        '        let mut slot: Option<std::thread::Result<Option<Vec<Frame>>>> = None;\n'
+        '        let mut encode_done: Option<web_time::Instant> = None;\n'
+        '        let encoded = rayon::in_place_scope(|s| {\n'
+        '            s.spawn(|_| {\n'
+        '                slot = Some(catch_unwind(AssertUnwindSafe(|| timed(Stage::Render, || render_batch(&pipe, a, b, sources, prepare.as_ref(), f0)))));\n'
+        '            });\n'
+        '            let r = self.encode_batch(f, frames, sources, progress);\n'
+        '            encode_done = Some(web_time::Instant::now());\n'
+        '            r\n'
+        '        });\n'
+        '        // the scope returned only now: what is left since the encoding ended is waiting for the render\n'
+        '        if let Some(t) = encode_done {\n'
+        '            note_stage(Stage::Wait, t.elapsed());\n'
+        '        }\n'
+        '        match encoded? {\n'
+        '            Encoded::Pending => Ok(Step::Pending),\n'
+        '            Encoded::Done => {\n'
+        '                self.overlapped_steps += 1;\n'
+        '                self.next = end;\n',
+    )
 
     if fix(
         "crates/export/src/job.rs",

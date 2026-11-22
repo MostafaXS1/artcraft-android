@@ -440,3 +440,11 @@ When porting or implementing any video processing tool on Android, adhere to the
    Android encoder input surfaces do not behave like display windows. Buffer mode with Rayon-parallelized integer color conversion provides deterministic, high-throughput encoding without surface deadlocks.
 6. **Limit Concurrent Decoders to $\le 4$:**
    Honor mobile chipset hardware VPU instance limits by tracking active decoder sessions and falling back gracefully to software for excess tracks.
+7. **Per-Frame Progress Reporting:**
+   Always invoke `progress.done.fetch_add(1, Ordering::Relaxed)` on every single frame encoded inside the inner processing loop. Never update progress solely at the end of multi-frame batches, which causes UI progress bars to stall and jump in coarse 10% leaps.
+8. **Operating-Rate & Real-Time Priority Hints:**
+   Always configure `MediaFormat.KEY_OPERATING_RATE` (e.g. `240.0f`) and `MediaFormat.KEY_PRIORITY` (`0`) for offline transcoding and export. This signals the vendor media framework and power manager to unlock maximum hardware clock frequencies.
+9. **Zero-Sleep Drain Loops During Encoding:**
+   Never insert polling sleep loops (e.g. 200 ms sleep retries) inside per-frame `encode()` waiting for SPS/PPS. Poll `dequeue_output_buffer` with `Duration::ZERO` during frame submission; parameter sets are extracted on `OutputFormatChanged` or in-band, and final draining occurs cleanly during `flush()`.
+10. **Contiguous Plane Optimization for Strided Hardware Buffers:**
+    When hardware MediaCodec buffers specify `stride == width` but `slice_height > height` (common on Qualcomm/Adreno), avoid row-by-row micro-task scheduling. Split the buffer at `stride * slice_height` into contiguous Y and UV sub-slices and process using bulk Rayon parallel chunks `par_chunks_exact(2 * width * 4)`.

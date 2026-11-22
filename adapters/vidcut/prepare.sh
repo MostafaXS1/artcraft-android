@@ -182,6 +182,14 @@ if multi_scale_old in s:
 if multi_old in s:
     s = s.replace(multi_old, multi_new, 1)
 
+# Ensure threads 4 and max_muxing_queue_size are present even if previously patched
+s = s.replace(
+    'cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);',
+    'cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12", "-threads", "4", "-max_muxing_queue_size", "1024"]);'
+)
+if 'cmd.arg("-y");\n    cmd.args(["-nostdin", "-threads", "4"]);' not in s:
+    s = s.replace('cmd.arg("-y");', 'cmd.arg("-y");\n    cmd.args(["-nostdin", "-threads", "4"]);', 1)
+
 p.write_text(s)
 PY
 

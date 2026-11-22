@@ -580,12 +580,33 @@ new_b_frames = '''        if !o.frame_reordering || o.profile == crate::Profile:
             enc.set_max_b_frames(0);
         }'''
 
+old_opens = '''    enc.set_frame_rate(Some(Rational(30, 1)));'''
+new_opens = '''    enc.set_frame_rate(Some(Rational(30, 1)));
+    if name.ends_with("_mediacodec") {
+        enc.set_bit_rate(16_000_000);
+        enc.set_max_b_frames(0);
+    }'''
+
+old_mc_opts = '''        if choice.low_power {
+            options.set("low_power", "1");
+        }'''
+new_mc_opts = '''        if spec.encoder.ends_with("_mediacodec") {
+            options.set("threads", "4");
+        }
+        if choice.low_power {
+            options.set("low_power", "1");
+        }'''
+
 if old_spec in s:
     s = s.replace(old_spec, new_spec, 1)
 if old_hdr in s:
     s = s.replace(old_hdr, new_hdr, 1)
 if old_b_frames in s:
     s = s.replace(old_b_frames, new_b_frames, 1)
+if old_opens in s and "if name.ends_with(\"_mediacodec\")" not in s:
+    s = s.replace(old_opens, new_opens, 1)
+if old_mc_opts in s and 'options.set("threads", "4");' not in s:
+    s = s.replace(old_mc_opts, new_mc_opts, 1)
 p.write_text(s)
 PY
 

@@ -320,9 +320,12 @@ pub fn rgba_to_nv12_direct(rgba: &[u8], w: usize, h: usize, stride: usize, slice
     if dst.len() < total || rgba.len() < w.saturating_mul(h).saturating_mul(4) {
         return;
     }
-    let (y_plane, uv_plane) = dst.split_at_mut(y_size);
 
-    if stride == w && slice_height == h && w % 2 == 0 && h % 2 == 0 {
+    let (y_plane_full, uv_plane_full) = dst.split_at_mut(y_size);
+
+    if stride == w && w % 2 == 0 && h % 2 == 0 {
+        let y_plane = &mut y_plane_full[..w * h];
+        let uv_plane = &mut uv_plane_full[..w * uv_height];
         rgba.par_chunks_exact(2 * w * 4)
             .zip(y_plane.par_chunks_exact_mut(2 * w))
             .zip(uv_plane.par_chunks_exact_mut(w))
@@ -370,8 +373,8 @@ pub fn rgba_to_nv12_direct(rgba: &[u8], w: usize, h: usize, stride: usize, slice
     } else {
         // Strided conversion for non-aligned buffers
         let half_h = h / 2;
-        let y_raw = y_plane.as_mut_ptr() as usize;
-        let uv_raw = uv_plane.as_mut_ptr() as usize;
+        let y_raw = y_plane_full.as_mut_ptr() as usize;
+        let uv_raw = uv_plane_full.as_mut_ptr() as usize;
         (0..half_h).into_par_iter().for_each(|y| {
             let row0 = y * 2;
             let row1 = row0 + 1;
@@ -480,7 +483,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 10000.0);
+                format.set_f32("operating-rate", 240.0);
             }
             format
         };
@@ -518,7 +521,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 10000.0);
+                format.set_f32("operating-rate", 240.0);
             }
             format
         };
@@ -612,7 +615,7 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 1000.0);
+                format.set_f32("operating-rate", 240.0);
             }
             format
         };
@@ -808,17 +811,9 @@ impl VideoEncoder for MediaCodecEncoder {
         }
 
         if self.surface.is_some() {
-            // Surface mode: frame was rendered directly to the input surface by ExportRenderer or surface scaler!
+            // Surface mode: frame was rendered directly to the input surface by ExportRenderer
             let mut packets = Vec::new();
             self.drain_output(Duration::ZERO, &mut packets)?;
-            if self.sps.is_none() || self.pps.is_none() {
-                for _ in 0..20 {
-                    if self.sps.is_some() && self.pps.is_some() {
-                        break;
-                    }
-                    self.drain_output(Duration::from_millis(10), &mut packets)?;
-                }
-            }
             filmcraft_export::note_hw_encode_frame();
             return Ok(packets);
         }
@@ -827,6 +822,8 @@ impl VideoEncoder for MediaCodecEncoder {
         if f.rgba.len() < w.saturating_mul(h).saturating_mul(4) {
             return Err(ExportError::Encode("the RGBA picture is smaller than its size".into()));
         }
+
+        let preconverted = self.ready.lock().unwrap_or_else(PoisonError::into_inner).remove(&f.index);
 
         let mut packets = Vec::new();
 
@@ -843,7 +840,7 @@ impl VideoEncoder for MediaCodecEncoder {
                     if attempts >= 50 {
                         return Err(ExportError::Encode("MediaCodec input buffer dequeue timed out".into()));
                     }
-                    self.drain_output(Duration::from_millis(5), &mut packets)?;
+                    self.drain_output(Duration::from_millis(2), &mut packets)?;
                 }
             }
         };
@@ -867,7 +864,24 @@ impl VideoEncoder for MediaCodecEncoder {
             )));
         }
 
-        rgba_to_nv12_direct(f.rgba, w, h, stride, slice_height, dst);
+        if let Some(nv12) = preconverted {
+            if stride == w && slice_height == h && nv12.len() == total_needed {
+                dst[..total_needed].copy_from_slice(&nv12);
+            } else if stride == w {
+                let y_bytes = w * h;
+                let uv_bytes = w * uv_height;
+                if nv12.len() >= y_bytes + uv_bytes {
+                    dst[..y_bytes].copy_from_slice(&nv12[..y_bytes]);
+                    dst[y_size..y_size + uv_bytes].copy_from_slice(&nv12[y_bytes..y_bytes + uv_bytes]);
+                } else {
+                    rgba_to_nv12_direct(f.rgba, w, h, stride, slice_height, dst);
+                }
+            } else {
+                rgba_to_nv12_direct(f.rgba, w, h, stride, slice_height, dst);
+            }
+        } else {
+            rgba_to_nv12_direct(f.rgba, w, h, stride, slice_height, dst);
+        }
 
         // 5. Calculate PTS in microseconds
         let pts_us = (f.index as u128)
@@ -882,16 +896,6 @@ impl VideoEncoder for MediaCodecEncoder {
 
         // 6. Drain any output buffers that finished (non-blocking)
         self.drain_output(Duration::ZERO, &mut packets)?;
-
-        // 7. If this is the start of encoding and SPS/PPS are not yet known, wait briefly for codec config
-        if self.sps.is_none() || self.pps.is_none() {
-            for _ in 0..20 {
-                if self.sps.is_some() && self.pps.is_some() {
-                    break;
-                }
-                self.drain_output(Duration::from_millis(10), &mut packets)?;
-            }
-        }
 
         filmcraft_export::note_hw_encode_frame();
 
@@ -1084,7 +1088,7 @@ impl MediaCodecDecoder {
             }
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 1000.0);
+                format.set_f32("operating-rate", 240.0);
             }
 
             if with_csd {
