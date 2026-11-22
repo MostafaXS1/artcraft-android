@@ -298,6 +298,8 @@ EXT_MIME = {
     "pixel": ("application/x-pixelcraft",),
     "ase": ("image/x-aseprite", "application/x-aseprite"),
     "aseprite": ("image/x-aseprite", "application/x-aseprite"),
+    # ClothCraft
+    "clothcraft": ("application/x-clothcraft",),
 }
 
 # App -> the document extensions it offers to open. Kept to the app's own document formats (a
@@ -359,6 +361,7 @@ ASSOCIATIONS = {
     "papercraft": ["papercraft", "crumbs", "fig", "svg"],
     "pixelcraft": ["pixel", "ase", "aseprite", "png", "gif"],
     "ferrite": ["md", "markdown", "txt", "json", "toml", "yaml", "yml", "csv"],
+    "clothcraft": ["clothcraft", "obj", "svg", "dxf", "gltf", "glb", "json"],
     "coimanide": [
         "rs", "toml", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
         "md", "markdown", "txt", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "java", "kt", "kts",

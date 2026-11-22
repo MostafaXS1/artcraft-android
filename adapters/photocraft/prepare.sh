@@ -244,10 +244,11 @@ fn show_modal<T>(
                     ui.set_max_width(avail_w);
                 }
             }"""
-    if bad_color_picker in s:
-        s = s.replace(bad_color_picker, new_color_picker)
-    elif old_color_picker in s:
-        s = s.replace(old_color_picker, new_color_picker)
+    if "let avail_w" not in s:
+        if bad_color_picker in s:
+            s = s.replace(bad_color_picker, new_color_picker)
+        elif old_color_picker in s:
+            s = s.replace(old_color_picker, new_color_picker)
 
     old_body = """            if let Some(done) = dialog_body(app, ui, &d, &mut fields, id, interactive) {
                 outcome = Some(done);

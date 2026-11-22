@@ -440,6 +440,17 @@ pub static SUITE_ANDROID: [CraftApp; 44] = [
         Some("com.artcraft.pixelcraft"),
         None,
     ),
+    community(
+        "clothcraft",
+        "ClothCraft",
+        "Native garment editor and CPU FEM drape simulation",
+        [30, 136, 229],
+        "erythrofr/ClothCraft",
+        "erythrofr",
+        Some("https://github.com/erythrofr/ClothCraft"),
+        Some("com.artcraft.clothcraft"),
+        None,
+    ),
 ];
 
 /// An app by id, from the Android suite.
