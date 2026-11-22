@@ -2,23 +2,23 @@
   "schema": 1,
   "repo": "storytold/designcraft",
   "branch": "main",
-  "head": "4000591c6681d01386b9576f9a050b8460e6f2e3",
-  "head_date": "2026-11-20T17:52:22Z",
-  "commits": 5602,
+  "head": "00bf1e6963cc386a36c1d6f48d144aaa11440640",
+  "head_date": "2026-11-21T23:12:31Z",
+  "commits": 5610,
   "unattributed_commits": 28,
   "contributors": [
     {
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 216,
-      "commits": 1838,
-      "lines_added": 222386,
-      "lines_deleted": 129373,
+      "prs": 217,
+      "commits": 1841,
+      "lines_added": 222742,
+      "lines_deleted": 129434,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-06T15:11:56Z",
-      "last_commit": "2026-11-20T11:09:15Z"
+      "last_commit": "2026-11-21T05:39:04Z"
     },
     {
       "login": "teaalltr",
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 125,
-      "commits": 375,
-      "lines_added": 24537,
-      "lines_deleted": 21804,
+      "prs": 129,
+      "commits": 379,
+      "lines_added": 24841,
+      "lines_deleted": 21994,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T05:51:30Z",
-      "last_commit": "2026-11-20T17:52:22Z"
+      "last_commit": "2026-11-21T23:12:31Z"
     },
     {
       "login": "dotCooCoo",
@@ -1605,6 +1605,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-22T19:36:04Z",
       "last_commit": "2026-10-22T19:36:04Z"
+    },
+    {
+      "login": "thib-cal",
+      "people_entry": true,
+      "github_name": "TS-Ca",
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 832,
+      "lines_deleted": 35,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T18:00:28Z",
+      "last_commit": "2026-11-21T18:00:28Z"
     },
     {
       "login": "tydude001",

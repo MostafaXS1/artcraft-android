@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "be760ee5242cad1ed01baea37272429c011f4c98",
-  "head_date": "2026-11-21T01:57:14Z",
-  "commits": 5626,
+  "head": "1a81a5a2673b5ef416927a94cf75a28fd5ceae37",
+  "head_date": "2026-11-21T20:36:02Z",
+  "commits": 5633,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -37,10 +37,10 @@
       "login": "nledford",
       "people_entry": true,
       "github_name": null,
-      "prs": 107,
-      "commits": 524,
-      "lines_added": 53374,
-      "lines_deleted": 6197,
+      "prs": 108,
+      "commits": 525,
+      "lines_added": 53630,
+      "lines_deleted": 6202,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-07T17:33:38Z",
@@ -76,14 +76,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 25,
-      "commits": 237,
-      "lines_added": 37681,
+      "prs": 26,
+      "commits": 240,
+      "lines_added": 37761,
       "lines_deleted": 3800,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-20T14:04:02Z"
+      "last_commit": "2026-11-21T20:36:02Z"
     },
     {
       "login": "radialmonster",
@@ -814,6 +814,19 @@
       "last_commit": "2026-10-16T02:46:51Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 7,
+      "commits": 8,
+      "lines_added": 568,
+      "lines_deleted": 154,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-20T02:31:08Z",
+      "last_commit": "2026-11-21T18:04:34Z"
+    },
+    {
       "login": "cookingwithsimon",
       "people_entry": false,
       "github_name": null,
@@ -1189,19 +1202,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-11T14:54:06Z",
       "last_commit": "2026-10-11T15:42:25Z"
-    },
-    {
-      "login": "Terra854",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 4,
-      "commits": 5,
-      "lines_added": 470,
-      "lines_deleted": 131,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-20T02:31:08Z",
-      "last_commit": "2026-11-21T00:55:33Z"
     },
     {
       "login": "witkowski01",

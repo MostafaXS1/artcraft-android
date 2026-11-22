@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "88a59fd77d3f89c718f13f15914683cdd0deee81",
-  "head_date": "2026-11-21T00:32:40Z",
-  "commits": 5381,
+  "head": "171e92b0772019357fa3bea724067a32c5875ad7",
+  "head_date": "2026-11-21T21:58:34Z",
+  "commits": 5432,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -50,14 +50,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 146,
-      "commits": 299,
-      "lines_added": 28726,
-      "lines_deleted": 52200,
+      "prs": 159,
+      "commits": 319,
+      "lines_added": 31875,
+      "lines_deleted": 52797,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:14Z",
-      "last_commit": "2026-11-21T00:32:40Z"
+      "last_commit": "2026-11-21T21:26:56Z"
+    },
+    {
+      "login": "FredApps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 67,
+      "commits": 271,
+      "lines_added": 56452,
+      "lines_deleted": 28349,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-12T20:25:40Z",
+      "last_commit": "2026-11-21T21:58:34Z"
     },
     {
       "login": "arnav-hiwarkar",
@@ -71,19 +84,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-13T07:57:09Z",
       "last_commit": "2026-11-18T11:50:01Z"
-    },
-    {
-      "login": "FredApps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 49,
-      "commits": 251,
-      "lines_added": 54204,
-      "lines_deleted": 28164,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-12T20:25:40Z",
-      "last_commit": "2026-11-20T23:48:30Z"
     },
     {
       "login": "tylerjenningsw",
@@ -383,6 +383,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T15:01:41Z",
       "last_commit": "2026-10-29T20:48:55Z"
+    },
+    {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 18,
+      "commits": 18,
+      "lines_added": 1963,
+      "lines_deleted": 343,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T10:30:06Z",
+      "last_commit": "2026-11-21T20:46:43Z"
     },
     {
       "login": "gmrmad1",
@@ -2295,9 +2308,9 @@
       "company": "OpenAI",
       "model": "Codex",
       "version": "",
-      "commits": 26,
-      "lines_added": 7532,
-      "lines_deleted": 730
+      "commits": 40,
+      "lines_added": 9068,
+      "lines_deleted": 831
     },
     {
       "id": "anthropic/claude-opus/5",

@@ -2,49 +2,49 @@
   "schema": 1,
   "repo": "storytold/vectorcraft",
   "branch": "main",
-  "head": "1759064a3e723f8edf66e4e0fd60beb930a5bc86",
-  "head_date": "2026-11-21T02:09:10Z",
-  "commits": 19298,
+  "head": "88f5ece15be88c335994e730c73832daabaa685c",
+  "head_date": "2026-11-21T20:39:25Z",
+  "commits": 19412,
   "unattributed_commits": 14,
   "contributors": [
     {
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
-      "prs": 3079,
-      "commits": 8192,
-      "lines_added": 1140632,
-      "lines_deleted": 112255,
+      "prs": 3110,
+      "commits": 8269,
+      "lines_added": 1148017,
+      "lines_deleted": 113077,
       "binary_added": 15,
       "binary_deleted": 0,
       "first_commit": "2026-10-08T22:18:57Z",
-      "last_commit": "2026-11-21T01:27:55Z"
+      "last_commit": "2026-11-21T03:25:52Z"
     },
     {
       "login": "bflatastic",
       "people_entry": false,
       "github_name": null,
-      "prs": 788,
-      "commits": 7046,
+      "prs": 790,
+      "commits": 7079,
       "lines_added": 387866,
       "lines_deleted": 67640,
       "binary_added": 5,
       "binary_deleted": 0,
       "first_commit": "2026-10-02T15:22:29Z",
-      "last_commit": "2026-11-21T02:09:10Z"
+      "last_commit": "2026-11-21T04:03:21Z"
     },
     {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 163,
-      "commits": 304,
-      "lines_added": 32065,
-      "lines_deleted": 32665,
+      "prs": 166,
+      "commits": 307,
+      "lines_added": 32202,
+      "lines_deleted": 33389,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:42Z",
-      "last_commit": "2026-11-21T01:27:55Z"
+      "last_commit": "2026-11-21T20:39:25Z"
     },
     {
       "login": "echelon",
@@ -3100,6 +3100,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T18:31:35Z",
       "last_commit": "2026-10-14T18:31:35Z"
+    },
+    {
+      "login": "Terra854",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 31,
+      "lines_deleted": 6,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T18:28:30Z",
+      "last_commit": "2026-11-21T18:28:30Z"
     },
     {
       "login": "Tevinhead",

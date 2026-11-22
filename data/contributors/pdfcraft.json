@@ -1282,10 +1282,10 @@
       "last_commit": "2026-10-11T17:54:26Z"
     },
     {
-      "login": "kiwi4boy",
+      "login": "kiwi5boy",
       "people_entry": false,
       "github_name": null,
-      "prs": 0,
+      "prs": 2,
       "commits": 6,
       "lines_added": 1695,
       "lines_deleted": 880,
@@ -4871,19 +4871,6 @@
     },
     {
       "login": "ghost",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 0,
-      "lines_added": 0,
-      "lines_deleted": 0,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "",
-      "last_commit": ""
-    },
-    {
-      "login": "keithcsqueensu",
       "people_entry": false,
       "github_name": null,
       "prs": 2,

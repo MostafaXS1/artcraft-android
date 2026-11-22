@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "960a661001767a887dc4402c51e24f0436176705",
-  "head_date": "2026-11-20T14:05:40Z",
-  "commits": 4195,
+  "head": "d6cc257f55e83b16af4be6bf9c371e6798f00af6",
+  "head_date": "2026-11-21T20:10:17Z",
+  "commits": 4203,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 167,
-      "commits": 366,
-      "lines_added": 33816,
-      "lines_deleted": 143296,
+      "prs": 168,
+      "commits": 370,
+      "lines_added": 35190,
+      "lines_deleted": 143665,
       "binary_added": 4,
       "binary_deleted": 2,
       "first_commit": "2026-10-10T00:04:17Z",
-      "last_commit": "2026-11-19T18:51:30Z"
+      "last_commit": "2026-11-21T20:10:17Z"
     },
     {
       "login": "vangel76",
@@ -64,13 +64,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 29,
-      "commits": 235,
+      "commits": 237,
       "lines_added": 11694,
       "lines_deleted": 7833,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T01:04:56Z",
-      "last_commit": "2026-11-20T14:05:40Z"
+      "last_commit": "2026-11-21T10:33:05Z"
     },
     {
       "login": "Felix-Helleckes",
@@ -1412,6 +1412,19 @@
       "last_commit": "2026-10-25T19:07:08Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 3,
+      "commits": 3,
+      "lines_added": 158,
+      "lines_deleted": 361,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T18:22:46Z",
+      "last_commit": "2026-11-21T19:45:15Z"
+    },
+    {
       "login": "Tom1tk",
       "people_entry": false,
       "github_name": null,
@@ -1423,6 +1436,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T13:47:40Z",
       "last_commit": "2026-10-09T14:19:08Z"
+    },
+    {
+      "login": "zsoli69",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 3,
+      "lines_added": 151,
+      "lines_deleted": 35,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-24T11:28:28Z",
+      "last_commit": "2026-10-25T13:42:49Z"
     },
     {
       "login": "AndreaGhidara",
@@ -1722,19 +1748,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-25T16:45:37Z",
       "last_commit": "2026-11-11T09:55:55Z"
-    },
-    {
-      "login": "zsoli69",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 2,
-      "lines_added": 28,
-      "lines_deleted": 13,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-25T13:42:41Z",
-      "last_commit": "2026-10-25T13:42:49Z"
     },
     {
       "login": "4papuce",
@@ -2099,6 +2112,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-11T07:34:15Z",
       "last_commit": "2026-10-11T07:34:15Z"
+    },
+    {
+      "login": "fanyzp",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 1228,
+      "lines_deleted": 20,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T06:09:30Z",
+      "last_commit": "2026-11-21T06:09:30Z"
     },
     {
       "login": "GabrielMatozo",
@@ -2757,9 +2783,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 1194,
-      "lines_added": 469060,
-      "lines_deleted": 29672
+      "commits": 1195,
+      "lines_added": 469183,
+      "lines_deleted": 29694
     },
     {
       "id": "anthropic/claude-sonnet/5.5",
