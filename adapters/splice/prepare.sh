@@ -174,6 +174,8 @@ new_play = '''        std::thread::spawn(move || {
                     "-loglevel",
                     "error",
                     "-nostdin",
+                    "-threads",
+                    "4",
                     "-ss",
                     &format!("{start:.4}"),
                     "-c:v",
@@ -201,6 +203,8 @@ new_play = '''        std::thread::spawn(move || {
                         "-loglevel",
                         "error",
                         "-nostdin",
+                        "-threads",
+                        "4",
                         "-ss",
                         &format!("{start:.4}"),
                         "-i",
@@ -224,35 +228,81 @@ new_play = '''        std::thread::spawn(move || {
 if old_play in s:
     s = s.replace(old_play, new_play, 1)
 
+old_loop = '''    'frames: loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let mut pixels = vec![0u8; frame_len];
+        if source.read_exact(&mut pixels).is_err() {
+            break;
+        }'''
+
+new_loop = '''    let mut pixels = vec![0u8; frame_len];
+    'frames: loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if source.read_exact(&mut pixels).is_err() {
+            break;
+        }'''
+
+old_show = '''                    shared.frame = Some(pixels);
+                    shared.sequence = sequence;
+                    break;'''
+
+new_show = '''                    shared.frame = Some(pixels.clone());
+                    shared.sequence = sequence;
+                    break;'''
+
+if old_loop in s:
+    s = s.replace(old_loop, new_loop, 1)
+if old_show in s:
+    s = s.replace(old_show, new_show, 1)
+
 p.write_text(s)
 PY
 
 python3 - "$SRC_ABS/src/render.rs" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 p = Path(sys.argv[1])
 s = p.read_text()
-old_render = '''    command.args(["-c:v", "libx264"]);
-    if options.preview {
-        command.args(["-preset", "ultrafast", "-crf", "28", "-level", "3.1"]);
-    } else {
-        command.args(["-preset", "medium", "-crf", "20", "-profile:v", "high"]);
-    }'''
 
-new_render = '''    if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
+pattern = r'(\s+if std::env::var\("SPLICE_FFMPEG"\).*?command\.args\(\[\s*"-pix_fmt",\s*"yuv420p",\s*"-g",\s*"60",\s*"-keyint_min",\s*"30",\s*"-sc_threshold",\s*"0",\s*\]\);)|(\s+command\.args\(\["-c:v",\s*"libx264"\]\);.*?command\.args\(\[\s*"-pix_fmt",\s*"yuv420p",\s*"-g",\s*"60",\s*"-keyint_min",\s*"30",\s*"-sc_threshold",\s*"0",\s*\]\);)'
+
+replacement = '''    if std::env::var("SPLICE_FFMPEG").is_ok() || cfg!(target_os = "android") {
         let bitrate = if options.preview { "4M" } else if options.width * options.height > 1920 * 1088 { "24M" } else { "12M" };
-        command.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+        command.args([
+            "-c:v", "h264_mediacodec",
+            "-b:v", bitrate,
+            "-pix_fmt", "nv12",
+            "-g", "60",
+            "-threads", "4",
+            "-max_muxing_queue_size", "1024",
+        ]);
     } else {
         command.args(["-c:v", "libx264"]);
         if options.preview {
             command.args(["-preset", "ultrafast", "-crf", "28", "-level", "3.1"]);
         } else {
             command.args(["-preset", "medium", "-crf", "20", "-profile:v", "high"]);
+            command.args(["-level", &options.level]);
         }
+        command.args([
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "60",
+            "-keyint_min",
+            "30",
+            "-sc_threshold",
+            "0",
+        ]);
     }'''
 
-if old_render in s:
-    s = s.replace(old_render, new_render, 1)
+m = re.search(pattern, s, re.DOTALL)
+if m:
+    s = s[:m.start()] + '\n' + replacement + s[m.end():]
     p.write_text(s)
 PY
 

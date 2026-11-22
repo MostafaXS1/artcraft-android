@@ -116,13 +116,41 @@ single_old = '''        if seg.has_video {
 
 single_new = '''        if seg.has_video {
             if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
-                let bitrate = if job.width * job.height > 1920 * 1088 { "24M" } else if job.width * job.height > 1280 * 720 { "12M" } else { "6M" };
-                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+                let export_w = job.width & !1;
+                let export_h = job.height & !1;
+                let bitrate = if export_w * export_h > 1920 * 1088 { "24M" } else if export_w * export_h > 1280 * 720 { "12M" } else { "6M" };
+                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12", "-threads", "4", "-max_muxing_queue_size", "1024"]);
             } else {
                 cmd.args(["-c:v", "libx264"]);
                 cmd.args(["-crf", &job.quality.crf().to_string()]);
                 cmd.args(["-preset", "medium"]);
             }'''
+
+single_scale_old = '''            cmd.args([
+                "-vf",
+                &format!("scale={}:{}", job.width, job.height),
+            ]);'''
+single_scale_new = '''            let export_w = job.width & !1;
+            let export_h = job.height & !1;
+            cmd.args([
+                "-vf",
+                &format!("scale={}:{}:flags=fast_bilinear", export_w, export_h),
+            ]);'''
+
+multi_scale_old = '''                filter.push_str(&format!(
+                    "[{i}:v]scale={w}:{h},fps={fps},setsar=1[v{i}];",
+                    i = i,
+                    w = job.width,
+                    h = job.height,
+                    fps = job.fps,
+                ));'''
+multi_scale_new = '''                filter.push_str(&format!(
+                    "[{i}:v]scale={w}:{h}:flags=fast_bilinear,fps={fps},setsar=1[v{i}];",
+                    i = i,
+                    w = job.width & !1,
+                    h = job.height & !1,
+                    fps = job.fps,
+                ));'''
 
 multi_old = '''        if has_any_video {
             cmd.args(["-map", "[outv]"]);
@@ -134,8 +162,10 @@ multi_old = '''        if has_any_video {
 multi_new = '''        if has_any_video {
             cmd.args(["-map", "[outv]"]);
             if std::env::var("VIDCUT_FFMPEG").is_ok() || cfg!(target_os = "android") {
-                let bitrate = if job.width * job.height > 1920 * 1088 { "24M" } else if job.width * job.height > 1280 * 720 { "12M" } else { "6M" };
-                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12"]);
+                let export_w = job.width & !1;
+                let export_h = job.height & !1;
+                let bitrate = if export_w * export_h > 1920 * 1088 { "24M" } else if export_w * export_h > 1280 * 720 { "12M" } else { "6M" };
+                cmd.args(["-c:v", "h264_mediacodec", "-b:v", bitrate, "-pix_fmt", "nv12", "-threads", "4", "-max_muxing_queue_size", "1024"]);
             } else {
                 cmd.args(["-c:v", "libx264"]);
                 cmd.args(["-crf", &job.quality.crf().to_string()]);
@@ -145,6 +175,10 @@ multi_new = '''        if has_any_video {
 
 if single_old in s:
     s = s.replace(single_old, single_new, 1)
+if single_scale_old in s:
+    s = s.replace(single_scale_old, single_scale_new, 1)
+if multi_scale_old in s:
+    s = s.replace(multi_scale_old, multi_scale_new, 1)
 if multi_old in s:
     s = s.replace(multi_old, multi_new, 1)
 
@@ -162,78 +196,89 @@ if 'VIDCUT_FFMPEG' not in s:
         'let ffmpeg_bin = std::env::var("VIDCUT_FFMPEG").map(std::path::PathBuf::from).unwrap_or_else(|_| ffmpeg_sidecar::paths::ffmpeg_path());'
     )
 
-# Accelerated hardware video decoding via named MediaCodec wrappers (with clean software fallback)
-old_cmd = '''    let output = Command::new(&ffmpeg_bin)
-        .args(["-ss", &format!("{:.6}", timestamp_secs)])
-        .arg("-i")
-        .arg(path.as_os_str())
-        .args(["-vframes", "1"])
-        .args(["-vf", &format!("scale={}:-2", out_width)])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-        .args(["-v", "error"])
-        .arg("pipe:1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .context("Failed to run ffmpeg for frame extraction")?;'''
+new_extraction = '''    static CODEC_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, &'static str>>> = std::sync::OnceLock::new();
+    let cache = CODEC_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let cached_codec = cache.lock().ok().and_then(|m| m.get(path).copied());
 
-new_cmd = '''    let hw_codec = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
-        Some("webm") => "vp9_mediacodec",
-        _ => "h264_mediacodec",
+    let hw_output = if let Some(codec) = cached_codec {
+        let mut cmd = Command::new(&ffmpeg_bin);
+        cmd.args(["-nostdin", "-threads", "4", "-ss", &format!("{:.6}", timestamp_secs)]);
+        if !codec.is_empty() {
+            cmd.args(["-c:v", codec]);
+        }
+        cmd.arg("-i").arg(path.as_os_str())
+            .args(["-an", "-sn", "-vframes", "1", "-vf", &format!("scale={}:-2:flags=fast_bilinear", out_width)])
+            .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-v", "error", "pipe:1"])
+            .stdout(Stdio::piped()).stderr(Stdio::piped()).output()
+    } else {
+        let mut tried = None;
+        let candidates = ["h264_mediacodec", "hevc_mediacodec", "vp9_mediacodec"];
+        for c in candidates {
+            let mut cmd = Command::new(&ffmpeg_bin);
+            cmd.args(["-nostdin", "-threads", "4", "-ss", &format!("{:.6}", timestamp_secs), "-c:v", c]);
+            cmd.arg("-i").arg(path.as_os_str())
+                .args(["-an", "-sn", "-vframes", "1", "-vf", &format!("scale={}:-2:flags=fast_bilinear", out_width)])
+                .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-v", "error", "pipe:1"])
+                .stdout(Stdio::piped()).stderr(Stdio::piped());
+            if let Ok(out) = cmd.output() {
+                if out.status.success() && !out.stdout.is_empty() {
+                    if let Ok(mut m) = cache.lock() {
+                        m.insert(path.to_path_buf(), c);
+                    }
+                    tried = Some(out);
+                    break;
+                }
+            }
+        }
+        match tried {
+            Some(out) => Ok(out),
+            None => {
+                let mut cmd = Command::new(&ffmpeg_bin);
+                cmd.args(["-nostdin", "-threads", "4", "-hwaccel", "mediacodec", "-ss", &format!("{:.6}", timestamp_secs)]);
+                cmd.arg("-i").arg(path.as_os_str())
+                    .args(["-an", "-sn", "-vframes", "1", "-vf", &format!("scale={}:-2:flags=fast_bilinear", out_width)])
+                    .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-v", "error", "pipe:1"])
+                    .stdout(Stdio::piped()).stderr(Stdio::piped());
+                if let Ok(out) = cmd.output() {
+                    if out.status.success() && !out.stdout.is_empty() {
+                        if let Ok(mut m) = cache.lock() {
+                            m.insert(path.to_path_buf(), "");
+                        }
+                        Ok(out)
+                    } else {
+                        Err(std::io::Error::new(std::io::ErrorKind::Other, "hw failed"))
+                    }
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, "hw failed"))
+                }
+            }
+        }
     };
-    let hw_output = Command::new(&ffmpeg_bin)
-        .args(["-ss", &format!("{:.6}", timestamp_secs)])
-        .args(["-c:v", hw_codec])
-        .arg("-i")
-        .arg(path.as_os_str())
-        .args(["-vframes", "1"])
-        .args(["-vf", &format!("scale={}:-2", out_width)])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-        .args(["-v", "error"])
-        .arg("pipe:1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output();
 
     let output = match hw_output {
         Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
         _ => {
-            let hevc_output = Command::new(&ffmpeg_bin)
-                .args(["-ss", &format!("{:.6}", timestamp_secs)])
-                .args(["-c:v", "hevc_mediacodec"])
+            Command::new(&ffmpeg_bin)
+                .args(["-nostdin", "-threads", "4", "-ss", &format!("{:.6}", timestamp_secs)])
                 .arg("-i")
                 .arg(path.as_os_str())
-                .args(["-vframes", "1"])
-                .args(["-vf", &format!("scale={}:-2", out_width)])
+                .args(["-an", "-sn", "-vframes", "1"])
+                .args(["-vf", &format!("scale={}:-2:flags=fast_bilinear", out_width)])
                 .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
                 .args(["-v", "error"])
                 .arg("pipe:1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .output();
-            match hevc_output {
-                Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
-                _ => {
-                    Command::new(&ffmpeg_bin)
-                        .args(["-ss", &format!("{:.6}", timestamp_secs)])
-                        .arg("-i")
-                        .arg(path.as_os_str())
-                        .args(["-vframes", "1"])
-                        .args(["-vf", &format!("scale={}:-2", out_width)])
-                        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-                        .args(["-v", "error"])
-                        .arg("pipe:1")
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .output()
-                        .context("Failed to run ffmpeg for frame extraction")?
-                }
-            }
+                .output()
+                .context("Failed to run ffmpeg for frame extraction")?
         }
     };'''
 
-if old_cmd in s:
-    s = s.replace(old_cmd, new_cmd)
+# Replace from Command::new(&ffmpeg_bin) up to output ?;
+pattern = r'(\s+let (?:hw_)?output = Command::new\(&ffmpeg_bin\).*?\n\s+let output = match hw_output \{.*?^\s+\};\n)|(\s+let output = Command::new\(&ffmpeg_bin\).*?\.context\("Failed to run ffmpeg for frame extraction"\)\?;)'
+m = re.search(pattern, s, re.DOTALL | re.MULTILINE)
+if m:
+    s = s[:m.start()] + '\n' + new_extraction + '\n' + s[m.end():]
 p.write_text(s)
 PY
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"

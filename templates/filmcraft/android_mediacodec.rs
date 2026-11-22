@@ -38,7 +38,6 @@ use jni::{
 };
 
 use crate::biplanar;
-use crate::hybrid::HybridDecoder;
 
 /// The NAL units of an Annex B byte stream (start codes `00 00 01` / `00 00 00 01`).
 pub fn annex_b_nals(data: &[u8]) -> Vec<&[u8]> {
@@ -312,6 +311,131 @@ pub fn rgba_to_nv12(rgba: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
     }
 }
 
+/// In-place, direct BT.709 RGBA to NV12 conversion straight into the MediaCodec hardware input buffer.
+/// Eliminates intermediate buffer allocation and full-frame memcpy overhead.
+pub fn rgba_to_nv12_direct(rgba: &[u8], w: usize, h: usize, stride: usize, slice_height: usize, dst: &mut [u8]) {
+    let y_size = stride.saturating_mul(slice_height);
+    let uv_height = h.div_ceil(2);
+    let total = y_size.saturating_add(stride.saturating_mul(uv_height));
+    if dst.len() < total || rgba.len() < w.saturating_mul(h).saturating_mul(4) {
+        return;
+    }
+    let (y_plane, uv_plane) = dst.split_at_mut(y_size);
+
+    if stride == w && slice_height == h && w % 2 == 0 && h % 2 == 0 {
+        rgba.par_chunks_exact(2 * w * 4)
+            .zip(y_plane.par_chunks_exact_mut(2 * w))
+            .zip(uv_plane.par_chunks_exact_mut(w))
+            .for_each(|((rgba_pair, y_rows), uv_row)| {
+                let (row0_src, row1_src) = rgba_pair.split_at(w * 4);
+                let (y_row0, y_row1) = y_rows.split_at_mut(w);
+
+                let chunk0_iter = row0_src.chunks_exact(8);
+                let chunk1_iter = row1_src.chunks_exact(8);
+                let y0_iter = y_row0.chunks_exact_mut(2);
+                let y1_iter = y_row1.chunks_exact_mut(2);
+                let uv_iter = uv_row.chunks_exact_mut(2);
+
+                for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
+                    let r00 = c0[0] as i32;
+                    let g00 = c0[1] as i32;
+                    let b00 = c0[2] as i32;
+
+                    let r01 = c0[4] as i32;
+                    let g01 = c0[5] as i32;
+                    let b01 = c0[6] as i32;
+
+                    let r10 = c1[0] as i32;
+                    let g10 = c1[1] as i32;
+                    let b10 = c1[2] as i32;
+
+                    let r11 = c1[4] as i32;
+                    let g11 = c1[5] as i32;
+                    let b11 = c1[6] as i32;
+
+                    y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                    y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+
+                    y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                    y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+
+                    let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                    let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                    let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                    uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                }
+            });
+    } else {
+        // Strided conversion for non-aligned buffers
+        let half_h = h / 2;
+        let y_raw = y_plane.as_mut_ptr() as usize;
+        let uv_raw = uv_plane.as_mut_ptr() as usize;
+        (0..half_h).into_par_iter().for_each(|y| {
+            let row0 = y * 2;
+            let row1 = row0 + 1;
+            let row0_src = match rgba.get(row0 * w * 4..(row0 + 1) * w * 4) {
+                Some(s) => s,
+                None => return,
+            };
+            let row1_src = if row1 < h {
+                rgba.get(row1 * w * 4..(row1 + 1) * w * 4).unwrap_or(row0_src)
+            } else {
+                row0_src
+            };
+
+            // SAFETY: each parallel iteration y operates on distinct rows of y_plane and uv_plane
+            unsafe {
+                let y_ptr = y_raw as *mut u8;
+                let uv_ptr = uv_raw as *mut u8;
+                let y_row0 = std::slice::from_raw_parts_mut(y_ptr.add(row0 * stride), w);
+                let y_row1 = if row1 < h {
+                    std::slice::from_raw_parts_mut(y_ptr.add(row1 * stride), w)
+                } else {
+                    &mut [][..]
+                };
+                let uv_row = std::slice::from_raw_parts_mut(uv_ptr.add(y * stride), w.div_ceil(2) * 2);
+
+                let chunk0_iter = row0_src.chunks_exact(8);
+                let chunk1_iter = row1_src.chunks_exact(8);
+                let y0_iter = y_row0.chunks_exact_mut(2);
+                let uv_iter = uv_row.chunks_exact_mut(2);
+
+                if !y_row1.is_empty() {
+                    let y1_iter = y_row1.chunks_exact_mut(2);
+                    for ((((c0, c1), y0), y1), uv) in chunk0_iter.zip(chunk1_iter).zip(y0_iter).zip(y1_iter).zip(uv_iter) {
+                        let r00 = c0[0] as i32;
+                        let g00 = c0[1] as i32;
+                        let b00 = c0[2] as i32;
+                        let r01 = c0[4] as i32;
+                        let g01 = c0[5] as i32;
+                        let b01 = c0[6] as i32;
+                        let r10 = c1[0] as i32;
+                        let g10 = c1[1] as i32;
+                        let b10 = c1[2] as i32;
+                        let r11 = c1[4] as i32;
+                        let g11 = c1[5] as i32;
+                        let b11 = c1[6] as i32;
+
+                        y0[0] = (16 + ((54 * r00 + 183 * g00 + 18 * b00 + 128) >> 8)).clamp(16, 235) as u8;
+                        y0[1] = (16 + ((54 * r01 + 183 * g01 + 18 * b01 + 128) >> 8)).clamp(16, 235) as u8;
+                        y1[0] = (16 + ((54 * r10 + 183 * g10 + 18 * b10 + 128) >> 8)).clamp(16, 235) as u8;
+                        y1[1] = (16 + ((54 * r11 + 183 * g11 + 18 * b11 + 128) >> 8)).clamp(16, 235) as u8;
+
+                        let r_avg = (r00 + r01 + r10 + r11 + 2) >> 2;
+                        let g_avg = (g00 + g01 + g10 + g11 + 2) >> 2;
+                        let b_avg = (b00 + b01 + b10 + b11 + 2) >> 2;
+
+                        uv[0] = (128 + ((-29 * r_avg - 99 * g_avg + 128 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                        uv[1] = (128 + ((128 * r_avg - 116 * g_avg - 12 * b_avg + 128) >> 8)).clamp(16, 240) as u8;
+                    }
+                }
+            }
+        });
+    }
+}
+
 pub struct MediaCodecEncoder {
     codec: MediaCodec,
     surface: Option<NativeWindow>,
@@ -344,7 +468,45 @@ impl MediaCodecEncoder {
             .unwrap_or(2);
         let cbr = s.bitrate_mode == BitrateMode::Cbr;
 
-        let make_format = |with_operating_rate: bool| {
+        let make_surface_format = |with_operating_rate: bool| {
+            let mut format = MediaFormat::new();
+            format.set_str("mime", "video/avc");
+            format.set_i32("width", w as i32);
+            format.set_i32("height", h as i32);
+            format.set_i32("color-format", 2130706441); // COLOR_FormatSurface = 0x7F000789
+            format.set_i32("bitrate", (kbps.saturating_mul(1000)) as i32);
+            format.set_i32("frame-rate", fps.round().max(1.0) as i32);
+            format.set_i32("i-frame-interval", key_interval_sec);
+            format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
+            if with_operating_rate {
+                format.set_i32("priority", 0);
+                format.set_f32("operating-rate", 10000.0);
+            }
+            format
+        };
+
+        let try_surface = |with_operating_rate: bool| -> std::result::Result<(MediaCodec, NativeWindow), String> {
+            let codec = MediaCodec::from_encoder_type("video/avc")
+                .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
+
+            if let Ok(name) = codec.name() {
+                log::info!("MediaCodec hardware surface encoder selected: {name}");
+            }
+
+            let format = make_surface_format(with_operating_rate);
+            codec.configure(&format, None, MediaCodecDirection::Encoder)
+                .map_err(|e| format!("AMediaCodec_configure surface failed: {e:?}"))?;
+
+            let surface = codec.create_input_surface()
+                .map_err(|e| format!("AMediaCodec_createInputSurface failed: {e:?}"))?;
+
+            codec.start()
+                .map_err(|e| format!("AMediaCodec_start surface failed: {e:?}"))?;
+
+            Ok((codec, surface))
+        };
+
+        let make_buffer_format = |with_operating_rate: bool| {
             let mut format = MediaFormat::new();
             format.set_str("mime", "video/avc");
             format.set_i32("width", w as i32);
@@ -356,37 +518,40 @@ impl MediaCodecEncoder {
             format.set_i32("bitrate-mode", if cbr { 2 } else { 1 });
             if with_operating_rate {
                 format.set_i32("priority", 0);
-                format.set_f32("operating-rate", 120.0);
+                format.set_f32("operating-rate", 10000.0);
             }
             format
         };
 
-        let try_init = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
+        let try_buffer = |with_operating_rate: bool| -> std::result::Result<MediaCodec, String> {
             let codec = MediaCodec::from_encoder_type("video/avc")
                 .ok_or_else(|| "MediaCodec::from_encoder_type(\"video/avc\") returned None".to_string())?;
 
             if let Ok(name) = codec.name() {
-                log::info!("MediaCodec hardware encoder selected: {name}");
+                log::info!("MediaCodec hardware buffer encoder selected: {name}");
             }
 
-            let format = make_format(with_operating_rate);
+            let format = make_buffer_format(with_operating_rate);
             codec.configure(&format, None, MediaCodecDirection::Encoder)
-                .map_err(|e| format!("AMediaCodec_configure failed: {e:?}"))?;
+                .map_err(|e| format!("AMediaCodec_configure buffer failed: {e:?}"))?;
 
             codec.start()
-                .map_err(|e| format!("AMediaCodec_start failed: {e:?}"))?;
+                .map_err(|e| format!("AMediaCodec_start buffer failed: {e:?}"))?;
             Ok(codec)
         };
 
-        let codec = match try_init(true) {
-            Ok(c) => c,
-            Err(e1) => {
-                log::warn!("MediaCodec buffer fast init failed ({e1}), retrying minimal format");
-                try_init(false).map_err(|e2| format!("Failed to initialize MediaCodec buffer encoder: {e2}"))?
+        let (codec, surface) = match try_surface(true).or_else(|_| try_surface(false)) {
+            Ok((c, s)) => {
+                log::info!("MediaCodec surface encoder initialized successfully for {w}x{h}");
+                (c, Some(s))
+            }
+            Err(e) => {
+                log::warn!("MediaCodec surface encoder init failed ({e}); falling back to buffer encoder");
+                let c = try_buffer(true).or_else(|_| try_buffer(false))
+                    .map_err(|e2| format!("Failed to initialize MediaCodec encoder in surface or buffer mode: {e2}"))?;
+                (c, None)
             }
         };
-
-        let surface = None;
 
         let (stride, slice_height) = {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| codec.input_format())) {
@@ -589,11 +754,11 @@ impl MediaCodecEncoder {
 
 impl VideoEncoder for MediaCodecEncoder {
     fn input_surface(&self) -> Option<*mut std::ffi::c_void> {
-        None
+        self.surface.as_ref().map(|s| s.ptr().as_ptr() as *mut std::ffi::c_void)
     }
 
     fn fallback_to_buffer(&mut self) -> bool {
-        true
+        self.fallback_to_buffer()
     }
 
     fn sample_entry(&self) -> SampleEntry {
@@ -641,28 +806,26 @@ impl VideoEncoder for MediaCodecEncoder {
                 f.width, f.height, self.w, self.h
             )));
         }
+
+        if self.surface.is_some() {
+            // Surface mode: frame was rendered directly to the input surface by ExportRenderer or surface scaler!
+            let mut packets = Vec::new();
+            self.drain_output(Duration::ZERO, &mut packets)?;
+            if self.sps.is_none() || self.pps.is_none() {
+                for _ in 0..20 {
+                    if self.sps.is_some() && self.pps.is_some() {
+                        break;
+                    }
+                    self.drain_output(Duration::from_millis(10), &mut packets)?;
+                }
+            }
+            filmcraft_export::note_hw_encode_frame();
+            return Ok(packets);
+        }
+
         let (w, h) = (f.width as usize, f.height as usize);
         if f.rgba.len() < w.saturating_mul(h).saturating_mul(4) {
             return Err(ExportError::Encode("the RGBA picture is smaller than its size".into()));
-        }
-
-        // 1. Color conversion: retrieve pre-converted NV12 frame or convert if missing
-        let ready_frame = {
-            let mut ready = self.ready.lock().unwrap_or_else(PoisonError::into_inner);
-            let mine = ready.remove(&f.index);
-            ready.retain(|&i, _| i > f.index);
-            mine
-        };
-        let expected_len = w * h + (w.div_ceil(2) * h.div_ceil(2) * 2);
-        match ready_frame.filter(|buf| buf.len() == expected_len) {
-            Some(buf) => {
-                self.nv12 = buf;
-            }
-            None => {
-                filmcraft_export::timed(filmcraft_export::Stage::Convert, || {
-                    rgba_to_nv12(f.rgba, w, h, &mut self.nv12);
-                });
-            }
         }
 
         let mut packets = Vec::new();
@@ -693,7 +856,9 @@ impl VideoEncoder for MediaCodecEncoder {
         let uv_size = stride.saturating_mul(uv_height);
         let total_needed = y_size.saturating_add(uv_size);
 
-        let dst = input_buf.buffer_mut();
+        let dst_raw = input_buf.buffer_mut().as_mut_ptr() as *mut u8;
+        let dst_len = input_buf.buffer_mut().len();
+        let dst = unsafe { std::slice::from_raw_parts_mut(dst_raw, dst_len) };
         if dst.len() < total_needed {
             return Err(ExportError::Encode(format!(
                 "MediaCodec input buffer too small: {} bytes, expected at least {}",
@@ -702,42 +867,7 @@ impl VideoEncoder for MediaCodecEncoder {
             )));
         }
 
-        if stride == w && slice_height == h {
-            // Fast contiguous copy for tightly packed buffers (common case)
-            if dst.len() >= total_needed && self.nv12.len() >= total_needed {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(self.nv12.as_ptr(), dst.as_mut_ptr() as *mut u8, total_needed);
-                }
-            }
-        } else {
-            // Strided copy for chips with alignment requirements (e.g. 16/32-byte alignment)
-            let y_plane = &self.nv12[..w * h];
-            let uv_plane = &self.nv12[w * h..];
-            for row in 0..h {
-                let src_offset = row * w;
-                let dst_offset = row * stride;
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        y_plane.as_ptr().add(src_offset),
-                        dst.as_mut_ptr().add(dst_offset) as *mut u8,
-                        w,
-                    );
-                }
-            }
-            let uv_base = y_size;
-            let uv_w = w.div_ceil(2) * 2;
-            for row in 0..uv_height {
-                let src_offset = row * uv_w;
-                let dst_row = uv_base + row * stride;
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        uv_plane.as_ptr().add(src_offset),
-                        dst.as_mut_ptr().add(dst_row) as *mut u8,
-                        uv_w,
-                    );
-                }
-            }
-        }
+        rgba_to_nv12_direct(f.rgba, w, h, stride, slice_height, dst);
 
         // 5. Calculate PTS in microseconds
         let pts_us = (f.index as u128)
@@ -882,11 +1012,8 @@ pub fn decoder_factory(
     match MediaCodecDecoder::new(info.clone()) {
         Ok(dec) => {
             log::info!("MediaCodec hardware decoder activated for {} video ({})", entry.codec.name(), dec.name());
-            Some(Ok(Box::new(HybridDecoder::new(
-                Box::new(dec),
-                entry.clone(),
-                info,
-            ))))
+            filmcraft_codecs::hw::note_hw_session();
+            Some(Ok(Box::new(dec)))
         }
         Err(why) => {
             log::warn!("MediaCodec hardware decoding declined for {} video: {why}", entry.codec.name());
@@ -1332,6 +1459,7 @@ impl VideoDecoder for MediaCodecDecoder {
 
         // 5. Drain any ready output frames non-blocking
         self.drain_output(Duration::ZERO, &mut frames)?;
+        filmcraft_codecs::hw::note_hw_frames(frames.len());
 
         Ok(frames)
     }
@@ -1372,6 +1500,7 @@ impl VideoDecoder for MediaCodecDecoder {
 
         self.eos_seen = false;
         self.last_render_pts_ns = 0;
+        filmcraft_codecs::hw::note_hw_frames(frames.len());
         frames
     }
 

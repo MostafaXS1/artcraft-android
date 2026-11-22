@@ -482,20 +482,20 @@ Video playback, trimming, timeline scrubbing, and high-resolution exporting on A
 - Configured with `--enable-jni --enable-mediacodec --enable-libx264 --enable-libvpx --enable-libopus --disable-vulkan`.
 - Embedded inside the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories, requiring zero Termux or external packages.
 
-### 4. Per-Application Acceleration Implementations
+### 4. Per-Application Acceleration & CPU Fallback Elimination
 - **VidCut (`adapters/vidcut/prepare.sh`)**:
-  - `crates/vidcut-media/src/frame_extractor.rs`: Pre-binds `-c:v h264_mediacodec` (and `-c:v hevc_mediacodec`) before `-i` for instantaneous seeking and thumbnail extraction, with seamless software fallback.
-  - `crates/vidcut-media/src/encoder.rs`: Single-clip and multi-clip exports are accelerated using `h264_mediacodec` with dynamic resolution-aware bitrate steering (6M - 24M) and `nv12` pixel format.
+  - `crates/vidcut-media/src/frame_extractor.rs`: Static `CODEC_CACHE` maps verified working hardware codecs (`h264_mediacodec`, `hevc_mediacodec`, `vp9_mediacodec`) per media path to avoid trial-and-error latency on every frame; forces `-nostdin -threads 4 -an -sn -vf scale={}:-2:flags=fast_bilinear` to prevent audio/subtitle parsing overhead during thumbnail seeks.
+  - `crates/vidcut-media/src/encoder.rs`: Single-clip and multi-clip exports are accelerated using `h264_mediacodec` with dynamic resolution-aware bitrate steering (6M - 24M), `nv12` pixel format, guaranteed even dimensions (`w & !1`, `h & !1`) to avoid MediaCodec rejection, and `-threads 4 -max_muxing_queue_size 1024`.
 - **Splice (`adapters/splice/prepare.sh`)**:
-  - `src/preview.rs`: Scrubbing and realtime streaming playback loops spawn `ffmpeg` processes with named `h264_mediacodec` / `hevc_mediacodec` decoders before `-i`, feeding raw RGBA frames directly into the preview pipeline.
-  - `src/render.rs`: Project export uses `h264_mediacodec` hardware encoding with dynamic bitrate targets, avoiding CPU `libx264` rendering bottlenecks.
+  - `src/preview.rs`: Scrubbing and realtime streaming playback loops spawn `ffmpeg` processes with named `h264_mediacodec` / `hevc_mediacodec` decoders before `-i`, `-nostdin`, `-threads 4`, and reusable pixel buffers in `playback_loop` to eliminate 60+ MB/sec heap allocation churn and GC stutter during 30/60 fps playback.
+  - `src/render.rs`: Project export uses `h264_mediacodec` hardware encoding with dynamic bitrate targets, `-pix_fmt nv12`, `-threads 4`, `-max_muxing_queue_size 1024`, and strips incompatible desktop flags (`-sc_threshold 0`, trailing `-pix_fmt yuv420p`).
 - **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
-  - `crates/picasso-decode/src/hw.rs`: Implements `open_video_decoder` with direct `h264_mediacodec` / `hevc_mediacodec` / `vp9_mediacodec` / `av1_mediacodec` binding, setting packet timebase and allocating single-threaded hardware contexts.
-  - `crates/picasso-export/src/lib.rs` & `video.rs`: Introduces `Hardware::MediaCodec` as default on Android, targeting `h264_mediacodec` / `hevc_mediacodec` with `Pixel::NV12`, automatic bitrate steering, and parameter set header synchronization (omitting `GLOBAL_HEADER` which causes MediaCodec container stalls).
+  - `crates/picasso-decode/src/hw.rs` & `lib.rs`: Eliminates the startup latency benchmark trap where initial 50–100ms MediaCodec initialization caused `Trial` benchmarks to permanently force CPU decoding (`faster_way = false`); Android forces `faster_way = Some(true)` and disables trial step down.
+  - `crates/picasso-export/src/lib.rs` & `video.rs`: Defaults `Hardware::MediaCodec` on Android across `ExportSpec`, `Options::default()`, and `DeliverForm`; disables B-frames (`enc.set_max_b_frames(0)`) for MediaCodec stability, forces `Pixel::NV12`, and omits `GLOBAL_HEADER` to prevent container stalls.
 - **FilmCraft (`templates/filmcraft/android_mediacodec.rs`)**:
-  - Direct buffer mode encoder avoids Vulkan WSI swapchain acquisition stalls on non-display encoder surfaces.
-  - Rayon-parallelized BT.709 integer RGBA->NV12 conversion (`par_chunks_exact`) transforms 1080p/4K frames across all CPU cores in under 1ms.
-  - Asynchronous `prepare_ahead` pipelining pre-converts color planes on worker threads while GPU frames render, feeding a non-blocking `AMediaCodec` dequeue and drain loop.
+  - Zero-Copy Surface Pipeline: Initializes `COLOR_FormatSurface` (2130706441) via `AMediaCodec_createInputSurface` with `priority = 0` and `operating-rate = 10000.0`, unlocking direct GPU texture-to-encoder rendering.
+  - In-Place Direct Buffer Conversion (`rgba_to_nv12_direct`): Parallelized Rayon integer conversion writes directly into `input_buf.buffer_mut()`, eliminating intermediate `Vec<u8>` heap allocations and full-frame `memcpy` overhead.
+  - Decoder Fallback Trap Elimination: Removed `HybridDecoder` tripwire in `decoder_factory`, returning `MediaCodecDecoder` directly so transient timeouts or parameter set updates never degrade to CPU software decoding.
 
 ---
 

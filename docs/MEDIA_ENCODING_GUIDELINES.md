@@ -83,21 +83,42 @@ To prevent freezes, implement an isolated watchdog trial:
 - If the first picture arrives within 2 seconds, the codec is marked verified (`works = true`).
 - If the thread times out or hangs, the codec is marked disabled (`works = false`). All subsequent decoders for that codec fallback to CPU software decoding for the remainder of the session without ever blocking the UI thread.
 
+### 2.5 Zero-Copy Hardware Surface Pipeline (`AMediaCodec_createInputSurface`)
+
+While parallel buffer encoding with Rayon delivers 50+ fps, the highest performance encoding path on Android bypasses CPU RAM entirely:
+1. **Input Surface Creation:**
+   Calling `AMediaCodec_createInputSurface()` configures MediaCodec with `color-format = 2130706441` (`COLOR_FormatSurface` / `0x7F000789`).
+   ```rust
+   let surface = codec.create_input_surface()?;
+   ```
+2. **Zero CPU Readback:**
+   The Vulkan/GLES render engine draws directly into the `ANativeWindow` surface. The GPU renders frames straight into the video encoder's internal hardware buffer queue without roundtripping through system RAM or performing CPU color conversions.
+3. **High-Throughput Configuration:**
+   Encoder initialization must specify:
+   - `priority = 0` (real-time high priority)
+   - `operating-rate = 10000.0` (unlocked maximum hardware encoder clock rate)
+4. **Direct In-Place Buffer Fallback (`rgba_to_nv12_direct`):**
+   When surface encoding is unavailable, write converted NV12 bytes directly into `input_buf.buffer_mut()`. Never allocate temporary `Vec<u8>` intermediate buffers or execute full-frame `memcpy` calls.
+
 ---
 
-### 2.4 Hardware Encoding: In-Band Parameter Sets & Container Header Rules
+### 2.6 Elimination of Silent CPU Software Fallbacks
 
-When encoding MP4 or Matroska files on desktop with `libx264`, FFmpeg standardizes on setting `AV_CODEC_FLAG_GLOBAL_HEADER`:
-```rust
-video_context.set_flags(codec::Flags::GLOBAL_HEADER);
-```
-This instructs `libx264` to extract the H.264 Sequence Parameter Set (SPS) and Picture Parameter Set (PPS) headers and write them exclusively into the MP4 `avcC` / `moov` container atom, suppressing SPS/PPS in the video stream packets.
+A persistent pitfall on Android is the presence of heuristics designed for desktop workstations that silently abort hardware acceleration and fall back to CPU software decoding:
 
-#### The MediaCodec Global Header Failure
-Android's `AMediaCodec` hardware encoders (Qualcomm `c2.qti.avc.encoder`, Samsung `c2.sec.avc.encoder`, Google `c2.android.avc.encoder`) **do not follow desktop global header conventions**:
-1. MediaCodec produces SPS and PPS inside the first encoded buffer (`BUFFER_FLAG_CODEC_CONFIG`).
-2. If FFmpeg's `GLOBAL_HEADER` flag is set on a `_mediacodec` encoder, FFmpeg attempts to strip SPS/PPS from output packets and waits for an extradata callback that the Android NDK never provides.
-3. The encoder either fails at `AMediaCodec_configure` or emits empty packets, stalling container muxing indefinitely.
+1. **The Startup Latency Benchmark Trap (PicassoSuite):**
+   Desktop benchmarking code measures the decode latency of the first 5 frames against a fixed threshold (e.g., 6.0 ms). Because MediaCodec initialization involves binder IPC with Android's `mediacodec` system service (taking 50–100 ms for the first frame), the initial latency trips the benchmark and permanently flags the video track as "faster on CPU".
+   *Remedy:* On Android, force `faster_way()` to return `Some(true)` and disable `Trial` benchmarking.
+2. **The Parameter Set Tripwire (FilmCraft `HybridDecoder`):**
+   Wrapping `MediaCodecDecoder` in a hybrid wrapper that falls back to CPU if SPS/PPS changes or on transient dequeue timeouts will cause the session to permanently degrade to software decoding. MediaCodec decodes parameter changes and handles dynamic resolutions natively; hardware decoders must be used directly without tripwire wrappers.
+3. **Per-File Codec Caching (`CODEC_CACHE`):**
+   When scrubbing or extracting filmstrip thumbnails, attempting multiple decoders (`h264_mediacodec`, `hevc_mediacodec`) for every single frame incurs severe process spawn and probe overhead. Caching the verified working codec for each file path reduces extraction latency from ~280 ms to < 20 ms.
+4. **Command-Line Option Collisions (Splice):**
+   Flags like `-sc_threshold 0` and trailing `-pix_fmt yuv420p` cause MediaCodec to fail with option errors or overwrite NV12. All conflicting options must be stripped when `h264_mediacodec` is active.
+5. **Dimension Alignment Enforcers (VidCut):**
+   Hardware encoders require even dimensions (`w & !1`, `h & !1`). Odd dimensions cause immediate codec rejection. Always align dimensions and pass `-threads 4 -max_muxing_queue_size 1024`.
+
+---
 
 #### The Mandatory Rule
 Explicitly omit `GLOBAL_HEADER` whenever the selected encoder ends with `_mediacodec`:

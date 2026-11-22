@@ -385,10 +385,48 @@ old_dec = '''        let mut context = ff::codec::context::Context::from_paramet
 
 new_dec = '''        let (decoder, on_card) = hw::open_video_decoder(&params, time_base, hardware && learnt != Some(false))?;'''
 
+old_faster = '''fn faster_way(path: &Path) -> Option<bool> {
+    let known = FASTER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    known.as_ref()?.get(path).copied()
+}'''
+
+new_faster = '''fn faster_way(path: &Path) -> Option<bool> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = path;
+        return Some(true);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let known = FASTER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        known.as_ref()?.get(path).copied()
+    }
+}'''
+
+old_trial_rec = '''    fn record(&mut self, ms: f64, on_card: bool) -> TrialStep {'''
+new_trial_rec = '''    fn record(&mut self, ms: f64, on_card: bool) -> TrialStep {
+        #[cfg(target_os = "android")]
+        {
+            let _ = (ms, on_card);
+            return TrialStep::Use(true);
+        }'''
+
 if old_card in s:
     s = s.replace(old_card, new_card, 1)
 if old_dec in s:
     s = s.replace(old_dec, new_dec, 1)
+if old_faster in s:
+    s = s.replace(old_faster, new_faster, 1)
+if old_trial_rec in s:
+    s = s.replace(old_trial_rec, new_trial_rec, 1)
+s = s.replace(
+    'trial: (on_card && learnt.is_none()).then(Trial::default),',
+    'trial: (!cfg!(target_os = "android") && on_card && learnt.is_none()).then(Trial::default),'
+)
 p.write_text(s)
 PY
 
@@ -485,6 +523,15 @@ if old_enc in s:
     s = s.replace(old_enc, new_enc, 1)
 if old_spec_default in s:
     s = s.replace(old_spec_default, new_spec_default, 1)
+
+old_opt_default = '''            hardware: Hardware::Native,'''
+new_opt_default = '''            #[cfg(target_os = "android")]
+            hardware: Hardware::MediaCodec,
+            #[cfg(not(target_os = "android"))]
+            hardware: Hardware::Native,'''
+if old_opt_default in s:
+    s = s.replace(old_opt_default, new_opt_default, 1)
+
 p.write_text(s)
 PY
 
@@ -526,10 +573,53 @@ new_hdr = '''        if global_header && !spec.encoder.ends_with("_mediacodec") 
             flags |= codec::Flags::GLOBAL_HEADER;
         }'''
 
+old_b_frames = '''        if !o.frame_reordering || o.profile == crate::Profile::Baseline {
+            enc.set_max_b_frames(0);
+        }'''
+new_b_frames = '''        if !o.frame_reordering || o.profile == crate::Profile::Baseline || spec.encoder.ends_with("_mediacodec") {
+            enc.set_max_b_frames(0);
+        }'''
+
 if old_spec in s:
     s = s.replace(old_spec, new_spec, 1)
 if old_hdr in s:
     s = s.replace(old_hdr, new_hdr, 1)
+if old_b_frames in s:
+    s = s.replace(old_b_frames, new_b_frames, 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-ui/src/deliver_form.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_deliv_hw = '''            let hardware = if choices.contains(&self.deliver.options.hardware) {
+                self.deliver.options.hardware
+            } else {
+                if choices.len() > 1 {
+                    self.deliver.options.hardware = Hardware::Native;
+                }
+                Hardware::Native
+            };'''
+
+new_deliv_hw = '''            let default_hw = if cfg!(target_os = "android") && choices.contains(&Hardware::MediaCodec) {
+                Hardware::MediaCodec
+            } else {
+                Hardware::Native
+            };
+            let hardware = if choices.contains(&self.deliver.options.hardware) {
+                self.deliver.options.hardware
+            } else {
+                if choices.len() > 1 {
+                    self.deliver.options.hardware = default_hw;
+                }
+                default_hw
+            };'''
+
+if old_deliv_hw in s:
+    s = s.replace(old_deliv_hw, new_deliv_hw, 1)
 p.write_text(s)
 PY
 
