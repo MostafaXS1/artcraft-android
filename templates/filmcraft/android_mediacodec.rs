@@ -813,7 +813,8 @@ impl VideoEncoder for MediaCodecEncoder {
         if self.surface.is_some() {
             // Surface mode: frame was rendered directly to the input surface by ExportRenderer
             let mut packets = Vec::new();
-            self.drain_output(Duration::ZERO, &mut packets)?;
+            // Drain output: wait briefly (up to 4ms) to allow MediaCodec to process the surface buffer and release swapchain image
+            self.drain_output(Duration::from_millis(4), &mut packets)?;
             filmcraft_export::note_hw_encode_frame();
             return Ok(packets);
         }
@@ -1461,8 +1462,11 @@ impl VideoDecoder for MediaCodecDecoder {
             .queue_input_buffer(input_buf, 0, total_bytes, pts as u64, 0)
             .map_err(|e| CodecError::Decode(format!("queue_input_buffer failed: {e:?}")))?;
 
-        // 5. Drain any ready output frames non-blocking
+        // 5. Drain any ready output frames non-blocking, with a small 2ms window if none were ready yet
         self.drain_output(Duration::ZERO, &mut frames)?;
+        if frames.is_empty() {
+            self.drain_output(Duration::from_millis(2), &mut frames)?;
+        }
         filmcraft_codecs::hw::note_hw_frames(frames.len());
 
         Ok(frames)
@@ -1502,8 +1506,8 @@ impl VideoDecoder for MediaCodecDecoder {
             let _ = self.drain_output(Duration::from_millis(20), &mut frames);
         }
 
-        self.eos_seen = false;
-        self.last_render_pts_ns = 0;
+        // Reset codec back to executing state and clear EOS so future decodes don't stall or timeout
+        self.reset();
         filmcraft_codecs::hw::note_hw_frames(frames.len());
         frames
     }

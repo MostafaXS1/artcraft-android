@@ -448,3 +448,9 @@ When porting or implementing any video processing tool on Android, adhere to the
    Never insert polling sleep loops (e.g. 200 ms sleep retries) inside per-frame `encode()` waiting for SPS/PPS. Poll `dequeue_output_buffer` with `Duration::ZERO` during frame submission; parameter sets are extracted on `OutputFormatChanged` or in-band, and final draining occurs cleanly during `flush()`.
 10. **Contiguous Plane Optimization for Strided Hardware Buffers:**
     When hardware MediaCodec buffers specify `stride == width` but `slice_height > height` (common on Qualcomm/Adreno), avoid row-by-row micro-task scheduling. Split the buffer at `stride * slice_height` into contiguous Y and UV sub-slices and process using bulk Rayon parallel chunks `par_chunks_exact(2 * width * 4)`.
+11. **Decoder Pipeline Latency & Sequential GOP Preservation:**
+    Android hardware decoders run on asynchronous DSP/VPU pipelines requiring 1–3 ms to deliver frames. When querying a sample, always allow a brief window (e.g. 2 ms) if non-blocking polling returns empty before declaring the frame missing. Premature flushing destroys the sequential playback state and causes expensive $O(N^2)$ keyframe re-seeks on every frame.
+12. **Codec Reset After EOS Flush:**
+    Queuing an End-of-Stream (EOS) buffer shifts `AMediaCodec` into EOS state where no further input buffers are accepted. Always call `AMediaCodec_flush()` at the end of `flush()` to reset the codec back to the Executing state, ensuring seamless subsequent seeks and playback.
+13. **Surface Swapchain Pacing During GPU Export:**
+    When rendering GPU frames directly to an `ANativeWindow` MediaCodec input surface, drain encoder output buffers with a brief timeout (e.g. 4 ms) on each frame. Draining signals completion to the hardware queue and recycles swapchain images; without pacing, the surface runs out of buffers in 3–4 frames and triggers unintended CPU fallback.
