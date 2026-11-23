@@ -8726,6 +8726,16 @@ export RUST_FONTCONFIG_DLOPEN=1
 echo "  -> building the native library with cargo-ndk (arm64-v8a, API $MIN_SDK)"
 rm -rf "$ANDROID_DIR/jniLibs"
 
+# Memory optimization: cap parallel jobs to prevent OOM on 16-core / 16GB systems
+NDK_JOBS=""
+if [[ "$APP" == "solidcraft" ]]; then
+    export CARGO_BUILD_JOBS=2
+    NDK_JOBS="-j 2"
+else
+    export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+    NDK_JOBS="-j ${CARGO_BUILD_JOBS}"
+fi
+
 # For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
@@ -8733,14 +8743,14 @@ if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" |
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build --release $NDK_JOBS -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
             fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
         fi
     else
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$NDK_MANIFEST" build $NDK_JOBS -p "$NDK_PACKAGE" 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
@@ -8750,14 +8760,14 @@ if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" |
 else
     # Standard build from android app directory for other apps
     if [[ "$MODE" == "release" ]]; then
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release $NDK_JOBS 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
             fail "Release native build failed (exit $status). Log: $ROOT/$LOG"
         fi
     else
-        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
+        if cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build $NDK_JOBS 2>&1 | tee "$ROOT/$LOG"; then
             :
         else
             status=$?
