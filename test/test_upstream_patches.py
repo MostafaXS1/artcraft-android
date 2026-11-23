@@ -79,6 +79,51 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.stdout.strip(), "")
             self.assertEqual(target_file.read_text(), patched_content)
 
+    def test_diagramcraft_spellcheck_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            target_file = tmp_src / "crates" / "dc" / "src" / "spellcheck.rs"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            original_content = (
+                "fn system_dict_dirs() -> Vec<PathBuf> {\n"
+                "    #[cfg(target_os = \"linux\")]\n"
+                "    {\n"
+                "        vec![PathBuf::from(\"/usr/share/hunspell\")]\n"
+                "    }\n"
+                "    #[cfg(target_os = \"macos\")]\n"
+                "    {\n"
+                "        vec![PathBuf::from(\"/Library/Spelling\")]\n"
+                "    }\n"
+                "    #[cfg(windows)]\n"
+                "    {\n"
+                "        Vec::new()\n"
+                "    }\n"
+                "}\n"
+            )
+            target_file.write_text(original_content)
+
+            cmd = [
+                sys.executable,
+                str(PATCHES_SCRIPT),
+                str(tmp_src),
+                "diagramcraft",
+                "DiagramCraft",
+            ]
+            # 1. First run applies patch
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("Repaired upstream compile errors still present in DiagramCraft", result.stdout)
+            self.assertIn("system_dict_dirs android fallback", result.stdout)
+
+            patched_content = target_file.read_text()
+            self.assertIn('#[cfg(target_os = "android")]\n    {\n        Vec::new()\n    }', patched_content)
+
+            # 2. Second run is a silent no-op
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+            self.assertEqual(target_file.read_text(), patched_content)
+
 
 if __name__ == "__main__":
     unittest.main()

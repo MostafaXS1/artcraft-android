@@ -465,22 +465,11 @@ else:
     raise SystemExit("palette.rs no longer closes the input on an outside press")
 
 # Pickers opened from a tap (a bookmark, a recent file) are shown in the same frame too.
-ui_open = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-            self.open = false;
-            return None;
-        }
-
-        if let Some((kind, placeholder)) = self.input {
-"""
-ui_open_patched = """        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-            self.open = false;
-            return None;
-        }
-        // Before the list's focus block clears it: whether this is the frame it opened in.
+ui_open = "        if let Some((kind, placeholder)) = self.input {"
+ui_open_patched = """        // Before the list's focus block clears it: whether this is the frame it opened in.
         let just_opened = self.just_opened;
 
-        if let Some((kind, placeholder)) = self.input {
-"""
+        if let Some((kind, placeholder)) = self.input {"""
 if "let just_opened = self.just_opened;\n\n        if let Some((kind, placeholder)) = self.input" in s:
     print("palette.rs: the list already remembers the frame it opened in")
 elif ui_open in s:

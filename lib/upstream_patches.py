@@ -91,6 +91,29 @@ elif app == "cadcraft":
     ):
         fixed.append("crates/io/src/svg_read.rs (quick-xml into_inner)")
 
+elif app == "diagramcraft":
+    # DiagramCraft's system_dict_dirs() only defines branches for linux, macos, and windows.
+    # On Android, none match, implicitly returning () and causing a type mismatch (expected Vec<PathBuf>).
+    # Provide an empty fallback Vec<PathBuf> for Android.
+    if fix(
+        "crates/dc/src/spellcheck.rs",
+        '    #[cfg(target_os = "macos")]\n'
+        '    {\n'
+        '        vec![PathBuf::from("/Library/Spelling")]\n'
+        '    }\n'
+        '    #[cfg(windows)]',
+        '    #[cfg(target_os = "macos")]\n'
+        '    {\n'
+        '        vec![PathBuf::from("/Library/Spelling")]\n'
+        '    }\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        Vec::new()\n'
+        '    }\n'
+        '    #[cfg(windows)]',
+    ):
+        fixed.append("crates/dc/src/spellcheck.rs (system_dict_dirs android fallback)")
+
 elif app == "wordcraft":
     # rustc 1.99 rejects exhaustive struct patterns that name a field which is private to another
     # module ("pattern requires `..` due to inaccessible fields"). The `swap_fields!` macro
