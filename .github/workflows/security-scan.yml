@@ -199,24 +199,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run zizmor
-        uses: woodruffw/zizmor-action@v1
+        uses: zizmorcore/zizmor-action@v0.9.0
         continue-on-error: true
-        with:
-          sarif-file: zizmor.sarif
-
-      - name: Upload zizmor SARIF report to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: zizmor.sarif
-          category: zizmor
-
-      - name: Save zizmor SARIF Artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zizmor-sarif-report
-          path: zizmor.sarif
 
   bandit:
     name: Python Security SAST (Bandit)
@@ -259,7 +243,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action@v1.9.2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.7.1
         continue-on-error: true
         with:
           scan-args: |-
@@ -309,7 +293,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run TruffleHog OSS
-        uses: trufflesec/trufflehog@main
+        uses: trufflesecurity/trufflehog@main
         continue-on-error: true
         with:
           path: ./
