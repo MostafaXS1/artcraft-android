@@ -2,6 +2,43 @@
 
 This comprehensive guide details the technical architecture, runtime bridges, and step-by-step processes used to port every desktop creative and productivity application in the **ArtCraft Android** ecosystem to native Android (`aarch64-linux-android`).
 
+> [!TIP]
+> **Quick Navigation:**
+> - If you want to **port a desktop Rust/egui application to Android**, jump straight to [**Section 7: In-Tree Porting of Rust/egui Applications**](#7-step-by-step-guide-in-tree-porting-of-rustegui-applications).
+> - If you maintain an **externally built Android app and want it listed in the Launcher**, jump straight to [**Section 8: Adding Community-Distributed Applications to the Launcher**](#8-adding-community-distributed-applications-to-the-launcher).
+
+---
+
+## Table of Contents
+
+- [1. Porting Philosophy & Core Architecture](#1-porting-philosophy--core-architecture)
+- [2. Shared Platform Bridges](#2-shared-platform-bridges)
+  - [2.1 Storage Access Framework (SAF) Document Bridge](#21-storage-access-framework-saf-document-bridge)
+  - [2.2 Native GameActivity IME Soft Keyboard](#22-native-gameactivity-ime-soft-keyboard)
+  - [2.3 Physical Modifier Key Synthesis (Ctrl/Alt/Shift Chords)](#23-physical-modifier-key-synthesis-ctrlaltshift-chords)
+  - [2.4 Universal System Font Fallbacks](#24-universal-system-font-fallbacks)
+  - [2.5 Android Print Framework Integration](#25-android-print-framework-integration)
+- [3. Official Storytold Suite Applications (16 Apps)](#3-official-storytold-suite-applications-16-apps)
+- [4. Community Applications with In-Tree Adapters (20 Apps)](#4-community-applications-with-in-tree-adapters-20-apps)
+- [5. Community Applications Distributed via Launcher Catalog (7 Apps)](#5-community-applications-distributed-via-launcher-catalog-7-apps)
+- [6. The ArtCraft Android Launcher (`launcher`)](#6-the-artcraft-android-launcher-launcher)
+- [7. Step-by-Step Guide: In-Tree Porting of Rust/egui Applications](#7-step-by-step-guide-in-tree-porting-of-rustegui-applications)
+  - [7.1 Porting Models: Auto-Generator vs. Custom In-Tree Adapter](#71-porting-models-auto-generator-vs-custom-in-tree-adapter)
+  - [7.2 Directory Structure of an Adapter](#72-directory-structure-of-an-adapter)
+  - [7.3 Step 1: Configure `adapters/<app>/Cargo.toml`](#73-step-1-configure-adaptersappcargotoml)
+  - [7.4 Step 2: Implement Native Entrypoint (`adapters/<app>/src/lib.rs`)](#74-step-2-implement-native-entrypoint-adaptersappsrclibrs)
+  - [7.5 Step 3: Implement Staging Script (`adapters/<app>/prepare.sh`)](#75-step-3-implement-staging-script-adaptersapppreparesh)
+  - [7.6 Step 4: Register in Build Toolchain & CI](#76-step-4-register-in-build-toolchain--ci)
+  - [7.7 Step 5: Build Locally and Test](#77-step-5-build-locally-and-test)
+- [8. Adding Community-Distributed Applications to the Launcher](#8-adding-community-distributed-applications-to-the-launcher)
+  - [8.1 Model & Prerequisites](#81-model--prerequisites)
+  - [8.2 Step 1: Register in `app-catalog.json`](#82-step-1-register-in-app-catalogjson)
+  - [8.3 Step 2: Add 128px App Icon](#83-step-2-add-128px-app-icon)
+  - [8.4 Step 3: Add Detail Page in `about.json`](#84-step-3-add-detail-page-in-aboutjson)
+  - [8.5 Step 4: Run Code Generators & Update Manifest Queries](#85-step-4-run-code-generators--update-manifest-queries)
+  - [8.6 Step 5: Build and Test the Launcher](#86-step-5-build-and-test-the-launcher)
+- [9. Community Submission, Security Audits & Best Practices](#9-community-submission-security-audits--best-practices)
+
 ---
 
 ## 1. Porting Philosophy & Core Architecture
@@ -496,49 +533,449 @@ graph LR
 
 ---
 
-## 7. Step-by-Step Guide: How to Port a New Application
+## 7. Step-by-Step Guide: In-Tree Porting of Rust/egui Applications
 
-Follow these steps to add a new application to the ArtCraft Android ecosystem:
+Follow these steps to port a new Rust and immediate-mode GUI (`egui` / `eframe`) application to Android using the ArtCraft Android adapter build system:
+
+```mermaid
+flowchart TD
+    A[1. Create adapters/app/ Scaffold] --> B[2. Configure Cargo.toml & Manifest Metadata]
+    B --> C[3. Implement android_main in src/lib.rs]
+    C --> D[4. Write prepare.sh Staging Script]
+    D --> E[5. Wire Shared Platform Bridges SAF, IME, Fonts]
+    E --> F[6. Register in lib/catalog.sh & lib/toolchain.sh]
+    F --> G[7. Register in .github/workflows/build.yml]
+    G --> H[8. Local Build & On-Device Testing]
+```
+
+### 7.1 Porting Models: Auto-Generator vs. Custom In-Tree Adapter
+
+ArtCraft Android supports two porting models:
+* **Model A: Automatic Generator (Zero Code):**
+  If the application conforms to the standard Storytold / Craft workspace structure (`crates/engine`, `crates/ui-egui`, a public `*App` type, `Session::new()`, and `Services::default()`), `lib/launcher_generator.py` will automatically generate `apps/<app>-android`, synthesize the entrypoint, and package the app without an in-tree adapter.
+* **Model B: Custom In-Tree Adapter (`adapters/<app>/`):**
+  Most standalone community Rust/egui applications (e.g. PaperCraft, Ferrite, SubCraft, Coiman IDE, SolidCraft) have custom constructors, window loops, or require specific runtime bridges. Custom adapters reside in `adapters/<app>/` so that deleting or re-fetching the upstream source checkout does not overwrite your integration.
+
+---
+
+### 7.2 Directory Structure of an Adapter
+
+Create a directory under `adapters/<app>/` with the following structure:
+
+```
+adapters/<app>/
+├── Cargo.toml       # Android cdylib manifest & [package.metadata.android]
+├── prepare.sh       # Staging script to patch workspace and inject shared templates
+├── src/
+│   ├── lib.rs       # android_main entrypoint & eframe application wrapper
+│   └── saf.rs       # (Optional) Storage Access Framework bridge
+├── java/            # (Optional) Java Activity subclasses (SafActivity, fullscreen, etc.)
+└── res/             # (Optional) Drawables, styles, and Android resources
+```
+
+---
+
+### 7.3 Step 1: Configure `adapters/<app>/Cargo.toml`
+
+The adapter manifest must declare `crate-type = ["cdylib"]`, pull in `android-activity`, `eframe`, `egui`, `jni`, and configure `[package.metadata.android]`:
+
+```toml
+[package]
+name = "myapp-android"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+myapp = { path = "../.." }
+eframe = { version = "0.36", default-features = false, features = ["glow", "persistence"] }
+egui = "0.36"
+egui-winit = "0.36"
+jni = "0.22"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
+android_logger = "0.15"
+
+[package.metadata.android]
+package = "com.artcraft.myapp"
+apk_name = "myapp-0.1.0"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+java_sources = "java" # Set if using custom Java activities (e.g. for SAF)
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "MyApp"
+theme = "@style/Theme.Artcraft"
+icon = "@mipmap/ic_launcher"
+
+[[package.metadata.android.application.activity]]
+name = ".MyAppActivity" # Or "android.app.NativeActivity" if no Java subclass
+config_changes = "orientation|keyboard|keyboardHidden|navigation|screenSize|screenLayout|smallestScreenSize|density|layoutDirection|uiMode|fontScale|locale"
+window_soft_input_mode = "stateAlwaysHidden|adjustResize"
+label = "MyApp"
+launch_mode = "singleTask"
+orientation = "unspecified"
+exported = true
+intent_filter = [{ actions = ["android.intent.action.MAIN"], categories = ["android.intent.category.LAUNCHER"] }]
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "myapp_android"
+```
+
+> [!IMPORTANT]
+> The launcher intent filter must be declared **inline** (`intent_filter = [{ ... }]`), as `cargo-apk2` does not add one automatically and rejects non-inlined intent filter tables.
+
+---
+
+### 7.4 Step 2: Implement Native Entrypoint (`adapters/<app>/src/lib.rs`)
+
+The `lib.rs` file provides the `#[no_mangle] pub fn android_main(android_app: AndroidApp)` entrypoint, configures app-private / media paths for persistence, registers fallback system fonts, connects touch gestures and text selection bars, and starts `eframe::run_native`:
+
+```rust
+//! Builder-owned Android shell for MyApp.
+
+use android_activity::AndroidApp;
+use std::path::{Path, PathBuf};
+
+mod system_fonts;
+mod mobile_text_bar;
+mod touch_gestures;
+#[cfg(feature = "saf")]
+mod saf;
+
+struct MyAppAndroid {
+    inner: myapp::MyApp,
+}
+
+impl eframe::App for MyAppAndroid {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        system_fonts::install_system_fonts(ctx);
+        self.inner.logic(ctx, frame);
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        touch_gestures::process_raw_input(ctx, raw_input);
+        mobile_text_bar::process_raw_input(ctx, raw_input);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.inner.ui(ui, frame);
+        mobile_text_bar::show_text_bar(ui.ctx());
+    }
+}
+
+fn install_persist_env(app: &AndroidApp) -> Option<PathBuf> {
+    let base = app.external_data_path().or_else(|| app.internal_data_path())?;
+    let config = base.join("config");
+    let cache = base.join("cache");
+    let _ = std::fs::create_dir_all(&config);
+    let _ = std::fs::create_dir_all(&cache);
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", &config);
+        std::env::set_var("XDG_CACHE_HOME", &cache);
+        std::env::set_var("XDG_DATA_HOME", &base);
+    }
+    Some(config)
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+fn android_main(android_app: AndroidApp) {
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("com.artcraft.myapp"),
+    );
+
+    // Initialize winit activity pointers and system fonts
+    egui_winit::android_activity::set_activity(android_app.activity_as_ptr());
+    egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
+    install_persist_env(&android_app);
+    system_fonts::install_font_env(&android_app);
+
+    let native = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_title("MyApp"),
+        renderer: eframe::Renderer::Glow,
+        android_app: Some(android_app.clone()),
+        ..Default::default()
+    };
+
+    let result = eframe::run_native(
+        "MyApp",
+        native,
+        Box::new(|cc| {
+            let inner = myapp::MyApp::new(cc);
+            Ok(Box::new(MyAppAndroid { inner }))
+        }),
+    );
+
+    if let Err(error) = result {
+        log::error!("MyApp Android exited with error: {error}");
+    }
+}
+```
+
+---
+
+### 7.5 Step 3: Implement Staging Script (`adapters/<app>/prepare.sh`)
+
+`prepare.sh` is executed by the build pipeline before compilation. It stages the adapter into `source/<app>/apps/<app>-android`, updates the workspace `Cargo.toml`, and copies shared runtime templates:
+
+```bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
+APP="${1:-myapp}"
+TITLE="${2:-MyApp}"
+SRC="${3:-source/myapp}"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+SRC_ABS="$ROOT/$SRC"
+ADAPTER="$ROOT/adapters/$APP"
+DEST="$SRC_ABS/apps/$APP-android"
+
+# Add adapter crate to the root workspace Cargo.toml
+python3 - "$SRC_ABS/Cargo.toml" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+s = p.read_text()
+if "[workspace]" not in s:
+    s = '[workspace]\nmembers = [".", "apps/myapp-android"]\n\n' + s
+else:
+    m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
+    if m and '"apps/myapp-android"' not in m.group(1):
+        inner = m.group(1).rstrip()
+        if not inner.endswith(','): inner += ','
+        s = s[:m.start(1)] + inner + ' "apps/myapp-android"' + s[m.end(1):]
+p.write_text(s)
+PY
+
+mkdir -p "$DEST"
+cp -a "$ADAPTER/." "$DEST/"
+rm -f "$DEST/prepare.sh" "$DEST/README.md"
+
+# Copy shared runtime modules from templates
+cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
+cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
+cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
+
+# Generate adaptive Android icons from upstream artwork
+python3 "$ROOT/lib/app_icons.py" --src "$SRC_ABS" --app "$APP" --dest "$DEST/res" || true
+printf 'Generated by artcraft-android-builder; custom adapter sourced from adapters/%s.\n' "$APP" > "$DEST/.artcraft-android-builder-generated"
+
+# Patch file associations in Cargo.toml
+python3 - "$DEST/Cargo.toml" "$ROOT" "$APP" <<'PY'
+from pathlib import Path
+import sys, tomllib
+path, root, app = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, str(root / "lib"))
+import file_associations
+file_associations.patch_cargo_toml(path, app)
+PY
+echo "Installed $TITLE adapter in $DEST"
+```
+
+---
+
+### 7.6 Step 4: Register in Build Toolchain & CI
+
+1. **Register in `lib/catalog.sh`:**
+   Add the app mapping in `resolve_app_catalog()` and add the `-myapp` flag to `print_usage()`:
+   ```bash
+   myapp)
+       TITLE="MyApp"
+       REPO="https://github.com/my-org/myapp.git"
+       ;;
+   ```
+2. **Register SAF Bridge in `lib/toolchain.sh` (if applicable):**
+   If the application includes Java sources (e.g. `java_sources = "java"` in `Cargo.toml`), add `myapp` to `SAF_APPS` in `lib/toolchain.sh` so the builder uses `cargo-apk2`.
+3. **Register in CI Matrix (`.github/workflows/build.yml`):**
+   Add `myapp` to the `matrix.app` array under the `build` job.
+
+---
+
+### 7.7 Step 5: Build Locally and Test
+
+Compile and verify the APK locally:
+
+```bash
+# Build optimized release APK
+bash build.sh -myapp
+
+# Build debug APK for development
+bash build-debug.sh -myapp
+
+# Verify APK integrity
+unzip -tq output/myapp-*.apk
+
+# Install and inspect logs on-device
+adb install -r output/myapp-*.apk
+adb logcat | grep -E 'com.artcraft.myapp|system fallback font'
+```
+
+---
+
+## 8. Adding Community-Distributed Applications to the Launcher
+
+Community applications that already maintain their own Android builds and publish releases on GitHub (such as *Keydeck*, *Values*, *Letters*, *Concat*, *ShapeCraft*, *ProCraft*, and *CapCraft*) can be integrated directly into the **ArtCraft Android Launcher** without an in-tree adapter.
 
 ```mermaid
 flowchart LR
-    A[1. Add to app-catalog.json] --> B[2. Create adapters/app/]
-    B --> C[3. Implement prepare.sh]
-    C --> D[4. Add to lib/catalog.sh & lib/toolchain.sh]
-    D --> E[5. Test Build via CI]
+    A[app-catalog.json] --> B[assets/app-icons/]
+    B --> C[about.json]
+    C --> D[generate-catalog.sh & generate-about.sh]
+    D --> E[build-launcher.sh]
 ```
 
-### Step 1: Register in `app-catalog.json`
-Add the application entry to `launcher/apps/artcraft-launcher-android/app-catalog.json`:
+### 8.1 Model & Prerequisites
+
+* **Upstream APK Releases:** The application's upstream repository must publish tagged GitHub Releases with ARM64 (`arm64-v8a` / `aarch64`) `.apk` assets.
+* **Deterministic Package Name:** The app must have a fixed Android application ID (`package`).
+* **Predictable Asset Pattern:** The APK file name must follow a consistent pattern (e.g., `MyApp-*-android-arm64.apk`).
+
+---
+
+### 8.2 Step 1: Register in `app-catalog.json`
+
+Add the application to the `"community_apps"` array in [`launcher/apps/artcraft-launcher-android/app-catalog.json`](launcher/apps/artcraft-launcher-android/app-catalog.json):
+
 ```json
 {
   "id": "myapp",
   "name": "MyApp",
-  "tagline": "Description of app",
-  "color": [100, 150, 200],
-  "repo": "owner/myapp",
-  "publisher": "Author Name",
-  "site": "https://myapp.site",
-  "discord": "https://discord.gg/inviteCode"
+  "tagline": "Short one-line description of the app",
+  "color": [50, 120, 220],
+  "repo": "author/myapp",
+  "publisher": "Author / Team Name",
+  "site": "https://myapp.example.com",
+  "discord": "https://discord.gg/inviteCode",
+  "bundle": null,
+  "package": "org.example.myapp",
+  "release": {
+    "repo": "author/myapp",
+    "asset": "MyApp-*-android-arm64.apk"
+  },
+  "image": "myapp.png"
 }
 ```
-Run `bash launcher/apps/artcraft-launcher-android/generate-catalog.sh` to update `catalog.rs` and the manifest queries.
 
-### Step 2: Create Adapter Scaffold
-Create `adapters/myapp/`:
-- `adapters/myapp/Cargo.toml`: Declare `[package.metadata.android]` with package id `com.artcraft.myapp`.
-- `adapters/myapp/src/lib.rs`: Implement the `android_main` entrypoint with eframe and SAF integration.
-- `adapters/myapp/prepare.sh`: Shell script to clone or stage upstream crates and apply platform patches.
+* **`"bundle": null`:** Explicitly identifies this entry as an external community distribution, distinct from Storytold suite bundles.
+* **`"package"`:** The Android package name (`applicationId`). The launcher queries Android's `PackageManager` with this ID to determine if the app is already installed.
+* **`"release.repo"`:** The GitHub `owner/repo` checked by the launcher for the latest release.
+* **`"release.asset"`:** A glob pattern (supporting `*` and `?`) matching the release APK asset.
+* **`"color"`:** RGB array (`[R, G, B]`) used to tint cards and banners in the launcher UI.
 
-### Step 3: Register in Build Script & CI Matrix
-1. Add the app ID, title, and repo URL to `lib/catalog.sh` (`resolve_app_catalog` and `print_usage`).
-2. Add the app ID to `SAF_APPS` in `lib/toolchain.sh` (if the application uses Storage Access Framework).
-3. Add the app ID to `ALL_APPS` in `.github/workflows/build.yml`.
+---
 
-### Step 4: Verify via CI
-Push the branch with a selective commit directive to test the build on CI without building all apps:
-```bash
-git commit -m "feat(ports): add myapp port [build: myapp, launcher]"
-git push origin <branch>
+### 8.3 Step 2: Add 128px App Icon
+
+1. Place a 128×128 pixel PNG icon at:
+   ```
+   launcher/assets/app-icons/myapp.png
+   ```
+2. Register the icon in [`launcher/crates/core/src/catalog.rs`](launcher/crates/core/src/catalog.rs) within `pub fn app_icon_png(id: &str)`:
+   ```rust
+   pub fn app_icon_png(id: &str) -> Option<&'static [u8]> {
+       Some(match id {
+           // ...
+           "concat" => include_bytes!("../../../assets/app-icons/concat.png"),
+           "myapp" => include_bytes!("../../../assets/app-icons/myapp.png"),
+           _ => return None,
+       })
+   }
+   ```
+
+---
+
+### 8.4 Step 3: Add Detail Page in `about.json`
+
+Add product information to [`launcher/apps/artcraft-launcher-android/about.json`](launcher/apps/artcraft-launcher-android/about.json) under `"about"`. This data powers the launcher's expanded product page:
+
+```json
+{
+  "id": "myapp",
+  "headline": "A concise headline summarizing the core value.",
+  "about": "Full paragraph description explaining the application's capabilities, offline functionality, workflows, and privacy model.",
+  "features": [
+    {
+      "title": "Feature Title 1",
+      "text": "Detailed description of the feature."
+    },
+    {
+      "title": "Feature Title 2",
+      "text": "Detailed description of the feature."
+    }
+  ],
+  "shots": [],
+  "platforms": "Android, Linux, macOS, Windows"
+}
 ```
-Review the resulting GitHub Actions run to verify APK compilation, packaging, and asset verification.
+
+---
+
+### 8.5 Step 4: Run Code Generators & Update Manifest Queries
+
+Run the generator scripts from the launcher directory:
+
+```bash
+# Regenerates src/catalog.rs and updates AndroidManifest.xml <queries>
+bash launcher/apps/artcraft-launcher-android/generate-catalog.sh
+
+# Regenerates src/about.rs from about.json
+bash launcher/apps/artcraft-launcher-android/generate-about.sh
+```
+
+#### Why This Step is Critical
+1. **Android 11+ Package Visibility (`<queries>`):** On Android 11+ (API 30+), apps cannot inspect installed packages without declaring them in `<queries>`. `generate_catalog.py` reads every `package` in `app-catalog.json` and updates the `<queries>` block in [`launcher/apps/artcraft-launcher-android/android/app/src/main/AndroidManifest.xml`](launcher/apps/artcraft-launcher-android/android/app/src/main/AndroidManifest.xml).
+2. **Release Overrides & Version Parsing:** `generate_catalog.py` synthesizes `RELEASE_OVERRIDES`, `package_for()`, and `asset_matches()` into `src/catalog.rs`.
+3. **Packaging Suffix Stripping:** Release file tokens like `-android-arm64` or `-arm64-v8a` are automatically stripped during comparison so the version matches the clean semver tag (e.g. `1.2.0-beta`).
+
+---
+
+### 8.6 Step 5: Build and Test the Launcher
+
+Build the updated launcher APK:
+
+```bash
+bash build-launcher.sh
+```
+
+The output APK will be placed at `output/Artcraft-launcher.apk`. Install it on an Android device:
+
+```bash
+adb install -r output/Artcraft-launcher.apk
+```
+
+Open the launcher: your app will appear in the catalog. Tapping "Install" will download the latest APK from the specified GitHub repository and launch the system package installer.
+
+---
+
+## 9. Community Submission, Security Audits & Best Practices
+
+1. **Security Audit:** All external applications and in-tree adapters undergo a mandatory security review before being accepted into official release builds. The audit checks for:
+   * Dangerous or excessive Android permissions (e.g., unexpected SMS, background location, or accessibility permissions).
+   * Unsafe native code execution, obfuscation, or dynamic remote code loading.
+   * Proper Scoped Storage compliance.
+2. **Contact & Discord:** Project maintainers wishing to get their open-source creative tools listed or seeking porting assistance must reach out via the unofficial [Artcraft Android Discord](https://discord.gg/J8GhXx8tCD).
+3. **Selective CI Directives:** When pushing changes to test a single app, use commit tags to avoid triggering the full 40+ app build matrix:
+   ```bash
+   git commit -m "feat(ports): add myapp [build: myapp, launcher]"
+   ```
