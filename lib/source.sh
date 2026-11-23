@@ -55,22 +55,23 @@ resolve_latest_stable_tag() {
 
 checkout_app_source() {
     say 3 "Fetching official source for $TITLE..."
+    mkdir -p "$ROOT/source"
 
-    if [[ -e "$SRC" ]]; then
-        if [[ -d "$SRC" && ! -d "$SRC/.git" && -z "$(ls -A "$SRC" 2>/dev/null)" ]]; then
-            rmdir "$SRC" 2>/dev/null || true
+    if [[ -e "$ROOT/$SRC" ]]; then
+        if [[ -d "$ROOT/$SRC" && ! -d "$ROOT/$SRC/.git" && -z "$(ls -A "$ROOT/$SRC" 2>/dev/null)" ]]; then
+            rmdir "$ROOT/$SRC" 2>/dev/null || true
         fi
     fi
 
-    if [[ -e "$SRC" ]]; then
-        [[ -d "$SRC/.git" ]] || fail "$SRC exists but is not a Git checkout. Move it aside manually before retrying."
+    if [[ -e "$ROOT/$SRC" ]]; then
+        [[ -d "$ROOT/$SRC/.git" ]] || fail "$SRC exists but is not a Git checkout. Move it aside manually before retrying."
         local origin
-        origin="$(git -C "$SRC" remote get-url origin 2>/dev/null || true)"
+        origin="$(git -C "$ROOT/$SRC" remote get-url origin 2>/dev/null || true)"
         case "${origin%.git}" in
             "$APP_ORIGIN") ;;
             *) fail "$SRC has unexpected origin '$origin'; refusing to reuse or overwrite it." ;;
         esac
-        if ! source_tree_is_complete "$SRC"; then
+        if ! source_tree_is_complete "$ROOT/$SRC"; then
             fail "$SRC is an incomplete checkout: some files of the workspace are missing on disk. That happens when a clone is interrupted (a killed build, or a full disk). Move $SRC aside and run the build again to re-clone it."
         fi
         if [[ "$UPDATE_SOURCE" == "true" ]]; then
@@ -87,8 +88,8 @@ checkout_app_source() {
             fi
 
             local current_tag current_commit is_outdated
-            current_tag="$(git -C "$SRC" describe --tags --exact-match 2>/dev/null || true)"
-            current_commit="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+            current_tag="$(git -C "$ROOT/$SRC" describe --tags --exact-match 2>/dev/null || true)"
+            current_commit="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
             is_outdated=false
 
             if [[ -n "$latest_ref" ]]; then
@@ -106,10 +107,10 @@ checkout_app_source() {
 
             if [[ "$is_outdated" == "true" ]]; then
                 echo "Current source (${current_tag:-${current_commit:0:7}}) is outdated compared to upstream ($latest_ref). Updating..."
-                git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch --tags origin >/dev/null 2>&1 || git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$SRC" fetch origin >/dev/null 2>&1
-                if git -C "$SRC" checkout -f "$latest_ref" >/dev/null 2>&1; then
-                    rm -rf "$SRC/apps/$APP-android"
-                    echo "Successfully updated $TITLE source to $latest_ref ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true))."
+                git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$ROOT/$SRC" fetch --tags origin >/dev/null 2>&1 || git -c filter.lfs.smudge= -c filter.lfs.required=false -c filter.lfs.clean= -C "$ROOT/$SRC" fetch origin >/dev/null 2>&1
+                if git -C "$ROOT/$SRC" checkout -f "$latest_ref" >/dev/null 2>&1; then
+                    rm -rf "$ROOT/$SRC/apps/$APP-android"
+                    echo "Successfully updated $TITLE source to $latest_ref ($(git -C "$ROOT/$SRC" rev-parse --short HEAD 2>/dev/null || true))."
                 else
                     echo "Warning: Could not checkout $latest_ref; continuing with existing source."
                 fi
@@ -120,12 +121,12 @@ checkout_app_source() {
             echo "Skipping update check (--noupdate passed)."
             echo "Reusing existing source checkout."
         fi
-        echo "Ref/Commit: $(git -C "$SRC" describe --tags --always 2>/dev/null || git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+        echo "Ref/Commit: $(git -C "$ROOT/$SRC" describe --tags --always 2>/dev/null || git -C "$ROOT/$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     else
         local src_tmp="$ROOT/source/.clone-$APP.$$"
         rm -rf "$src_tmp"
         local free_bytes
-        free_bytes="$(df -k "$ROOT/source" 2>/dev/null | awk 'NR==2 {print $4 * 1024}')"
+        free_bytes="$(df -k "$ROOT/source" 2>/dev/null | awk 'NR==2 {print $4 * 1024}' || true)"
         if [[ "$free_bytes" =~ ^[0-9]+$ ]] && (( free_bytes < 1048576000 )); then
             rm -rf "$src_tmp"
             fail "Only $((free_bytes / 1048576)) MiB are free on the disk holding $ROOT/source, but cloning $TITLE needs about 1 GiB. Free some space (build/ holds the Cargo output of every app) and run the build again."
@@ -162,11 +163,11 @@ checkout_app_source() {
             rm -rf "$src_tmp"
             fail "The clone of $REPO came back incomplete: some files of the workspace are missing on disk. That usually means the disk filled up during the clone. Free some space and run the build again."
         fi
-        mv "$src_tmp" "$SRC"
+        mv "$src_tmp" "$ROOT/$SRC"
     fi
 
     # Export upstream release commit SHA and build date for the app being built.
-    APP_COMMIT_SHA="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+    APP_COMMIT_SHA="$(git -C "$ROOT/$SRC" rev-parse HEAD 2>/dev/null || true)"
     BUILD_DATE="$(date -u +%Y-%m-%d)"
     APP_UPPER="$(echo "$APP" | tr '[:lower:]' '[:upper:]')"
     if [[ "$MODE" == "release" && -n "$APP_COMMIT_SHA" ]]; then
@@ -182,5 +183,5 @@ checkout_app_source() {
     fi
 
     # Remove pinned upstream toolchains that might lack Android targets in CI runners
-    rm -f "$SRC/rust-toolchain" "$SRC/rust-toolchain.toml"
+    rm -f "$ROOT/$SRC/rust-toolchain" "$ROOT/$SRC/rust-toolchain.toml"
 }

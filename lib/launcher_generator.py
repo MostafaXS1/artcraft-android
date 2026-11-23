@@ -22,6 +22,8 @@ if len(sys.argv) < 10:
 
 root, src_s, app, title, target_sdk, appname, packagename, appicon, no_buttons_str = sys.argv[1:10]
 root, src = Path(root), Path(src_s)
+if not src.is_absolute():
+    src = root / src
 no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
 text_bar_file = "mobile_text_bar_disabled.rs" if no_buttons else "mobile_text_bar.rs"
 # Shared file-association table (Android open/share intent filters), also used by the adapter

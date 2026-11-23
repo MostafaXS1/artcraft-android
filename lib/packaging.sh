@@ -166,7 +166,7 @@ package_and_sign_apk() {
     (
         cd "$ANDROID_DIR/android" && \
         JAVA_HOME="$gradle_jdk" \
-        ARTCRAFT_KEYSTORE="$ROOT/$KEY" \
+        ARTCRAFT_KEYSTORE="$KEY" \
         ARTCRAFT_KEYSTORE_PASSWORD="$KEY_PASSWORD" \
         ARTCRAFT_KEY_ALIAS="artcraftbuilder" \
         ARTCRAFT_KEY_PASSWORD="$KEY_PASSWORD" \

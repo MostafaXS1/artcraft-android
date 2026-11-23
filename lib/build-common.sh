@@ -141,15 +141,34 @@ BUILDER_VERSION="0.7.0"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 
+mkdir -p "$ROOT/source" "$ROOT/build" "$ROOT/output" "$ROOT/logs" "$ROOT/keys" "$ROOT/adapters"
+
+# Name the failing line if a command fails unexpectedly
+trap 'rc=$?; echo >&2; echo "ERROR: the build stopped at line $LINENO: $BASH_COMMAND (exit $rc)" >&2; echo "No source checkout or existing project files were deleted." >&2; exit $rc' ERR
+
 say() {
     local step="$1"; shift
     printf '\n[%s/8] %s\n' "$step" "$*"
 }
 
 fail() {
+    echo >&2
     echo "ERROR: $*" >&2
+    echo "No source checkout or existing project files were deleted." >&2
     exit 1
 }
+
+# Single build lock: prevent concurrent builds that replace each other's launcher crate
+BUILD_LOCK="$ROOT/.artcraft-build.lock"
+if command -v flock >/dev/null 2>&1; then
+    exec {BUILD_LOCK_FD}>>"$BUILD_LOCK"
+    if ! flock -n "$BUILD_LOCK_FD"; then
+        BUILD_LOCK_HOLDER="$(cat "$BUILD_LOCK" 2>/dev/null || true)"
+        fail "another build is already running${BUILD_LOCK_HOLDER:+ (pid $BUILD_LOCK_HOLDER)}. Run builds one after another: two at once replace each other's launcher crate and both can fail. If that process is gone, just run this again. ($BUILD_LOCK)"
+    fi
+    : >"$BUILD_LOCK"
+    printf '%s\n' "$$" >&"$BUILD_LOCK_FD"
+fi
 
 command -v cargo >/dev/null 2>&1 || fail "Rust/Cargo is required."
 command -v python3 >/dev/null 2>&1 || fail "Python 3.11+ is required (tomllib is used to inspect manifests)."
@@ -174,31 +193,31 @@ init_toolchain
 checkout_app_source
 
 # 4. Source repairs and modifications
-python3 "$ROOT/lib/upstream_patches.py" "$SRC" "$APP" "$TITLE"
-bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"
-bash "$ROOT/lib/subcraft.sh" "$SRC" "$APP" "$TITLE"
-bash "$ROOT/lib/topbar_modifiers.sh" "$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
-bash "$ROOT/lib/about_dialog.sh" "$SRC" "$APP" "$TITLE"
+python3 "$ROOT/lib/upstream_patches.py" "$ROOT/$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/scrolling.sh" "$ROOT/$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/subcraft.sh" "$ROOT/$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/topbar_modifiers.sh" "$ROOT/$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
+bash "$ROOT/lib/about_dialog.sh" "$ROOT/$SRC" "$APP" "$TITLE"
 
 # 5. Generate or prepare NativeActivity launcher
-ANDROID_DIR="$SRC/apps/$APP-android"
+ANDROID_DIR="$ROOT/$SRC/apps/$APP-android"
 say 4 "Preparing the NativeActivity launcher..."
-if [[ -x "adapters/$APP/prepare.sh" ]]; then
+if [[ -x "$ROOT/adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
-    bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
-    if [[ -d "$SRC/apps/$APP-android/src" ]]; then
+    bash "$ROOT/adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
+    if [[ -d "$ROOT/$SRC/apps/$APP-android/src" ]]; then
         text_bar_src="$ROOT/templates/android/mobile_text_bar.rs"
         if [[ "$NO_BUTTONS" == "true" ]]; then
             text_bar_src="$ROOT/templates/android/mobile_text_bar_disabled.rs"
         fi
-        [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
-        [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
+        [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$ROOT/$SRC/apps/$APP-android/src/mobile_text_bar.rs"
+        [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs"
         if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" ]]; then
-            sed -i '/source: egui::MouseWheelSource::Unknown,/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
+            sed -i '/source: egui::MouseWheelSource::Unknown,/d' "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
         fi
     fi
 else
-    python3 "$ROOT/lib/launcher_generator.py" "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" "$NO_BUTTONS"
+    python3 "$ROOT/lib/launcher_generator.py" "$ROOT" "$ROOT/$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" "$NO_BUTTONS"
 fi
 
 # Install UpdateChecker and ArtCraftIme

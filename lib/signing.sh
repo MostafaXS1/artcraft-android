@@ -4,10 +4,10 @@
 
 prepare_signing_key() {
     say 5 "Preparing a builder-owned signing key..."
-    KEY="keys/artcraft-builder.jks"
-    KEY_PASSWORD_FILE="keys/.keystore-password"
-    mkdir -p keys
-    chmod 700 keys
+    KEY="$ROOT/keys/artcraft-builder.jks"
+    KEY_PASSWORD_FILE="$ROOT/keys/.keystore-password"
+    mkdir -p "$ROOT/keys"
+    chmod 700 "$ROOT/keys"
 
     if [[ -n "${ARTCRAFT_KEYSTORE_BASE64:-}" && ! -f "$KEY" ]]; then
         echo "$ARTCRAFT_KEYSTORE_BASE64" | base64 -d > "$KEY"
