@@ -1,0 +1,10 @@
+# Gitleaks configuration for ArtCraft Android
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow local builder keystore and mock assets"
+paths = [
+    '''keys/artcraft-builder\.jks''',
+    '''keys/\.keystore-password''',
+]

@@ -31,13 +31,22 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@cargo-audit
 
-      - name: Run cargo audit in launcher
-        working-directory: launcher
+      - name: Run Cargo Audit across all crates
         run: |
-          cargo audit --json > cargo-audit.json 2>&1 || true
-          cargo audit || true
+          echo "=== Auditing launcher ==="
+          if [ -d "launcher" ]; then
+            (cd launcher && cargo audit --json > cargo-audit.json 2>&1 || true)
+            (cd launcher && cargo audit || true)
+          fi
+
+          echo "=== Auditing all other Cargo lockfiles in repository ==="
+          find . -name "Cargo.lock" -not -path "*/target/*" -not -path "./launcher/*" | while read -r lockfile; do
+            dir=$(dirname "$lockfile")
+            echo "Auditing $dir..."
+            (cd "$dir" && cargo audit || true)
+          done
 
       - name: Save Cargo Audit Report Artifact
         uses: actions/upload-artifact@v4
@@ -46,11 +55,26 @@ jobs:
           name: cargo-audit-report
           path: launcher/cargo-audit.json
 
+  cargo-deny:
+    name: Rust Supply Chain & License Audit (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cargo-deny on launcher
+        uses: EmbarkStudios/cargo-deny-action@v2
+        continue-on-error: true
+        with:
+          manifest-path: launcher/Cargo.toml
+          config: deny.toml
+          command: check advisories bans licenses sources
+
   semgrep:
-    name: Multi-Language SAST & Android Security (Semgrep)
+    name: Multi-Language & Android SAST (Semgrep)
     runs-on: ubuntu-latest
     container:
-      image: returntocorp/semgrep:latest
+      image: semgrep/semgrep:latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -61,6 +85,8 @@ jobs:
             --config "p/security-audit" \
             --config "p/owasp-top-ten" \
             --config "p/secrets" \
+            --config "p/android" \
+            --config "p/owasp-mobile-top-ten" \
             --sarif \
             --output semgrep.sarif \
             --error || true
@@ -78,6 +104,33 @@ jobs:
         with:
           name: semgrep-sarif-report
           path: semgrep.sarif
+
+  mobsfscan:
+    name: Mobile Security SAST (mobsfscan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run mobsfscan Android SAST
+        uses: MobSF/mobsfscan@main
+        continue-on-error: true
+        with:
+          args: '. --sarif --output mobsfscan.sarif'
+
+      - name: Upload mobsfscan SARIF report to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: mobsfscan.sarif
+          category: mobsfscan
+
+      - name: Save mobsfscan SARIF Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobsfscan-sarif-report
+          path: mobsfscan.sarif
 
   codeql:
     name: CodeQL Static Analysis (${{ matrix.language }})
@@ -107,24 +160,22 @@ jobs:
           category: "/language:${{ matrix.language }}"
 
   trivy:
-    name: Filesystem & Dependency Vulnerability Scan (Trivy)
+    name: Filesystem, Dependency & Misconfig Scan (Trivy)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Trivy
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-
-      - name: Run Trivy Vulnerability Scanner
-        run: |
-          trivy fs \
-            --format sarif \
-            --output trivy-results.sarif \
-            --severity CRITICAL,HIGH,MEDIUM \
-            --ignore-unfixed \
-            . || true
+      - name: Run Trivy Vulnerability & Misconfig Scanner
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          scan-type: 'fs'
+          scanners: 'vuln,secret,misconfig'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
 
       - name: Upload Trivy SARIF report to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -139,6 +190,97 @@ jobs:
         with:
           name: trivy-sarif-report
           path: trivy-results.sarif
+
+  zizmor:
+    name: GitHub Actions Workflow Security (zizmor)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run zizmor
+        uses: woodruffw/zizmor-action@v1
+        continue-on-error: true
+        with:
+          sarif-file: zizmor.sarif
+
+      - name: Upload zizmor SARIF report to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
+
+      - name: Save zizmor SARIF Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zizmor-sarif-report
+          path: zizmor.sarif
+
+  bandit:
+    name: Python Security SAST (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Bandit with SARIF plugin
+        run: pip install bandit bandit-sarif-formatter
+
+      - name: Run Bandit SAST Scan
+        run: |
+          bandit -r lib/ test/ scripts/ -f sarif -o bandit.sarif || true
+
+      - name: Upload Bandit SARIF report to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+
+      - name: Save Bandit SARIF Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-sarif-report
+          path: bandit.sarif
+
+  osv-scanner:
+    name: Multi-Ecosystem Supply Chain Audit (OSV-Scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/v1.9.2
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --output=osv-results.sarif
+            --format=sarif
+            -r
+            .
+
+      - name: Upload OSV-Scanner SARIF report to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+
+      - name: Save OSV-Scanner SARIF Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: osv-scanner-sarif-report
+          path: osv-results.sarif
 
   gitleaks:
     name: Secret & Token Detection (Gitleaks)
@@ -156,3 +298,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
           GITLEAKS_ENABLE_SUMMARY: true
+
+  trufflehog:
+    name: Secret & Credential Leak Detection (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog OSS
+        uses: trufflesec/trufflehog@main
+        continue-on-error: true
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch || 'main' }}
+          head: HEAD
+          extra_args: --only-verified
