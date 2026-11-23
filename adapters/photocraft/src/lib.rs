@@ -1299,7 +1299,7 @@ fn android_main(android_app: AndroidApp) {
             let control_rx = match std::net::TcpListener::bind("127.0.0.1:0") {
                 Ok(listener) => {
                     let addr = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| "127.0.0.1:0".to_string());
-                    let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string();
+                    let token = generate_control_token();
                     let rx = control_server::start(listener, token.clone(), cc.egui_ctx.clone());
                     let _ = CONTROL_INFO.set((addr, token));
                     Some(rx)
@@ -1362,3 +1362,35 @@ fn android_main(android_app: AndroidApp) {
         log::error!("PhotoCraft Android exited with an error: {error}");
     }
 }
+
+/// Generate a fresh 256-bit random hex token for authenticating local control server IPC.
+fn generate_control_token() -> String {
+    let mut bytes = [0u8; 32];
+    let mut filled = false;
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        if f.read_exact(&mut bytes).is_ok() {
+            filled = true;
+        }
+    }
+    if !filled {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(12345);
+        let pid = std::process::id() as u128;
+        let mut seed = now ^ (pid << 64);
+        for byte in &mut bytes {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (seed >> 56) as u8;
+        }
+    }
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(64);
+    for &b in &bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+

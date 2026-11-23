@@ -1,0 +1,3 @@
+# Gitleaks ignore file
+# Ignores known historical placeholder tokens in commit history
+7e319de22b5ac93bd95bf0a8b0c2d7598e69cf87:adapters/photocraft/src/lib.rs:generic-api-key:1096

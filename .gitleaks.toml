@@ -3,8 +3,14 @@
 useDefault = true
 
 [allowlist]
-description = "Allow local builder keystore and mock assets"
+description = "Allow local builder keystore assets and historical placeholder tokens"
 paths = [
     '''keys/artcraft-builder\.jks''',
     '''keys/\.keystore-password''',
+]
+commits = [
+    "7e319de22b5ac93bd95bf0a8b0c2d7598e69cf87",
+]
+regexes = [
+    '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
 ]
