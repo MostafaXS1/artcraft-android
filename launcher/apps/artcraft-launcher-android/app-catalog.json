@@ -669,36 +669,6 @@
       "site": "https://github.com/erythrofr/ClothCraft",
       "bundle": "com.artcraft.clothcraft",
       "image": "clothcraft.png"
-    },
-    {
-      "id": "splice",
-      "name": "Splice",
-      "tagline": "Timeline video editor with storyboard, transitions and effects",
-      "color": [
-        160,
-        60,
-        220
-      ],
-      "repo": "GeneticxCln/Splice",
-      "publisher": "GeneticxCln",
-      "site": "https://github.com/GeneticxCln/Splice",
-      "bundle": "com.artcraft.splice",
-      "image": "splice.png"
-    },
-    {
-      "id": "vidcut",
-      "name": "VidCut",
-      "tagline": "Lossless video trimmer and cutter",
-      "color": [
-        240,
-        80,
-        80
-      ],
-      "repo": "goriant-studio/VidCut",
-      "publisher": "goriant-studio",
-      "site": "https://github.com/goriant-studio/VidCut",
-      "bundle": "com.artcraft.vidcut",
-      "image": "vidcut.png"
     }
   ]
 }

@@ -44,13 +44,13 @@ This document describes the end-to-end architecture of the ArtCraft Android Buil
 ## Overview
 
 The ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Android APKs from official upstream repositories of the ArtCraft suite and community creative tools. It uses a hybrid approach:
-- Directly builds 40 applications and the standalone ArtCraft Launcher APK.
+- Directly builds 38 applications and the standalone ArtCraft Launcher APK.
 - For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="81"`).
-- For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 27 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, VidCut, Splice, ClothCraft, etc.).
+- For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 25 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, ClothCraft, etc.).
 - It vendors and patches dependencies (`winit`, `egui-winit`, `rfd`, `arboard`, `egui-wgpu`, `android-activity`, `krilla`, `ffmpeg-sys-next`, `midir`, etc.) to add Android-specific desktop input (mouse/trackpad hover, wheel, gestures), system clipboard via JNI, SAF integration, ANR-safe non-blocking lifecycles, and surface recovery fixes.
 - It shares runtime modules (SAF bridge, system fonts, update checker, hardware-accelerated video rendering) across generated launchers and adapters; soft-keyboard input uses `android-activity`'s native GameActivity IME.
 - It manages SDK/NDK/JDK discovery and bootstrap, automated Gradle packaging, local keystore signing, and release artifact verification.
-- The overall ecosystem supports 48 applications across official Storytold releases, in-tree community adapters, and external community releases indexed by the ArtCraft Launcher (see [`docs/ported-apps.md`](docs/ported-apps.md)).
+- The overall ecosystem supports 46 applications across official Storytold releases, in-tree community adapters, and external community releases indexed by the ArtCraft Launcher (see [`docs/ported-apps.md`](docs/ported-apps.md)).
 
 ---
 
@@ -115,18 +115,18 @@ Notes:
 
 ## Supported Apps
 
-ArtCraft Android supports **48 applications** across the suite, categorized into:
+ArtCraft Android supports **46 applications** across the suite, categorized into:
 
 1. **Official Storytold Suite (16 apps):**
    `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`, `materialcraft`, `texturecraft`, `anicraft`.
-2. **Community Applications with In-Tree Adapters & Direct CI Builds (24 apps):**
-   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`, `pcbcraft`, `fieldcraft`, `papercraft`, `ferrite`, `pixelcraft`, `clothcraft`, `splice`, `vidcut`.
+2. **Community Applications with In-Tree Adapters & Direct CI Builds (22 apps):**
+   `subcraft`, `solidcraft`, `bimcraft`, `capsulecraft`, `diagramcraft`, `earthcraft`, `humanmotioncraft`, `mapcraft`, `notecraft`, `paintcraft`, `picassosuite`, `prowave`, `rustgis`, `tracedraw`, `transit`, `coimanide`, `pcbcraft`, `fieldcraft`, `papercraft`, `ferrite`, `pixelcraft`, `clothcraft`.
 3. **Community Applications Tracked via Launcher Catalog (7 apps):**
    `keydeck`, `values`, `letters`, `procraft`, `capcraft`, `concat`, `shapecraft`.
 4. **ArtCraft Launcher (1 app):**
    `launcher` (`artcraft-launcher-android`).
 
-All 40 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
+All 38 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `build.sh` / `build-launcher.sh` and are verified in the CI matrix. For complete details, upstream links, and repository origins, see [`docs/ported-apps.md`](docs/ported-apps.md).
 
 ---
 
@@ -460,7 +460,7 @@ For apps with `recent_paths`/`open_paths` in recipes:
 
 ## Hardware-Accelerated Video Rendering & Playback Engine
 
-Video playback, trimming, timeline scrubbing, and high-resolution exporting on Android require sustained high-throughput frame processing. ArtCraft Android integrates a comprehensive hardware acceleration engine across all video suite applications (`vidcut`, `splice`, `picassosuite`, `filmcraft`):
+Video playback, trimming, timeline scrubbing, and high-resolution exporting on Android require sustained high-throughput frame processing. ArtCraft Android integrates a comprehensive hardware acceleration engine across all video suite applications (`picassosuite`, `filmcraft`):
 
 ### 1. Android NDK AMediaCodec Architecture
 - Leverages the Android NDK `AMediaCodec` low-level native API (`libmediandk.so`).
@@ -483,12 +483,6 @@ Video playback, trimming, timeline scrubbing, and high-resolution exporting on A
 - Embedded inside the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories, requiring zero Termux or external packages.
 
 ### 4. Per-Application Acceleration & CPU Fallback Elimination
-- **VidCut (`adapters/vidcut/prepare.sh`)**:
-  - `crates/vidcut-media/src/frame_extractor.rs`: Static `CODEC_CACHE` maps verified working hardware codecs (`h264_mediacodec`, `hevc_mediacodec`, `vp9_mediacodec`) per media path to avoid trial-and-error latency on every frame; forces `-nostdin -threads 4 -an -sn -vf scale={}:-2:flags=fast_bilinear` to prevent audio/subtitle parsing overhead during thumbnail seeks.
-  - `crates/vidcut-media/src/encoder.rs`: Single-clip and multi-clip exports are accelerated using `h264_mediacodec` with dynamic resolution-aware bitrate steering (6M - 24M), `nv12` pixel format, guaranteed even dimensions (`w & !1`, `h & !1`) to avoid MediaCodec rejection, and `-threads 4 -max_muxing_queue_size 1024`.
-- **Splice (`adapters/splice/prepare.sh`)**:
-  - `src/preview.rs`: Scrubbing and realtime streaming playback loops spawn `ffmpeg` processes with named `h264_mediacodec` / `hevc_mediacodec` decoders before `-i`, `-nostdin`, `-threads 4`, and reusable pixel buffers in `playback_loop` to eliminate 60+ MB/sec heap allocation churn and GC stutter during 30/60 fps playback.
-  - `src/render.rs`: Project export uses `h264_mediacodec` hardware encoding with dynamic bitrate targets, `-pix_fmt nv12`, `-threads 4`, `-max_muxing_queue_size 1024`, and strips incompatible desktop flags (`-sc_threshold 0`, trailing `-pix_fmt yuv420p`).
 - **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
   - `crates/picasso-decode/src/hw.rs` & `lib.rs`: Eliminates the startup latency benchmark trap where initial 50–100ms MediaCodec initialization caused `Trial` benchmarks to permanently force CPU decoding (`faster_way = false`); Android forces `faster_way = Some(true)` and disables trial step down.
   - `crates/picasso-export/src/lib.rs` & `video.rs`: Defaults `Hardware::MediaCodec` on Android across `ExportSpec`, `Options::default()`, and `DeliverForm`; disables B-frames (`enc.set_max_b_frames(0)`) for MediaCodec stability, forces `Pixel::NV12`, and omits `GLOBAL_HEADER` to prevent container stalls.
@@ -581,8 +575,6 @@ Located in `adapters/` (23 custom adapters):
 - **ferrite**: Lightweight Markdown/JSON text editor, custom `termios` shim (`vendor/termios`), GameActivity IME soft keyboard bridge and dynamic viewport resize
 - **pixelcraft**: Fast native pixel art editor and animator, touch canvas navigation and pixel grid scaling
 - **clothcraft**: Cloth simulation and garment patterning, DXF/SVG pattern import, multi-touch draped mesh navigation
-- **splice**: Fast video editor with MediaCodec hardware accelerated decoding, scrubbing, and stream playback
-- **vidcut**: Video trimmer, cutter, and timeline editor with MediaCodec hardware accelerated frame extraction
 
 Adapter README (`adapters/README.md`) explains when to use adapters vs generated launcher.
 

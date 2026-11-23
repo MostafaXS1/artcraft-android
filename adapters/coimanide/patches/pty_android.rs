@@ -244,11 +244,32 @@ impl Session {
     fn scratch_dir(&self) -> Option<std::path::PathBuf> {
         let public = std::env::var_os("COIMAN_TERMUX_PUBLIC")?;
         let root = std::path::PathBuf::from(public).join("scratch");
-        let pid = self.pid?;
-        let prefix = format!("{pid}-");
-        for entry in std::fs::read_dir(root).ok()?.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(&prefix) {
-                return Some(entry.path());
+        if let Some(pid) = self.pid {
+            let prefix = format!("{pid}-");
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                        return Some(entry.path());
+                    }
+                }
+            }
+        }
+        // Fallback: newest scratch directory if pid matching misses
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            let mut newest = None;
+            let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(mtime) = meta.modified() {
+                        if mtime >= newest_time {
+                            newest_time = mtime;
+                            newest = Some(entry.path());
+                        }
+                    }
+                }
+            }
+            if newest.is_some() {
+                return newest;
             }
         }
         None

@@ -82,9 +82,9 @@ photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
 notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft splice vidcut
+rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft
 ```
-Total: 40 buildable applications + 1 ArtCraft Launcher = 41 built by repository; 7 external community applications tracked via launcher catalog; 48 applications across the ecosystem.
+Total: 38 buildable applications + 1 ArtCraft Launcher = 39 built by repository; 7 external community applications tracked via launcher catalog; 46 applications across the ecosystem.
 
 ## 3. Repository Structure
 
@@ -2196,17 +2196,11 @@ ArtCraft Android implements a suite-wide hardware-accelerated video rendering, p
 - Output binaries (`ffmpeg`, `ffprobe`) are bundled into the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories.
 
 ### 60.4 Video Suite Integration Details & CPU Fallback Elimination
-1. **VidCut (`adapters/vidcut/prepare.sh`)**:
-   - `crates/vidcut-media/src/frame_extractor.rs`: Static `CODEC_CACHE` (`OnceLock<Mutex<HashMap<PathBuf, &'static str>>>`) maps verified working hardware codecs (`h264_mediacodec`, `hevc_mediacodec`, `vp9_mediacodec`) per media path to eliminate trial-and-error probing latency on every frame; forces `-nostdin -threads 4 -an -sn -vf scale={}:-2:flags=fast_bilinear` to prevent audio/subtitle demuxing overhead during thumbnail seek passes.
-   - `crates/vidcut-media/src/encoder.rs`: Single-clip and multi-clip exports are accelerated with `-c:v h264_mediacodec -b:v <bitrate> -pix_fmt nv12` using dynamic bitrate steering (6M - 24M), bitmasked even dimensions (`w & !1`, `h & !1`) to avoid MediaCodec rejection, and `-threads 4 -max_muxing_queue_size 1024`.
-2. **Splice (`adapters/splice/prepare.sh`)**:
-   - `src/preview.rs`: Timeline scrub seeking and streaming playback loops spawn `ffmpeg` child process pipes with named `h264_mediacodec` / `hevc_mediacodec` decoders before `-i`, `-nostdin`, `-threads 4`, and reusable pixel buffers in `playback_loop` to eliminate 60+ MB/sec heap allocation churn and GC stutter during 30/60 fps playback.
-   - `src/render.rs`: Project export uses `h264_mediacodec` hardware encoding with dynamic bitrate targets, `-pix_fmt nv12`, `-threads 4`, `-max_muxing_queue_size 1024`, and strips incompatible desktop flags (`-sc_threshold 0`, trailing `-pix_fmt yuv420p`).
-3. **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
+1. **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
    - `vendor/ffmpeg-sys-next/build.rs`: Configures `--enable-mediacodec --enable-jni` automatically on `target_os == "android"`.
    - `crates/picasso-decode/src/hw.rs` & `lib.rs`: Eliminates the startup latency benchmark trap where initial 50–100ms MediaCodec initialization caused `Trial` benchmarks to permanently force CPU decoding (`faster_way = false`); Android forces `faster_way = Some(true)` and disables trial step down.
    - `crates/picasso-export/src/lib.rs` & `video.rs`: Introduces `Hardware::MediaCodec` as default on Android across `ExportSpec`, `Options::default()`, and `DeliverForm`, targeting `h264_mediacodec` / `hevc_mediacodec` with `Pixel::NV12`, automatic bitrate steering, parameter set header synchronization, and zero B-frames (`set_max_b_frames(0)`).
-4. **FilmCraft (`templates/filmcraft/android_mediacodec.rs`)**:
+2. **FilmCraft (`templates/filmcraft/android_mediacodec.rs`)**:
    - **Zero-Copy Surface Pipeline**: Implemented surface encoder via `AMediaCodec_createInputSurface` with `COLOR_FormatSurface` (2130706441), `priority = 0`, and `operating-rate = 10000.0`. Surfaces are hooked directly to `VideoEncoder::input_surface(&self)`, activating `job.rs`'s `step_surface_batch` hardware surface pipeline.
    - **Direct In-Place Buffer Conversion (`rgba_to_nv12_direct`)**: In buffer fallback mode, Rayon-parallelized integer color conversion writes directly into `input_buf.buffer_mut()`, eliminating intermediate `Vec<u8>` heap allocations and full-frame `memcpy` overhead.
    - **Elimination of `HybridDecoder` CPU Fallback Trap**: Removed `HybridDecoder` tripwire from `decoder_factory`, returning `MediaCodecDecoder` directly so SPS/PPS parameter set changes or temporary dequeue timeouts never permanently degrade the session to CPU software decoding.

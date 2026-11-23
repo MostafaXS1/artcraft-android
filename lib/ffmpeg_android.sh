@@ -205,7 +205,7 @@ else
         --disable-programs \
         --enable-ffmpeg \
         --enable-ffprobe
-    # The programs are what AniCraft and Splice run, so they are built after the libraries.
+    # The programs are what AniCraft runs, so they are built after the libraries.
     make -j"$JOBS" ffmpeg ffprobe
     make install
     cd "$ROOT"

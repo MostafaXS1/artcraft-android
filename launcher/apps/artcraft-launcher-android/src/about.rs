@@ -418,32 +418,6 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
-    AppDetails {
-        id: "splice",
-        headline: "Native timeline video editor with storyboard and effects.",
-        about: "A native multitrack timeline video editor written in Rust: four-track timeline, storyboard, 58 transitions, 38 effects, animated titles, picture-in-picture overlays, voiceover recording, and 16:9 / 9:16 Shorts export.",
-        features: &[
-            Feature { title: "Multitrack timeline", text: "Four-track video/audio timeline with magnetic snapping, trimming, splitting, and ripple edits." },
-            Feature { title: "Transitions & effects", text: "58 video transitions, 38 creative color and visual effects, and animated lower thirds." },
-            Feature { title: "Picture-in-picture", text: "Overlay video and image tracks with animated keyframe transforms." },
-            Feature { title: "Shorts & Reels export", text: "One-click aspect ratio switching between horizontal 16:9 and vertical 9:16 Shorts." },
-        ],
-        shots: &[],
-        platforms: "Linux, macOS, Windows, Android",
-    },
-    AppDetails {
-        id: "vidcut",
-        headline: "Fast, lossless video cutting and trimming.",
-        about: "A lightweight, blazing-fast video cutter that trims and exports video without re-encoding quality loss, built with Rust, egui, and wgpu.",
-        features: &[
-            Feature { title: "Lossless stream cutting", text: "Cut, trim, and reorder video segments in seconds without quality loss." },
-            Feature { title: "Keyframe-accurate seeking", text: "Jump directly to I-frames for instantaneous, exact cuts." },
-            Feature { title: "Pure Rust media probe", text: "Fast media inspection without heavy third-party runtime dependencies." },
-            Feature { title: "Batch export", text: "Export multiple cut ranges into separate clips or joined output files." },
-        ],
-        shots: &[],
-        platforms: "Linux, macOS, Windows, Android",
-    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

@@ -34,7 +34,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft splice vidcut
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft
 
 Examples:
   bash build.sh -photocraft
@@ -177,8 +177,6 @@ case "$APP" in
     ferrite) TITLE="Ferrite" ;;
     pixelcraft) TITLE="PixelCraft" ;;
     clothcraft) TITLE="ClothCraft" ;;
-    splice) TITLE="Splice" ;;
-    vidcut) TITLE="VidCut" ;;
     *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
 esac
 if [[ -n "$APPNAME" ]]; then TITLE="$APPNAME"; fi
@@ -256,12 +254,6 @@ elif [[ "$APP" == "pixelcraft" ]]; then
 elif [[ "$APP" == "clothcraft" ]]; then
     REPO="https://github.com/erythrofr/ClothCraft.git"
     APP_ORIGIN="https://github.com/erythrofr/ClothCraft"
-elif [[ "$APP" == "splice" ]]; then
-    REPO="https://github.com/GeneticxCln/Splice.git"
-    APP_ORIGIN="https://github.com/GeneticxCln/Splice"
-elif [[ "$APP" == "vidcut" ]]; then
-    REPO="https://github.com/goriant-studio/VidCut.git"
-    APP_ORIGIN="https://github.com/goriant-studio/VidCut"
 fi
 
 # The builder's own version, baked into every APK. The app compares it with the latest GitHub
@@ -317,7 +309,7 @@ python3 -c 'import tomllib' >/dev/null 2>&1 || fail "Python 3.11+ with tomllib i
 # Apps whose launcher (adapter or builder-generated) ships a Java Storage Access Framework Activity.
 # Kept here in addition to the manifest check below so bridge verification covers the very first
 # build too, before the launcher has been generated. Keep in sync with SAF_RECIPES in this file.
-SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft splice vidcut "
+SAF_APPS=" designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft "
 needs_saf() {
     [[ " $SAF_APPS " == *" $1 "* ]]
 }
@@ -603,7 +595,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-android28 ${BINDGEN_EXTR
 # Repositories whose releases either lack tags, have irregular non-version tags (e.g. earthcraft 'versions'),
 # or whose Android integrations require upstream main:
 case "$APP" in
-    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|ferrite|clothcraft|splice|vidcut)
+    earthcraft|prowave|transit|rustgis|mapcraft|anicraft|solidcraft|pcbcraft|ferrite|clothcraft)
         if [[ "$BUILD_SOURCE" == "stable" ]]; then
             BUILD_SOURCE="main"
         fi
@@ -1066,6 +1058,138 @@ elif app == "lightcraft":
         '        }',
     ):
         fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
+
+elif app == "effectcraft":
+    # 0. Allow unsafe code in workspace for hardware surface interop.
+    if fix(
+        "Cargo.toml",
+        'unsafe_code = "forbid"\n',
+        'unsafe_code = "allow"\n',
+    ):
+        fixed.append("Cargo.toml (unsafe_code = allow)")
+
+    # 1. Add ndk dependency to crates/media/Cargo.toml for AMediaCodec.
+    if fix(
+        "crates/media/Cargo.toml",
+        'log = { workspace = true }\n',
+        'log = { workspace = true }\n\n'
+        '[target.\'cfg(target_os = "android")\'.dependencies]\n'
+        'ndk = { version = "0.9", features = ["media"], default-features = false }\n'
+        'ndk-sys = "0.6"\n',
+    ):
+        fixed.append("crates/media/Cargo.toml (ndk dependency)")
+
+    # 2. Copy android_decoder.rs to crates/media/src/android_mediacodec.rs.
+    dec_target = src / "crates/media/src/android_mediacodec.rs"
+    dec_tmpl = Path.cwd() / "templates/effectcraft/android_decoder.rs"
+    if dec_tmpl.exists():
+        content = dec_tmpl.read_text()
+        if not dec_target.exists() or dec_target.read_text() != content:
+            dec_target.write_text(content)
+            fixed.append("crates/media/src/android_mediacodec.rs (copied from template)")
+
+    # 3. Expose android_mediacodec in crates/media/src/lib.rs.
+    if fix(
+        "crates/media/src/lib.rs",
+        'mod pool;\n',
+        'mod pool;\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub mod android_mediacodec;\n',
+    ):
+        fixed.append("crates/media/src/lib.rs (android_mediacodec module)")
+
+    # 4. Register android_mediacodec decoder in crates/media/src/pool.rs.
+    if fix(
+        "crates/media/src/pool.rs",
+        '    pub fn with_budget(bytes: usize) -> Self {\n        Self {\n',
+        '    pub fn with_budget(bytes: usize) -> Self {\n'
+        '        #[cfg(target_os = "android")]\n'
+        '        {\n'
+        '            static REG: std::sync::Once = std::sync::Once::new();\n'
+        '            REG.call_once(|| {\n'
+        '                crate::android_mediacodec::register();\n'
+        '            });\n'
+        '        }\n'
+        '        Self {\n',
+    ):
+        fixed.append("crates/media/src/pool.rs (register android_mediacodec)")
+
+    # 5. Add ndk dependency to crates/export/Cargo.toml.
+    if fix(
+        "crates/export/Cargo.toml",
+        'log = { workspace = true }\n',
+        'log = { workspace = true }\n\n'
+        '[target.\'cfg(target_os = "android")\'.dependencies]\n'
+        'ndk = { version = "0.9", features = ["media"], default-features = false }\n'
+        'ndk-sys = "0.6"\n',
+    ):
+        fixed.append("crates/export/Cargo.toml (ndk dependency)")
+
+    # 6. Copy android_encoder.rs to crates/export/src/android_mediacodec.rs.
+    enc_target = src / "crates/export/src/android_mediacodec.rs"
+    enc_tmpl = Path.cwd() / "templates/effectcraft/android_encoder.rs"
+    if enc_tmpl.exists():
+        content = enc_tmpl.read_text()
+        if not enc_target.exists() or enc_target.read_text() != content:
+            enc_target.write_text(content)
+            fixed.append("crates/export/src/android_mediacodec.rs (copied from template)")
+
+    # 7. Expose android_mediacodec in crates/export/src/lib.rs and use in crates/export/src/encode.rs.
+    if fix(
+        "crates/export/src/lib.rs",
+        'mod encode;\n',
+        'mod encode;\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub(crate) mod android_mediacodec;\n',
+    ):
+        fixed.append("crates/export/src/lib.rs (android_mediacodec module)")
+
+    if fix(
+        "crates/export/src/encode.rs",
+        'struct H264 {\n',
+        '#[cfg(target_os = "android")]\n'
+        'use crate::android_mediacodec;\n\n'
+        'struct H264 {\n',
+    ):
+        fixed.append("crates/export/src/encode.rs (use android_mediacodec)")
+
+    if fix(
+        "crates/export/src/encode.rs",
+        '        OutputFormat::H264 => Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?),\n',
+        '        OutputFormat::H264 => {\n'
+        '            #[cfg(target_os = "android")]\n'
+        '            {\n'
+        '                if let Ok(hw) = android_mediacodec::AndroidH264::new(w, h, rate, job.output.bitrate_kbps, codes) {\n'
+        '                    Box::new(hw)\n'
+        '                } else {\n'
+        '                    Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?)\n'
+        '                }\n'
+        '            }\n'
+        '            #[cfg(not(target_os = "android"))]\n'
+        '            Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?)\n'
+        '        },\n',
+    ):
+        fixed.append("crates/export/src/encode.rs (dispatch H.264 to android_mediacodec)")
+
+    # 8. Default export directory: Movies on Android in crates/engine/src/render_queue.rs.
+    if fix(
+        "crates/engine/src/render_queue.rs",
+        'pub(crate) fn default_output_base(home: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {\n',
+        'pub(crate) fn default_output_base(home: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        for candidate in ["/storage/emulated/0/Movies", "/sdcard/Movies", "/storage/emulated/0/Download", "/sdcard/Download"] {\n'
+        '            let p = std::path::Path::new(candidate);\n'
+        '            if p.exists() || p.parent().map(|par| par.is_dir()).unwrap_or(false) {\n'
+        '                let _ = std::fs::create_dir_all(p);\n'
+        '                if p.is_dir() {\n'
+        '                    return Some(p.to_path_buf());\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/engine/src/render_queue.rs (default export dir to Movies on Android)")
 
 elif app == "filmcraft":
     # 0. Allow unsafe code in workspace for hardware surface interop.
@@ -2871,6 +2995,25 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
+
+    if fix(
+        "crates/engine/src/export_tools.rs",
+        'pub fn default_export_dir(s: &Session) -> PathBuf {\n',
+        'pub fn default_export_dir(s: &Session) -> PathBuf {\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        for candidate in ["/storage/emulated/0/Movies", "/sdcard/Movies", "/storage/emulated/0/Download", "/sdcard/Download"] {\n'
+        '            let p = std::path::Path::new(candidate);\n'
+        '            if p.exists() || p.parent().map(|par| par.is_dir()).unwrap_or(false) {\n'
+        '                let _ = std::fs::create_dir_all(p);\n'
+        '                if p.is_dir() {\n'
+        '                    return p.to_path_buf();\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/engine/src/export_tools.rs (default export dir to Movies on Android)")
 elif app == "photocraft":
     if fix("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
@@ -2982,41 +3125,8 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$SRC/apps/$APP-android/src/touch_gestures.rs"
-        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
+        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
             sed -i '/source: egui::MouseWheelSource::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
-        fi
-        if [[ "$APP" == "vidcut" || "$APP" == "splice" ]]; then
-            sed -i '/phase: TouchPhase::/d' "$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
-            sed -i 's/egui_wants_keyboard_input/wants_keyboard_input/g' "$SRC/apps/$APP-android/src/mobile_text_bar.rs" 2>/dev/null || true
-        fi
-        if [[ "$APP" == "vidcut" ]]; then
-            python3 - "$SRC/apps/$APP-android/src/mobile_text_bar.rs" <<'PY'
-from pathlib import Path
-import sys, re
-p = Path(sys.argv[1])
-if p.is_file():
-    s = p.read_text()
-    s = s.replace("CornerRadius", "Rounding")
-    s = s.replace("Rounding::same(8)", "Rounding::same(8.0)")
-    s = s.replace("Rounding::same(5)", "Rounding::same(5.0)")
-    s = s.replace("ctx.content_rect()", "ctx.input(|i| i.raw.screen_rect).unwrap_or(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 1000.0)))")
-    s = re.sub(r'ui\.painter\(\)\.rect\(\s*bar_rect,\s*Rounding::same\(8\.0\),\s*bg_color,\s*stroke,\s*egui::StrokeKind::Inside,\s*\);',
-               'ui.painter().rect_filled(bar_rect, Rounding::same(8.0), bg_color); ui.painter().rect_stroke(bar_rect, Rounding::same(8.0), stroke);', s)
-    s = re.sub(r'ui\.painter\(\)\.rect\(\s*r,\s*Rounding::same\(5\.0\),\s*fill,\s*btn_stroke,\s*egui::StrokeKind::Inside,\s*\);',
-               'ui.painter().rect_filled(r, Rounding::same(5.0), fill); ui.painter().rect_stroke(r, Rounding::same(5.0), btn_stroke);', s)
-    p.write_text(s)
-PY
-        fi
-        if [[ "$APP" == "splice" || "$APP" == "vidcut" ]]; then
-            python3 - "$SRC/apps/$APP-android/src/system_fonts.rs" <<'PY'
-from pathlib import Path
-import sys, re
-p = Path(sys.argv[1])
-if p.is_file():
-    s = p.read_text()
-    s = re.sub(r'(?ms)pub fn install_system_fonts\(ctx: &egui::Context\) \{.*?^\}', 'pub fn install_system_fonts(_ctx: &egui::Context) {}', s)
-    p.write_text(s)
-PY
         fi
     fi
 else
@@ -3057,7 +3167,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "splice", "vidcut"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = android_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
             tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -3102,7 +3212,7 @@ if android_dir.exists():
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
-            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "splice", "vidcut"):
+            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
                 tg = android_dir / "src" / "touch_gestures.rs"
                 if tg.is_file():
                     tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -7136,7 +7246,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft", "splice", "vidcut"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = staging_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
             tg.write_text(re.sub(r'[ \t]*source:\s*egui::MouseWheelSource::[^\n]*\n', '', tg.read_text()))
@@ -7756,14 +7866,14 @@ if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" 
 elif [[ "$APP" == "ferrite" ]]; then
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit-0.34" "$SRC/vendor/egui-winit"
-elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
+elif [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
     # SolidCraft, PCBCraft and FieldCraft prepare.sh handle their own egui/winit setup
     echo "Skipping builder egui-winit copy for $APP (handled by prepare.sh)"
 else
     rm -rf "$SRC/vendor/egui-winit"
     cp -a "$ROOT/vendor/egui-winit" "$SRC/vendor/egui-winit"
 fi
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]]; then
     # SolidCraft, PCBCraft and FieldCraft prepare.sh handle all egui/egui-winit/egui-wgpu patching
     echo "Skipping egui patching for $APP (handled by prepare.sh)"
 else
@@ -7906,7 +8016,7 @@ fi
 # longer masquerade as touch) and patch it into the workspace. PDFCraft already ships a
 # forked winit on the same upstream base: only its Android backend directory is
 # overwritten, so its non-Android customizations and its existing patch entry survive.
-if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "splice" && "$APP" != "vidcut" ]]; then
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" ]]; then
 echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
 mkdir -p "$SRC/vendor"
 if [[ -d "$SRC/vendor/winit" ]]; then
@@ -8158,7 +8268,7 @@ else:
     winit_rs.write_text(text)
     print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
 PY
-elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
+elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
     # SolidCraft, FieldCraft, PCBCraft and Ferrite handle their own graphics backend
     echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
 elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
@@ -8170,7 +8280,7 @@ else
 fi
 
 # Skip egui-wgpu patching for SolidCraft, FieldCraft, PCBCraft and Ferrite - prepare.sh handles it
-if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" && "$APP" != "splice" && "$APP" != "vidcut" ]]; then
+if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" ]]; then
 python3 - "$SRC/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, tomllib
@@ -8619,7 +8729,7 @@ rm -rf "$ANDROID_DIR/jniLibs"
 # For SolidCraft, PCBCraft, and FieldCraft, cargo-ndk must run from the workspace root
 # because it uses path dependencies (../../crates/engine) that
 # don't resolve when cargo-ndk runs from the android app subdirectory.
-if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" || "$APP" == "splice" || "$APP" == "vidcut" ]]; then
+if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
     NDK_PACKAGE="$APP-android"
     NDK_MANIFEST="$ROOT/$SRC/Cargo.toml"
     if [[ "$MODE" == "release" ]]; then

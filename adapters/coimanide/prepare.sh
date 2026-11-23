@@ -457,6 +457,104 @@ else:
     print("workbench.rs: the keyboard button is in the status bar")
 PY
 
+# OpenCode: disable --standalone flag which causes 'ERROR Unrecognized flag: --standalone in command opencode run'
+python3 - "$SRC_ABS/crates/coiman-ide/src/app/agents.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old_standalone = """    fn standalone(program: &Path) -> bool {
+        static STANDALONE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *STANDALONE.get_or_init(|| {
+            Self::opencode_command(program)
+                .args(["run", "--help"])
+                .stdin(Stdio::null())
+                .output()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout).contains("--standalone")
+                        || String::from_utf8_lossy(&o.stderr).contains("--standalone")
+                })
+                .unwrap_or(true)
+        })
+    }"""
+    new_standalone = """    fn standalone(_program: &Path) -> bool {
+        false
+    }"""
+    if old_standalone in s:
+        s = s.replace(old_standalone, new_standalone, 1)
+        p.write_text(s)
+        print("agents.rs: OpenCode standalone disabled")
+    elif "fn standalone(_program: &Path) -> bool {\n        false\n    }" in s:
+        print("agents.rs: OpenCode standalone already disabled")
+PY
+
+# Fix settings and new-file popup scaling on Android
+python3 - "$SRC_ABS/crates/coiman-ide/src/app/shell/settings_ui.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old_settings = """        let room = ctx.content_rect().size();
+        // Narrow screens (a phone, a small window) get nearly all the width. The size follows
+        // the window each frame, so shrinking the window never leaves Settings cut off.
+        // The content's width: the frame adds its margins (18 each side) and the gap to the edge.
+        let width = if room.x < 700.0 { room.x - 52.0 } else { (room.x * 0.8).min(860.0) };
+        let size = egui::vec2(width.max(200.0), (room.y * 0.86).clamp(200.0, room.y - 80.0));
+        let narrow = size.x < 600.0;
+        let pal = theme::colors();
+        egui::Window::new(RichText::new("Settings").size(17.0).strong())
+            // egui keeps a window as wide as its content was, so a new width is a new window.
+            .id(egui::Id::unique(("settings_window_fitted", size.x.round() as i32)))
+            .open(&mut open)
+            .collapsible(false)
+            .frame(
+                egui::Frame::window(&ctx.global_style())
+                    .fill(pal.editor_bg)
+                    .corner_radius(16.0)
+                    .stroke(egui::Stroke::new(1.0, pal.border))
+                    .inner_margin(egui::Margin::symmetric(18, 12)),
+            )
+            .fixed_size(size)
+            .default_pos(ctx.content_rect().center() - size / 2.0)
+            .constrain(true)"""
+
+    new_settings = """        let room = ctx.content_rect().size();
+        let max_w = (room.x - 24.0).max(180.0);
+        let max_h = (room.y - 24.0).max(180.0);
+        let width = if room.x < 700.0 { room.x - 28.0 } else { (room.x * 0.85).min(860.0) }.min(max_w);
+        let height = (room.y * 0.88).clamp(180.0, max_h);
+        let size = egui::vec2(width.max(180.0), height);
+        let narrow = size.x < 600.0;
+        let pal = theme::colors();
+        egui::Window::new(RichText::new("Settings").size(17.0).strong())
+            .id(egui::Id::new("settings_window_fitted"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::window(&ctx.global_style())
+                    .fill(pal.editor_bg)
+                    .corner_radius(16.0)
+                    .stroke(egui::Stroke::new(1.0, pal.border))
+                    .inner_margin(egui::Margin::symmetric(18, 12)),
+            )
+            .pivot(egui::Align2::CENTER_CENTER)
+            .fixed_pos(ctx.content_rect().center())
+            .fixed_size(size)
+            .constrain(true)"""
+
+    if old_settings in s:
+        s = s.replace(old_settings, new_settings, 1)
+        p.write_text(s)
+        print("settings_ui.rs: settings window scaling and positioning patched")
+    elif "settings_window_fitted" in s and "pivot(egui::Align2::CENTER_CENTER)" in s:
+        print("settings_ui.rs: settings window already patched")
+PY
+
 # The command palette closes on a press outside its own area. On Android a tap arrives as a
 # press and a release in the same frame, so the tap on Explorer's "New File"/"New Folder"/
 # "Rename" opens the field and that very press then reads as "outside", closing it again before
@@ -549,7 +647,30 @@ elif list_close in s:
 else:
     raise SystemExit("palette.rs no longer closes the list on an outside press")
 
+old_input_w = "let width = (ctx.content_rect().width() * 0.4).clamp(300.0, 500.0);"
+new_input_w = """let max_w = (ctx.content_rect().width() - 24.0).max(120.0);
+        let width = (ctx.content_rect().width() * 0.6).clamp(260.0, 500.0).min(max_w);"""
+if old_input_w in s:
+    s = s.replace(old_input_w, new_input_w, 1)
+
+old_pal_w = """        let shown_tab = self.everywhere_tab();
+        let width = if shown_tab.is_some() {
+            (ctx.content_rect().width() * 0.6).clamp(500.0, 860.0)
+        } else {
+            (ctx.content_rect().width() * 0.5).clamp(400.0, 700.0)
+        };"""
+new_pal_w = """        let shown_tab = self.everywhere_tab();
+        let max_w = (ctx.content_rect().width() - 24.0).max(120.0);
+        let width = if shown_tab.is_some() {
+            (ctx.content_rect().width() * 0.7).clamp(280.0, 860.0).min(max_w)
+        } else {
+            (ctx.content_rect().width() * 0.6).clamp(280.0, 700.0).min(max_w)
+        };"""
+if old_pal_w in s:
+    s = s.replace(old_pal_w, new_pal_w, 1)
+
 p.write_text(s)
+print("palette.rs: popup width scaling patched")
 PY
 
 # The editor on Android: a tap has to place the cursor, and the platform's text bar

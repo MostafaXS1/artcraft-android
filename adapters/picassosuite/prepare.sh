@@ -737,6 +737,58 @@ if old_deliv_hw in s:
 p.write_text(s)
 PY
 
+python3 - "$SRC_ABS/crates/picasso-ui/src/deliver.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old = '            location: String::new(),'
+    new = '''            location: {
+                #[cfg(target_os = "android")]
+                {
+                    if std::path::Path::new("/storage/emulated/0/Movies").is_dir() {
+                        "/storage/emulated/0/Movies".into()
+                    } else if std::path::Path::new("/sdcard/Movies").is_dir() {
+                        "/sdcard/Movies".into()
+                    } else {
+                        "/storage/emulated/0/Movies".into()
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
+                String::new()
+            },'''
+    if old in s:
+        s = s.replace(old, new, 1)
+        p.write_text(s)
+        print("picasso-ui/src/deliver.rs: default location set to Movies on Android")
+PY
+
+python3 - "$SRC_ABS/crates/picasso-ui/src/queue.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old = '            let location = self.deliver_ui.location.trim().to_string();'
+    new = '''            let mut location = self.deliver_ui.location.trim().to_string();
+            #[cfg(target_os = "android")]
+            if location.is_empty() {
+                location = if std::path::Path::new("/storage/emulated/0/Movies").is_dir() {
+                    "/storage/emulated/0/Movies".to_string()
+                } else if std::path::Path::new("/sdcard/Movies").is_dir() {
+                    "/sdcard/Movies".to_string()
+                } else {
+                    let _ = std::fs::create_dir_all("/storage/emulated/0/Movies");
+                    "/storage/emulated/0/Movies".to_string()
+                };
+            }'''
+    if old in s:
+        s = s.replace(old, new, 1)
+        p.write_text(s)
+        print("picasso-ui/src/queue.rs: default export path set to Movies on Android")
+PY
+
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build
 mkdir -p "$SRC_ABS/.cargo"
 cat > "$SRC_ABS/.cargo/config.toml" <<EOF

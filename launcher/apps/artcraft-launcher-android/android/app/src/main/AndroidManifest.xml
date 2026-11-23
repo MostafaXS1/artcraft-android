@@ -99,12 +99,10 @@
         <package android:name="com.artcraft.prowave" />
         <package android:name="com.artcraft.solidcraft" />
         <package android:name="com.artcraft.soundcraft" />
-        <package android:name="com.artcraft.splice" />
         <package android:name="com.artcraft.subcraft" />
         <package android:name="com.artcraft.texturecraft" />
         <package android:name="com.artcraft.transit" />
         <package android:name="com.artcraft.vectorcraft" />
-        <package android:name="com.artcraft.vidcut" />
         <package android:name="com.artcraft.wordcraft" />
         <package android:name="com.jackharvest.shapecraft" />
         <package android:name="dev.tracedraw.app" />

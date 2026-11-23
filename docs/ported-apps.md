@@ -73,8 +73,6 @@ These community applications have custom port adapters under `adapters/<app>/` a
 | **Ferrite** | `ferrite` | Fast, lightweight text editor for Markdown and JSON | [OlaProeis/Ferrite](https://github.com/OlaProeis/Ferrite) | OlaProeis |
 | **PixelCraft** | `pixelcraft` | Fast, native pixel art editor and animator | [asad-albadi/PixelCraft](https://github.com/asad-albadi/PixelCraft) | Asad |
 | **ClothCraft** | `clothcraft` | Cloth simulation, garment patterning and 3D draping | [erythrofr/ClothCraft](https://github.com/erythrofr/ClothCraft) | erythrofr |
-| **Splice** | `splice` | Fast video editor with MediaCodec hardware acceleration | [GeneticxCln/Splice](https://github.com/GeneticxCln/Splice) | GeneticxCln |
-| **VidCut** | `vidcut` | Video trimmer, cutter and timeline editor with MediaCodec acceleration | [goriant-studio/VidCut](https://github.com/goriant-studio/VidCut) | goriant-studio |
 
 ---
 

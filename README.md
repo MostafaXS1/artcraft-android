@@ -65,7 +65,7 @@ Video editing and timeline applications on mobile require extreme throughput tha
 - **Direct System Memory Buffering:** AMediaCodec automatically unpacks hardware stride alignment and cropping directly into standard RGBA/NV12/YUV memory buffers, allowing instantaneous texture uploads to egui (`TextureHandle`) without expensive CPU colorspace conversion or extra staging copies.
 - **Custom Android FFmpeg Engine:** Custom cross-compiled FFmpeg and FFprobe binaries built with `--enable-jni --enable-mediacodec`, `--enable-libx264`, `--enable-libvpx`, and `--enable-libopus` are embedded directly in the APK (`extra-jniLibs/arm64-v8a/`) and dynamically resolved at runtime.
 - **Adaptive Fallback:** Intelligent fallback to multi-threaded CPU software decoding if hardware decoders encounter unsupported profiles or codec constraints.
-- **Suite-Wide Integration:** Active across all video timeline and editing applications: **VidCut**, **Splice**, **PicassoSuite**, and **FilmCraft**.
+- **Suite-Wide Integration:** Active across all video timeline and editing applications: **PicassoSuite** and **FilmCraft**.
 
 
 [**Download the latest APKs**](https://github.com/MostafaXS1/artcraft-android/releases/)
@@ -74,9 +74,9 @@ Video editing and timeline applications on mobile require extreme throughput tha
 
 The ArtCraft applications originate from the official Storytold repositories and community creative suites. ArtCraft Android adds the Android launch environment, shared platform integrations, and app-specific adapters required to run them natively on Android.
 
-The ecosystem currently supports **48 applications**:
+The ecosystem currently supports **46 applications**:
 - **16 Official Storytold Suite applications** (PhotoCraft, VectorCraft, FilmCraft, WordCraft, etc.)
-- **24 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, Splice, VidCut, ClothCraft, etc.)
+- **22 Community applications** with in-tree adapters and direct CI build targets (SubCraft, SolidCraft, Coiman IDE, Transit, ClothCraft, etc.)
 - **7 External community applications** indexed and tracked via the launcher catalog
 - **ArtCraft Launcher:** A dedicated Android dashboard for installing, launching, and updating the suite
 
@@ -182,8 +182,6 @@ App names are passed as command-line flags, such as `-photocraft` or `-vectorcra
 - **Ferrite** (`-ferrite`): Fast, lightweight text editor for Markdown and JSON
 - **PixelCraft** (`-pixelcraft`): Fast, native pixel art editor and animator
 - **ClothCraft** (`-clothcraft`): Cloth simulation, garment patterning and 3D draping
-- **Splice** (`-splice`): Fast video editor with MediaCodec hardware accelerated decoding, scrubbing, and export
-- **VidCut** (`-vidcut`): Video trimmer, cutter, and timeline editor with MediaCodec hardware accelerated decoding and export
 
 #### Suite Dashboard
 - **ArtCraft Launcher** (`bash build-launcher.sh`): Centralized Android dashboard for discovering, managing, launching, and updating ArtCraft apps
