@@ -18,6 +18,7 @@ if len(sys.argv) < 4:
     sys.exit(1)
 
 src, app, title = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def fix(rel: str, old: str, new: str) -> bool:
@@ -259,6 +260,142 @@ elif app == "lightcraft":
         '        }',
     ):
         fixed.append("crates/ui-egui/src/panels/detail.rs (Android wait_for_draft budget)")
+
+elif app == "effectcraft":
+    # 0. Allow unsafe code in workspace for hardware surface interop.
+    if fix(
+        "Cargo.toml",
+        'unsafe_code = "forbid"\n',
+        'unsafe_code = "allow"\n',
+    ):
+        fixed.append("Cargo.toml (unsafe_code = allow)")
+
+    # 1. Add ndk dependency to crates/media/Cargo.toml for AMediaCodec.
+    if fix(
+        "crates/media/Cargo.toml",
+        'log = { workspace = true }\n',
+        'log = { workspace = true }\n\n'
+        '[target.\'cfg(target_os = "android")\'.dependencies]\n'
+        'ndk = { version = "0.9", features = ["media"], default-features = false }\n'
+        'ndk-sys = "0.6"\n',
+    ):
+        fixed.append("crates/media/Cargo.toml (ndk dependency)")
+
+    # 2. Copy android_decoder.rs to crates/media/src/android_mediacodec.rs.
+    dec_target = src / "crates/media/src/android_mediacodec.rs"
+    dec_tmpl = ROOT / "templates/effectcraft/android_decoder.rs"
+    if not dec_tmpl.exists():
+        dec_tmpl = Path.cwd() / "templates/effectcraft/android_decoder.rs"
+    if dec_tmpl.exists() and dec_target.parent.is_dir():
+        content = dec_tmpl.read_text()
+        if not dec_target.exists() or dec_target.read_text() != content:
+            dec_target.write_text(content)
+            fixed.append("crates/media/src/android_mediacodec.rs (copied from template)")
+
+    # 3. Expose android_mediacodec in crates/media/src/lib.rs.
+    if fix(
+        "crates/media/src/lib.rs",
+        'mod pool;\n',
+        'mod pool;\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub mod android_mediacodec;\n',
+    ):
+        fixed.append("crates/media/src/lib.rs (android_mediacodec module)")
+
+    # 4. Register android_mediacodec decoder in crates/media/src/pool.rs.
+    if fix(
+        "crates/media/src/pool.rs",
+        '    pub fn with_budget(bytes: usize) -> Self {\n        Self {\n',
+        '    pub fn with_budget(bytes: usize) -> Self {\n'
+        '        #[cfg(target_os = "android")]\n'
+        '        {\n'
+        '            static REG: std::sync::Once = std::sync::Once::new();\n'
+        '            REG.call_once(|| {\n'
+        '                crate::android_mediacodec::register();\n'
+        '            });\n'
+        '        }\n'
+        '        Self {\n',
+    ):
+        fixed.append("crates/media/src/pool.rs (register android_mediacodec)")
+
+    # 5. Add ndk dependency to crates/export/Cargo.toml.
+    if fix(
+        "crates/export/Cargo.toml",
+        'log = { workspace = true }\n',
+        'log = { workspace = true }\n\n'
+        '[target.\'cfg(target_os = "android")\'.dependencies]\n'
+        'ndk = { version = "0.9", features = ["media"], default-features = false }\n'
+        'ndk-sys = "0.6"\n',
+    ):
+        fixed.append("crates/export/Cargo.toml (ndk dependency)")
+
+    # 6. Copy android_encoder.rs to crates/export/src/android_mediacodec.rs.
+    enc_target = src / "crates/export/src/android_mediacodec.rs"
+    enc_tmpl = ROOT / "templates/effectcraft/android_encoder.rs"
+    if not enc_tmpl.exists():
+        enc_tmpl = Path.cwd() / "templates/effectcraft/android_encoder.rs"
+    if enc_tmpl.exists() and enc_target.parent.is_dir():
+        content = enc_tmpl.read_text()
+        if not enc_target.exists() or enc_target.read_text() != content:
+            enc_target.write_text(content)
+            fixed.append("crates/export/src/android_mediacodec.rs (copied from template)")
+
+    # 7. Expose android_mediacodec in crates/export/src/lib.rs and use in crates/export/src/encode.rs.
+    if fix(
+        "crates/export/src/lib.rs",
+        'mod encode;\n',
+        'mod encode;\n'
+        '#[cfg(target_os = "android")]\n'
+        'pub(crate) mod android_mediacodec;\n',
+    ):
+        fixed.append("crates/export/src/lib.rs (android_mediacodec module)")
+
+    if fix(
+        "crates/export/src/encode.rs",
+        'struct H264 {\n',
+        '#[cfg(target_os = "android")]\n'
+        'use crate::android_mediacodec;\n\n'
+        'struct H264 {\n',
+    ):
+        fixed.append("crates/export/src/encode.rs (use android_mediacodec)")
+
+    if fix(
+        "crates/export/src/encode.rs",
+        '        OutputFormat::H264 => Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?),\n',
+        '        OutputFormat::H264 => {\n'
+        '            #[cfg(target_os = "android")]\n'
+        '            {\n'
+        '                if let Ok(hw) = android_mediacodec::AndroidH264::new(w, h, rate, job.output.bitrate_kbps, codes) {\n'
+        '                    Box::new(hw)\n'
+        '                } else {\n'
+        '                    Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?)\n'
+        '                }\n'
+        '            }\n'
+        '            #[cfg(not(target_os = "android"))]\n'
+        '            Box::new(H264::new(w, h, rate, job.output.bitrate_kbps, codes)?)\n'
+        '        },\n',
+    ):
+        fixed.append("crates/export/src/encode.rs (dispatch H.264 to android_mediacodec)")
+
+    # 8. Default export directory: Movies on Android in crates/engine/src/render_queue.rs.
+    if fix(
+        "crates/engine/src/render_queue.rs",
+        'pub(crate) fn default_output_base(home: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {\n',
+        'pub(crate) fn default_output_base(home: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {\n'
+        '    #[cfg(target_os = "android")]\n'
+        '    {\n'
+        '        for candidate in ["/storage/emulated/0/Movies", "/sdcard/Movies", "/storage/emulated/0/Download", "/sdcard/Download"] {\n'
+        '            let p = std::path::Path::new(candidate);\n'
+        '            if p.exists() || p.parent().map(|par| par.is_dir()).unwrap_or(false) {\n'
+        '                let _ = std::fs::create_dir_all(p);\n'
+        '                if p.is_dir() {\n'
+        '                    return Some(p.to_path_buf());\n'
+        '                }\n'
+        '            }\n'
+        '        }\n'
+        '    }\n',
+    ):
+        fixed.append("crates/engine/src/render_queue.rs (default export dir to Movies on Android)")
 
 elif app == "filmcraft":
     # 0. Allow unsafe code in workspace for hardware surface interop.

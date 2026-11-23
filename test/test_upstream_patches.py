@@ -150,6 +150,31 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertIn('rayon = { workspace = true }', patched_content)
             self.assertIn('ndk = { version = "0.9"', patched_content)
 
+    def test_effectcraft_mediacodec_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            target_cargo = tmp_src / "crates" / "media" / "Cargo.toml"
+            target_cargo.parent.mkdir(parents=True, exist_ok=True)
+            original_content = (
+                '[package]\nname = "effectcraft-media"\n\n'
+                '[dependencies]\n'
+                'log = { workspace = true }\n'
+            )
+            target_cargo.write_text(original_content)
+
+            cmd = [
+                sys.executable,
+                str(PATCHES_SCRIPT),
+                str(tmp_src),
+                "effectcraft",
+                "EffectCraft",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            patched_content = target_cargo.read_text()
+            self.assertIn('ndk = { version = "0.9"', patched_content)
+            self.assertIn('ndk-sys = "0.6"', patched_content)
+
 
 if __name__ == "__main__":
     unittest.main()
