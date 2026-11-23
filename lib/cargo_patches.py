@@ -469,6 +469,55 @@ def patch_wgpu_registry(cargo_home: Path | None = None) -> None:
                 pass
 
 
+
+
+def install_updater(
+    source: Path, target: Path, version: str, api_url: str, page_url: str
+) -> None:
+    """Install UpdateCheck.java template with builder version and URLs."""
+    txt = source.read_text()
+    txt = (
+        txt.replace("__BUILDER_VERSION__", version)
+        .replace("__UPDATE_API_URL__", api_url)
+        .replace("__UPDATE_PAGE_URL__", page_url)
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(txt)
+
+
+def resolve_app_version(root: Path, app: str) -> str:
+    """Resolve upstream app version from Cargo workspace or launcher crate."""
+    normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
+    app_key = normalize(app)
+
+    def read_version(path: Path) -> str | None:
+        try:
+            data = tomllib.loads(path.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+        version = data.get("workspace", {}).get("package", {}).get("version")
+        if not version:
+            version = data.get("package", {}).get("version")
+        return version if isinstance(version, str) and version else None
+
+    for path in (root / "Cargo.toml", root / "apps" / app / "Cargo.toml"):
+        version = read_version(path)
+        if version:
+            return version
+
+    for path in sorted(root.glob("crates/*/Cargo.toml")):
+        try:
+            name = tomllib.loads(path.read_text()).get("package", {}).get("name", "")
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if name and (normalize(name) == app_key or normalize(name).startswith(app_key)):
+            version = read_version(path)
+            if version:
+                return version
+
+    version = read_version(root / "apps" / f"{app}-android" / "Cargo.toml")
+    return version or "0.0.0"
+
 def main(argv: list[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
@@ -485,7 +534,9 @@ def main(argv: list[str] | None = None) -> None:
             "  patch-egui-wgpu-surface <wgpu_target_dir>\n"
             "  ensure-workspace-deps <src_root> <app>\n"
             "  strip-winit-wayland <src_root>\n"
-            "  patch-wgpu-registry [cargo_home]\n",
+            "  patch-wgpu-registry [cargo_home]\n"
+            "  install-updater <source> <target> <version> <api_url> <page_url>\n"
+            "  resolve-version <root> <app>\n",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -530,6 +581,14 @@ def main(argv: list[str] | None = None) -> None:
         strip_winit_wayland(Path(argv[1]))
     elif cmd == "patch-wgpu-registry":
         patch_wgpu_registry(Path(argv[1]) if len(argv) > 1 else None)
+    elif cmd == "install-updater":
+        if len(argv) < 6:
+            raise SystemExit("Usage: install-updater <source> <target> <version> <api_url> <page_url>")
+        install_updater(Path(argv[1]), Path(argv[2]), argv[3], argv[4], argv[5])
+    elif cmd == "resolve-version":
+        if len(argv) < 3:
+            raise SystemExit("Usage: resolve-version <root> <app>")
+        print(resolve_app_version(Path(argv[1]), argv[2]))
     else:
         raise SystemExit(f"Unknown command: {cmd}")
 
