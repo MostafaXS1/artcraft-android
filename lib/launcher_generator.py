@@ -55,10 +55,10 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = android_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
-            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+            tg.write_text(re.sub(r'(?m)^\s*source:\s*egui::MouseWheelSource::.*?\n', '', tg.read_text()))
     # The custom IME bridge is removed to allow egui native IME. Do not copy ime_bridge.rs
     # The adapter's launcher gets the same icons as the generated ones: density mipmaps plus the
     # API 26+ adaptive layers (see lib/app_icons.py). An adapter that ships its own `assets/app-icon`
@@ -100,10 +100,10 @@ if android_dir.exists():
                 dst_shared = android_dir / "src" / shared
                 if src_shared.is_file() and dst_shared.parent.is_dir():
                     shutil.copy2(src_shared, dst_shared)
-            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
+            if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
                 tg = android_dir / "src" / "touch_gestures.rs"
                 if tg.is_file():
-                    tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+                    tg.write_text(re.sub(r'(?m)^\s*source:\s*egui::MouseWheelSource::.*?\n', '', tg.read_text()))
             raise SystemExit(0)
         print("Regenerating the Android launcher for this builder version.")
         shutil.rmtree(android_dir)
@@ -4117,10 +4117,10 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
-    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft"):
+    if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = staging_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
-            tg.write_text(tg.read_text().replace("            source: egui::MouseWheelSource::Unknown,\\n", ""))
+            tg.write_text(re.sub(r'(?m)^\s*source:\s*egui::MouseWheelSource::.*?\n', '', tg.read_text()))
     mcp_code = (root / "templates" / "android" / "mcp_http.rs").read_text()
     suites = {
         "solidcraft": """

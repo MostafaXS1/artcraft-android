@@ -8,7 +8,7 @@ vendor_dependencies() {
     # egui-winit
     echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
     mkdir -p "$src_dir/vendor"
-    if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" ]]; then
+    if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
         rm -rf "$src_dir/vendor/egui-winit"
         cp -a "$ROOT/vendor/egui-winit-0.36" "$src_dir/vendor/egui-winit"
     elif [[ "$APP" == "ferrite" ]]; then

@@ -103,6 +103,46 @@ class TestAdapters(unittest.TestCase):
                 f"Adapter directory {app_name} does not appear anywhere in lib/catalog.sh",
             )
 
+    def test_vendoring_egui_36_app_consistency(self):
+        """Ensure the set of apps vendoring egui-winit-0.36 and egui-wgpu-0.36 in lib/vendoring.sh are identical."""
+        vendoring_sh = ROOT / "lib" / "vendoring.sh"
+        self.assertTrue(vendoring_sh.is_file())
+        text = vendoring_sh.read_text()
+
+        # Find egui-winit 0.36 match block
+        winit_match = re.search(r'if \[\[(.*?)\]\]; then\s+rm -rf "\$src_dir/vendor/egui-winit"\s+cp -a "\$ROOT/vendor/egui-winit-0.36"', text)
+        self.assertIsNotNone(winit_match, "Could not find egui-winit-0.36 branch in lib/vendoring.sh")
+        winit_apps = set(re.findall(r'"\$APP" == "([^"]+)"', winit_match.group(1)))
+
+        # Find egui-wgpu 0.36 match block
+        wgpu_match = re.search(r'elif \[\[(.*?)\]\]; then\s+rm -rf "\$src_dir/vendor/egui-wgpu"\s+cp -a "\$ROOT/vendor/egui-wgpu-0.36"', text)
+        self.assertIsNotNone(wgpu_match, "Could not find egui-wgpu-0.36 branch in lib/vendoring.sh")
+        wgpu_apps = set(re.findall(r'"\$APP" == "([^"]+)"', wgpu_match.group(1)))
+
+        self.assertEqual(
+            winit_apps,
+            wgpu_apps,
+            f"Mismatch between egui-winit-0.36 and egui-wgpu-0.36 apps in lib/vendoring.sh: {winit_apps ^ wgpu_apps}",
+        )
+        self.assertIn("clothcraft", winit_apps)
+
+    def test_touch_gestures_mousewheel_source_sanitization(self):
+        """Verify that MouseWheelSource stripping regex in build-common.sh and launcher_generator.py strips Trackpad/Unknown."""
+        template_tg = (ROOT / "templates" / "android" / "touch_gestures.rs").read_text()
+        self.assertIn("source: egui::MouseWheelSource::", template_tg)
+
+        # 1. Test build-common.sh sed replacement logic:
+        # sed -i '/source: egui::MouseWheelSource::/d'
+        sed_applied = re.sub(r'(?m)^.*source: egui::MouseWheelSource::.*\n?', '', template_tg)
+        self.assertNotIn("source: egui::MouseWheelSource::", sed_applied)
+        self.assertIn("phase: TouchPhase::Move,", sed_applied)
+
+        # 2. Test launcher_generator.py regex replacement logic
+        py_regex = re.compile(r'(?m)^\s*source:\s*egui::MouseWheelSource::.*?\n')
+        regex_applied = py_regex.sub('', template_tg)
+        self.assertNotIn("source: egui::MouseWheelSource::", regex_applied)
+        self.assertIn("phase: TouchPhase::Move,", regex_applied)
+
 
 if __name__ == "__main__":
     unittest.main()

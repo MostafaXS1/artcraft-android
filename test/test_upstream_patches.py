@@ -124,6 +124,32 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.stdout.strip(), "")
             self.assertEqual(target_file.read_text(), patched_content)
 
+    def test_filmcraft_platform_rayon_ndk_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            target_cargo = tmp_src / "crates" / "platform" / "Cargo.toml"
+            target_cargo.parent.mkdir(parents=True, exist_ok=True)
+            (tmp_src / "crates" / "platform" / "src").mkdir(parents=True, exist_ok=True)
+            original_content = (
+                '[package]\nname = "filmcraft-platform"\n\n'
+                '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
+                '[dependencies]\n'
+            )
+            target_cargo.write_text(original_content)
+
+            cmd = [
+                sys.executable,
+                str(PATCHES_SCRIPT),
+                str(tmp_src),
+                "filmcraft",
+                "FilmCraft",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            patched_content = target_cargo.read_text()
+            self.assertIn('rayon = { workspace = true }', patched_content)
+            self.assertIn('ndk = { version = "0.9"', patched_content)
+
 
 if __name__ == "__main__":
     unittest.main()

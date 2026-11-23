@@ -275,7 +275,7 @@ elif app == "filmcraft":
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n',
         '[target.\'cfg(target_os = "linux")\'.dependencies]\nlibloading = "0.8"\n\n'
         '# Android: hardware H.264 video encoding through Android\'s NDK MediaCodec API (libmediandk).\n'
-        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "nativewindow", "api-level-28", "rwh_06"], default-features = false }\nndk-sys = "0.6"\njni = "0.22.4"\nndk-context = "0.1.1"\n',
+        '[target.\'cfg(target_os = "android")\'.dependencies]\nndk = { version = "0.9", features = ["media", "nativewindow", "api-level-28", "rwh_06"], default-features = false }\nndk-sys = "0.6"\njni = "0.22.4"\nndk-context = "0.1.1"\nrayon = { workspace = true }\n',
     ):
         fixed.append("crates/platform/Cargo.toml (ndk dependency)")
 
@@ -492,7 +492,7 @@ elif app == "filmcraft":
     # 4. Copy android_mediacodec.rs template to checkout.
     mediacodec_target = src / "crates/platform/src/android_mediacodec.rs"
     template_file = Path.cwd() / "templates/filmcraft/android_mediacodec.rs"
-    if template_file.exists():
+    if template_file.exists() and mediacodec_target.parent.is_dir():
         content = template_file.read_text()
         if not mediacodec_target.exists() or mediacodec_target.read_text() != content:
             mediacodec_target.write_text(content)
