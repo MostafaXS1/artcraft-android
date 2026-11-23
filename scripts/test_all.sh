@@ -144,7 +144,21 @@ if ! python3 "${TEST_ARGS[@]}"; then
 fi
 printf "${GREEN}✔ All unit tests passed.${RESET}\n"
 
-# 4. Release sync audit
+# 4. Host-side platform hardware tests
+if command -v rustc &>/dev/null && [[ -f "test/android_device_kind.rs" ]]; then
+    step "Running Host Platform Hardware Tests (test/android_device_kind.rs)..."
+    TMP_TEST=$(mktemp /tmp/device_kind_test.XXXXXX)
+    if rustc --edition 2021 --test test/android_device_kind.rs -o "$TMP_TEST" 2>/dev/null && "$TMP_TEST" --quiet; then
+        rm -f "$TMP_TEST"
+        printf "${GREEN}✔ Host platform device kind tests passed.${RESET}\n"
+    else
+        rm -f "$TMP_TEST"
+        printf "${RED}✘ Host platform device kind tests failed.${RESET}\n"
+        exit 1
+    fi
+fi
+
+# 5. Release sync audit
 if [[ "$MODE" != "quick" ]]; then
     step "Auditing Upstream Releases & Tags (test/check_releases.py)..."
     CHECK_ARGS=("test/check_releases.py")

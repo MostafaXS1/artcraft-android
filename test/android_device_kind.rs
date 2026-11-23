@@ -5,7 +5,7 @@
 //! but arithmetic, so it is included here and tested with `rustc` alone:
 //!
 //! ```sh
-//! rustc --edition 2021 --test tests/android_device_kind.rs -o /tmp/device_kind_test
+//! rustc --edition 2021 --test test/android_device_kind.rs -o /tmp/device_kind_test
 //! /tmp/device_kind_test
 //! ```
 

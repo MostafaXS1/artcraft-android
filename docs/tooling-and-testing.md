@@ -19,7 +19,7 @@ flowchart TD
         - Upstream Releases vs. Git Tags
         - Stranded Tag & SemVer Filter
         - Local source/ Desync Detection"]
-        HostRust["Host-Side Hardware Tests (tests/android_device_kind.rs)
+        HostRust["Host-Side Hardware Tests (test/android_device_kind.rs)
         - Device Kind Input Classification
         - Rustc host compilation"]
     end
@@ -202,15 +202,15 @@ To streamline testing across developers and CI runners, `scripts/test_all.sh` pr
 
 ---
 
-## 5. Host-Side Platform Hardware Tests (`tests/android_device_kind.rs`)
+## 5. Host-Side Platform Hardware Tests (`test/android_device_kind.rs`)
 
 ### Purpose
-The Android shell and the vendored `winit` backend categorize pointer events into touch, stylus, and mouse inputs. Because Android-specific backend code cannot be compiled or executed on a standard Linux or macOS desktop host without an Android emulator, `tests/android_device_kind.rs` isolates the pure mathematical classification logic and tests it using `rustc` directly on the host.
+The Android shell and the vendored `winit` backend categorize pointer events into touch, stylus, and mouse inputs. Because Android-specific backend code cannot be compiled or executed on a standard Linux or macOS desktop host without an Android emulator, `test/android_device_kind.rs` isolates the pure mathematical classification logic and tests it using `rustc` directly on the host.
 
 ### Execution
 Compile and run the test on any desktop system:
 ```bash
-rustc --edition 2021 --test tests/android_device_kind.rs -o /tmp/device_kind_test && /tmp/device_kind_test
+rustc --edition 2021 --test test/android_device_kind.rs -o /tmp/device_kind_test && /tmp/device_kind_test
 ```
 
 ---

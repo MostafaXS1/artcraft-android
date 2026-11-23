@@ -130,3 +130,13 @@ python3 test/test_source.py
 python3 test/test_toolchain.py
 python3 test/test_upstream_patches.py
 ```
+
+---
+
+### 4. Host-Side Platform Hardware Tests (`test/android_device_kind.rs`)
+
+Tests Android pointer, stylus, and touch classification logic on the desktop host machine using `rustc` without requiring an Android device or emulator:
+
+```bash
+rustc --edition 2021 --test test/android_device_kind.rs -o /tmp/device_kind_test && /tmp/device_kind_test
+```
