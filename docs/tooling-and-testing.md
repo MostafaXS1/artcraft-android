@@ -151,9 +151,58 @@ python3 -m unittest discover -s test -p 'test_*.py'
     - `needs_saf`: Checks whether an app requires SAF (Storage Access Framework) file management.
     - `needs_apk2`: Checks whether an app requires second-generation packaging (`apk2`).
 
+#### 6. Custom Adapter Static Linter (`test/test_adapters.py`)
+- **Target:** `adapters/` (all 23 custom adapters)
+- **What It Verifies:**
+  - Validates `bash -n` syntax on every adapter's `prepare.sh`.
+  - Validates all `adapters/*/Cargo.toml` files with `tomllib`.
+  - Extracts and compiles every embedded Python heredoc (`<<'PY'`) to catch syntax, escaping, and indentation errors before CI execution.
+  - Verifies Android package naming conventions (`com.artcraft.<app>`).
+
+#### 7. Android Gradle Project & Manifest Generation (`test/test_android_project.py`)
+- **Target:** `lib/android_project.py`
+- **What It Verifies:**
+  - `versionCode` calculation formula: `(2 << 24) | (major << 16) | (minor << 8) | patch`.
+  - `AndroidManifest.xml` generation, XML attribute escaping, permissions, queries, and activity filters.
+  - Root `build.gradle` single-module configuration, including `useLegacyPackaging` flags.
+  - `settings.gradle` repository definitions and `Theme.Artcraft` styling.
+
+#### 8. File Associations & Intent Filter Schemas (`test/test_file_associations.py`)
+- **Target:** `lib/file_associations.py`
+- **What It Verifies:**
+  - Validates that `intent_filter_toml` generates valid, parseable TOML filters for all supported apps.
+  - Audits `EXT_MIME` mapping against AOSP `MediaStore` standards (case-sensitive MIME types).
+  - Tests `patch_cargo_toml` rewriting and idempotency on Android manifests.
+
+#### 9. Source Tree Completeness & Fallback Checks (`test/test_source.py`)
+- **Target:** `lib/source.sh`
+- **What It Verifies:**
+  - Tests `source_tree_is_complete()` against simulated Git repositories to ensure incomplete checkouts from killed builds or interrupted clones are cleanly detected.
+  - Validates Bash syntax of source fetching routines.
+
 ---
 
-## 4. Host-Side Platform Hardware Tests (`tests/android_device_kind.rs`)
+## 4. Unified Quality Gate Runner (`scripts/test_all.sh`)
+
+To streamline testing across developers and CI runners, `scripts/test_all.sh` provides an all-in-one test runner:
+
+```bash
+# Quick mode: runs syntax checks and all 47 unit tests (under 5 seconds)
+./scripts/test_all.sh --quick
+
+# Full mode: syntax checks + unit tests + upstream release tag audit
+./scripts/test_all.sh
+
+# Strict mode: fails if any upstream release discrepancy is found
+./scripts/test_all.sh --strict
+
+# Install as a Git pre-commit hook (runs automatically on git commit)
+./scripts/test_all.sh --install-hook
+```
+
+---
+
+## 5. Host-Side Platform Hardware Tests (`tests/android_device_kind.rs`)
 
 ### Purpose
 The Android shell and the vendored `winit` backend categorize pointer events into touch, stylus, and mouse inputs. Because Android-specific backend code cannot be compiled or executed on a standard Linux or macOS desktop host without an Android emulator, `tests/android_device_kind.rs` isolates the pure mathematical classification logic and tests it using `rustc` directly on the host.
@@ -166,7 +215,7 @@ rustc --edition 2021 --test tests/android_device_kind.rs -o /tmp/device_kind_tes
 
 ---
 
-## 5. CI Automated Quality Gates (`.github/workflows/build.yml`)
+## 6. CI Automated Quality Gates (`.github/workflows/build.yml`)
 
 In GitHub Actions, several automated quality gates run across the matrix:
 
@@ -182,22 +231,26 @@ In GitHub Actions, several automated quality gates run across the matrix:
 
 ---
 
-## 6. Developer Workflow & Best Practices
+## 7. Developer Workflow & Best Practices
 
 When developing new features, modifying build scripts, or updating adapters:
 
-1. **Run Unit Tests Locally:**
+1. **Run the Quality Gate Runner:**
+   ```bash
+   ./scripts/test_all.sh --quick
+   ```
+2. **Run Unit Tests Directly:**
    ```bash
    python3 -m unittest discover -s test -p 'test_*.py'
    ```
-2. **Verify Shell & Python Syntax:**
+3. **Verify Shell & Python Syntax:**
    ```bash
    bash -n lib/*.sh adapters/*/prepare.sh
    python3 -m py_compile lib/*.py test/*.py
    ```
-3. **Audit Upstream Release Tags:**
+4. **Audit Upstream Release Tags:**
    ```bash
    python3 test/check_releases.py <app-name> -v
    ```
-4. **Idempotency Requirement:**
+5. **Idempotency Requirement:**
    Any new patch added to `lib/upstream_patches.py` or an adapter's `prepare.sh` must be idempotent: executing the script twice on the same codebase must produce the exact same outcome without throwing errors or generating duplicate blocks.
