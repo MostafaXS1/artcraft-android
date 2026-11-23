@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/wordcraft",
   "branch": "main",
-  "head": "678f9473d8f488d33a923442730972308e4bd948",
-  "head_date": "2026-11-22T01:14:01Z",
-  "commits": 3580,
+  "head": "c369c3a20befef8742f8913128cacd79002435d6",
+  "head_date": "2026-11-22T18:52:36Z",
+  "commits": 3608,
   "unattributed_commits": 14,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 24,
-      "commits": 580,
-      "lines_added": 193356,
-      "lines_deleted": 171170,
+      "prs": 26,
+      "commits": 595,
+      "lines_added": 194237,
+      "lines_deleted": 172252,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T19:08:26Z",
-      "last_commit": "2026-11-20T09:44:29Z"
+      "last_commit": "2026-11-22T15:29:31Z"
     },
     {
       "login": "vangel76",
@@ -51,13 +51,13 @@
       "people_entry": true,
       "github_name": "Martin Ball",
       "prs": 127,
-      "commits": 384,
-      "lines_added": 103527,
-      "lines_deleted": 213335,
+      "commits": 386,
+      "lines_added": 103669,
+      "lines_deleted": 213361,
       "binary_added": 0,
       "binary_deleted": 1,
       "first_commit": "2026-10-14T17:43:24Z",
-      "last_commit": "2026-11-21T22:34:10Z"
+      "last_commit": "2026-11-22T17:40:08Z"
     },
     {
       "login": "dylanmtaylor",
@@ -125,6 +125,19 @@
       "last_commit": "2026-11-18T09:30:16Z"
     },
     {
+      "login": "batistalucasv",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 45,
+      "commits": 92,
+      "lines_added": 51687,
+      "lines_deleted": 36895,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-08T03:56:55Z",
+      "last_commit": "2026-11-22T18:52:36Z"
+    },
+    {
       "login": "divyanshu2074",
       "people_entry": true,
       "github_name": null,
@@ -136,19 +149,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T23:36:36Z",
       "last_commit": "2026-10-25T14:41:23Z"
-    },
-    {
-      "login": "batistalucasv",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 32,
-      "commits": 79,
-      "lines_added": 50813,
-      "lines_deleted": 36685,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-08T03:56:55Z",
-      "last_commit": "2026-11-22T01:14:01Z"
     },
     {
       "login": "finwarman",

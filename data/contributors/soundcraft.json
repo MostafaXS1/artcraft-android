@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "85623f28f99a9a788123f0f6b48829f95f07962f",
-  "head_date": "2026-11-20T16:32:21Z",
-  "commits": 1682,
+  "head": "3d5916e42cb231ae52da6479ddfac7a857c07bce",
+  "head_date": "2026-11-23T02:15:38Z",
+  "commits": 1689,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -76,14 +76,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 9,
-      "commits": 56,
-      "lines_added": 2250,
-      "lines_deleted": 429,
+      "prs": 12,
+      "commits": 63,
+      "lines_added": 2393,
+      "lines_deleted": 501,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-02T17:23:48Z",
-      "last_commit": "2026-11-20T14:04:15Z"
+      "last_commit": "2026-11-23T02:15:38Z"
     },
     {
       "login": "marcoarnulfo",

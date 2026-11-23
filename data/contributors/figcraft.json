@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/figcraft",
   "branch": "main",
-  "head": "5c2a378494df9e8c6dec9da117e9b63d49633fda",
-  "head_date": "2026-11-21T18:28:27Z",
-  "commits": 4674,
+  "head": "bbf7ad418f3e02d89546a6c7b044e51df67177f0",
+  "head_date": "2026-11-22T04:48:49Z",
+  "commits": 4677,
   "unattributed_commits": 18,
   "contributors": [
     {
@@ -749,6 +749,19 @@
       "last_commit": "2026-11-18T19:59:19Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 6,
+      "commits": 6,
+      "lines_added": 445,
+      "lines_deleted": 25,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-19T22:53:33Z",
+      "last_commit": "2026-11-22T04:48:49Z"
+    },
+    {
       "login": "zuujiscom",
       "people_entry": false,
       "github_name": null,
@@ -1241,19 +1254,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-16T20:19:32Z",
       "last_commit": "2026-10-16T22:45:08Z"
-    },
-    {
-      "login": "Terra854",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 3,
-      "commits": 3,
-      "lines_added": 253,
-      "lines_deleted": 19,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-19T22:53:33Z",
-      "last_commit": "2026-11-20T14:28:36Z"
     },
     {
       "login": "TheGalitube",

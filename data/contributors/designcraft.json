@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/designcraft",
   "branch": "main",
-  "head": "00bf1e6963cc386a36c1d6f48d144aaa11440640",
-  "head_date": "2026-11-21T23:12:31Z",
-  "commits": 5610,
+  "head": "d3190ef798460d8f75bb54505266c4c8f5ba144c",
+  "head_date": "2026-11-23T00:16:50Z",
+  "commits": 5618,
   "unattributed_commits": 28,
   "contributors": [
     {
@@ -76,14 +76,14 @@
       "login": "skylartaylor",
       "people_entry": true,
       "github_name": null,
-      "prs": 39,
-      "commits": 136,
-      "lines_added": 25924,
-      "lines_deleted": 2927,
+      "prs": 40,
+      "commits": 137,
+      "lines_added": 25985,
+      "lines_deleted": 2947,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-07T20:27:50Z",
-      "last_commit": "2026-11-10T19:49:04Z"
+      "last_commit": "2026-11-22T20:45:03Z"
     },
     {
       "login": "Silvertree2010",
@@ -141,14 +141,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 11,
-      "commits": 61,
-      "lines_added": 6824,
-      "lines_deleted": 760,
+      "prs": 13,
+      "commits": 68,
+      "lines_added": 6949,
+      "lines_deleted": 947,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-20T08:57:09Z",
-      "last_commit": "2026-11-19T16:19:53Z"
+      "last_commit": "2026-11-23T00:16:50Z"
     },
     {
       "login": "macrobi",

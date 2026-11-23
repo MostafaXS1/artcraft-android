@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/deckcraft",
   "branch": "main",
-  "head": "0ccc68f61ce171393d53b30b1c6cc45ac40be738",
-  "head_date": "2026-11-21T17:25:33Z",
-  "commits": 2278,
+  "head": "7fbdc085ebfd6ded43abd3d12a87377a7a0fa852",
+  "head_date": "2026-11-22T22:59:10Z",
+  "commits": 2281,
   "unattributed_commits": 24,
   "contributors": [
     {
@@ -90,13 +90,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 12,
-      "commits": 68,
+      "commits": 69,
       "lines_added": 2413,
       "lines_deleted": 6846,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-11-01T20:36:45Z",
-      "last_commit": "2026-11-20T11:09:06Z"
+      "last_commit": "2026-11-22T22:59:10Z"
     },
     {
       "login": "MarekSpodBiedry",
@@ -723,6 +723,19 @@
       "last_commit": "2026-10-30T19:51:25Z"
     },
     {
+      "login": "kiwi5boy",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 3,
+      "lines_added": 5205,
+      "lines_deleted": 48,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-20T00:19:20Z",
+      "last_commit": "2026-11-22T16:32:37Z"
+    },
+    {
       "login": "kk376",
       "people_entry": false,
       "github_name": null,
@@ -1020,19 +1033,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-10T10:17:49Z",
       "last_commit": "2026-10-10T10:17:49Z"
-    },
-    {
-      "login": "kiwi5boy",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 0,
-      "commits": 1,
-      "lines_added": 5135,
-      "lines_deleted": 44,
-      "binary_added": 1,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-20T04:13:45Z",
-      "last_commit": "2026-11-20T04:13:45Z"
     },
     {
       "login": "lambertoo",

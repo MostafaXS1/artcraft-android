@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "1a81a5a2673b5ef416927a94cf75a28fd5ceae37",
-  "head_date": "2026-11-21T20:36:02Z",
-  "commits": 5633,
+  "head": "3200590acb7737624c3d62cd4a207e6d59902267",
+  "head_date": "2026-11-23T01:31:50Z",
+  "commits": 5651,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 128,
-      "commits": 420,
-      "lines_added": 24799,
-      "lines_deleted": 61375,
+      "prs": 130,
+      "commits": 422,
+      "lines_added": 25843,
+      "lines_deleted": 70880,
       "binary_added": 2,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:24Z",
-      "last_commit": "2026-11-21T01:57:14Z"
+      "last_commit": "2026-11-22T21:57:48Z"
     },
     {
       "login": "bflatastic",
@@ -76,14 +76,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 26,
-      "commits": 240,
-      "lines_added": 37761,
-      "lines_deleted": 3800,
+      "prs": 31,
+      "commits": 251,
+      "lines_added": 38243,
+      "lines_deleted": 4043,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-21T20:36:02Z"
+      "last_commit": "2026-11-23T01:31:50Z"
     },
     {
       "login": "radialmonster",
@@ -541,6 +541,19 @@
       "last_commit": "2026-11-01T10:54:10Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 13,
+      "commits": 14,
+      "lines_added": 1054,
+      "lines_deleted": 519,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-20T02:31:08Z",
+      "last_commit": "2026-11-22T21:30:48Z"
+    },
+    {
       "login": "chordpli",
       "people_entry": false,
       "github_name": null,
@@ -812,19 +825,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T11:00:29Z",
       "last_commit": "2026-10-16T02:46:51Z"
-    },
-    {
-      "login": "Terra854",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 7,
-      "commits": 8,
-      "lines_added": 568,
-      "lines_deleted": 154,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-20T02:31:08Z",
-      "last_commit": "2026-11-21T18:04:34Z"
     },
     {
       "login": "cookingwithsimon",
@@ -3343,9 +3343,9 @@
       "company": "OpenAI",
       "model": "Codex",
       "version": "",
-      "commits": 85,
-      "lines_added": 27360,
-      "lines_deleted": 2301
+      "commits": 87,
+      "lines_added": 27427,
+      "lines_deleted": 2302
     },
     {
       "id": "anthropic/claude-haiku/5.5",

@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "171e92b0772019357fa3bea724067a32c5875ad7",
-  "head_date": "2026-11-21T21:58:34Z",
-  "commits": 5432,
+  "head": "7e2d0256209974ffb92a29d8bdb6f2a49078f51f",
+  "head_date": "2026-11-22T20:58:13Z",
+  "commits": 5438,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "vangel76",
       "people_entry": true,
       "github_name": null,
-      "prs": 182,
-      "commits": 606,
-      "lines_added": 147019,
-      "lines_deleted": 16531,
+      "prs": 185,
+      "commits": 609,
+      "lines_added": 149150,
+      "lines_deleted": 16619,
       "binary_added": 3,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T09:11:25Z",
-      "last_commit": "2026-11-19T09:37:00Z"
+      "last_commit": "2026-11-22T19:31:15Z"
     },
     {
       "login": "dylanmtaylor",
@@ -63,14 +63,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 67,
-      "commits": 271,
-      "lines_added": 56452,
-      "lines_deleted": 28349,
+      "prs": 68,
+      "commits": 274,
+      "lines_added": 57205,
+      "lines_deleted": 28385,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T20:25:40Z",
-      "last_commit": "2026-11-21T21:58:34Z"
+      "last_commit": "2026-11-22T20:58:13Z"
     },
     {
       "login": "arnav-hiwarkar",
@@ -359,6 +359,19 @@
       "last_commit": "2026-10-26T11:06:30Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 20,
+      "commits": 20,
+      "lines_added": 2142,
+      "lines_deleted": 349,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T10:30:06Z",
+      "last_commit": "2026-11-22T20:58:13Z"
+    },
+    {
       "login": "0Elias71",
       "people_entry": false,
       "github_name": null,
@@ -383,19 +396,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T15:01:41Z",
       "last_commit": "2026-10-29T20:48:55Z"
-    },
-    {
-      "login": "Terra854",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 18,
-      "commits": 18,
-      "lines_added": 1963,
-      "lines_deleted": 343,
-      "binary_added": 1,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-21T10:30:06Z",
-      "last_commit": "2026-11-21T20:46:43Z"
     },
     {
       "login": "gmrmad1",

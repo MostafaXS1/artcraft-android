@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/pdfcraft",
   "branch": "main",
-  "head": "4f23ee1c1c2afc6611ca3a71b38162f6259629fb",
-  "head_date": "2026-11-20T21:16:33Z",
-  "commits": 6706,
+  "head": "993889aff1d29965a2fa86ebaaf6005386ef5ff7",
+  "head_date": "2026-11-23T01:29:51Z",
+  "commits": 6708,
   "unattributed_commits": 16,
   "contributors": [
     {
@@ -64,13 +64,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 66,
-      "commits": 477,
-      "lines_added": 77141,
-      "lines_deleted": 104805,
+      "commits": 478,
+      "lines_added": 77214,
+      "lines_deleted": 104878,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T22:25:25Z",
-      "last_commit": "2026-11-20T21:16:33Z"
+      "last_commit": "2026-11-22T23:47:33Z"
     },
     {
       "login": "EricKaden",
@@ -102,14 +102,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 162,
-      "commits": 294,
-      "lines_added": 27817,
-      "lines_deleted": 121806,
+      "prs": 163,
+      "commits": 295,
+      "lines_added": 27890,
+      "lines_deleted": 121879,
       "binary_added": 0,
       "binary_deleted": 16,
       "first_commit": "2026-10-11T15:51:25Z",
-      "last_commit": "2026-11-20T17:22:26Z"
+      "last_commit": "2026-11-22T23:47:33Z"
     },
     {
       "login": "alehel",
@@ -242,6 +242,19 @@
       "last_commit": "2026-11-02T12:37:29Z"
     },
     {
+      "login": "skylartaylor",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 17,
+      "commits": 62,
+      "lines_added": 24826,
+      "lines_deleted": 77768,
+      "binary_added": 0,
+      "binary_deleted": 16,
+      "first_commit": "2026-10-09T18:38:01Z",
+      "last_commit": "2026-11-23T01:29:51Z"
+    },
+    {
       "login": "Silvertree2010",
       "people_entry": true,
       "github_name": null,
@@ -253,19 +266,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T21:40:11Z",
       "last_commit": "2026-11-18T09:32:21Z"
-    },
-    {
-      "login": "skylartaylor",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 16,
-      "commits": 61,
-      "lines_added": 24813,
-      "lines_deleted": 77765,
-      "binary_added": 0,
-      "binary_deleted": 16,
-      "first_commit": "2026-10-09T18:38:01Z",
-      "last_commit": "2026-11-20T07:53:23Z"
     },
     {
       "login": "dotCooCoo",

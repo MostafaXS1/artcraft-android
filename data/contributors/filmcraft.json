@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "d6cc257f55e83b16af4be6bf9c371e6798f00af6",
-  "head_date": "2026-11-21T20:10:17Z",
-  "commits": 4203,
+  "head": "e7345f6e04a9bb921c2613a6aa92d162edf39b3b",
+  "head_date": "2026-11-22T22:58:33Z",
+  "commits": 4209,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 168,
-      "commits": 370,
-      "lines_added": 35190,
-      "lines_deleted": 143665,
+      "prs": 171,
+      "commits": 374,
+      "lines_added": 35324,
+      "lines_deleted": 143787,
       "binary_added": 4,
       "binary_deleted": 2,
       "first_commit": "2026-10-10T00:04:17Z",
-      "last_commit": "2026-11-21T20:10:17Z"
+      "last_commit": "2026-11-22T22:23:05Z"
     },
     {
       "login": "vangel76",
@@ -64,13 +64,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 29,
-      "commits": 237,
-      "lines_added": 11694,
-      "lines_deleted": 7833,
+      "commits": 239,
+      "lines_added": 11724,
+      "lines_deleted": 7841,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T01:04:56Z",
-      "last_commit": "2026-11-21T10:33:05Z"
+      "last_commit": "2026-11-22T22:58:33Z"
     },
     {
       "login": "Felix-Helleckes",
@@ -1139,6 +1139,19 @@
       "last_commit": "2026-10-15T11:41:52Z"
     },
     {
+      "login": "Terra854",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 4,
+      "commits": 4,
+      "lines_added": 188,
+      "lines_deleted": 369,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T18:22:46Z",
+      "last_commit": "2026-11-22T21:08:16Z"
+    },
+    {
       "login": "webdevtodayjason",
       "people_entry": true,
       "github_name": null,
@@ -1410,19 +1423,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-15T19:35:24Z",
       "last_commit": "2026-10-25T19:07:08Z"
-    },
-    {
-      "login": "Terra854",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 3,
-      "commits": 3,
-      "lines_added": 158,
-      "lines_deleted": 361,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-21T18:22:46Z",
-      "last_commit": "2026-11-21T19:45:15Z"
     },
     {
       "login": "Tom1tk",
