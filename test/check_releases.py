@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BUILD_COMMON = ROOT_DIR / "lib" / "build-common.sh"
+CATALOG_SH = ROOT_DIR / "lib" / "catalog.sh"
 SOURCE_DIR = ROOT_DIR / "source"
 
 # Fallback known app definitions in case build-common.sh is not located
@@ -93,12 +94,13 @@ class ReleaseCheckResult:
 
 
 def parse_build_common() -> List[AppConfig]:
-    """Dynamically parse app definitions and repo URLs from build-common.sh."""
-    if not BUILD_COMMON.is_file():
+    """Dynamically parse app definitions and repo URLs from catalog.sh or build-common.sh."""
+    target_file = CATALOG_SH if CATALOG_SH.is_file() else BUILD_COMMON
+    if not target_file.is_file():
         return [AppConfig(*item) for item in FALLBACK_APPS]
 
-    text = BUILD_COMMON.read_text(encoding="utf-8", errors="replace")
-    apps_match = re.search(r'case "\$APP" in\s*(.*?)\s*\*\)', text, re.DOTALL)
+    text = target_file.read_text(encoding="utf-8", errors="replace")
+    apps_match = re.search(r'case "\$(?:APP|app)" in\s*(.*?)\s*\*\)', text, re.DOTALL)
     if not apps_match:
         return [AppConfig(*item) for item in FALLBACK_APPS]
 
@@ -113,7 +115,7 @@ def parse_build_common() -> List[AppConfig]:
 
         # Check custom origin override
         repo_m = re.search(
-            rf'\[\[\s*"\$APP"\s*==\s*"{app}"\s*\]\];\s*then\s*REPO="([^"]+)"\s*APP_ORIGIN="([^"]+)"',
+            rf'\[\[\s*"\$(?:APP|app)"\s*==\s*"{app}"\s*\]\];\s*then\s*REPO="([^"]+)"\s*APP_ORIGIN="([^"]+)"',
             text,
         )
         if repo_m:
@@ -123,7 +125,7 @@ def parse_build_common() -> List[AppConfig]:
         # Check main override
         main_override = bool(
             re.search(
-                rf'case "\$APP" in\s*[^;]*\b{app}\b[^;]*\);\s*if\s*\[\[\s*"\$BUILD_SOURCE"\s*==\s*"stable"',
+                rf'case "\$(?:APP|app)" in\s*[^;]*\b{app}\b[^;]*\);\s*if\s*\[\[\s*"\$BUILD_SOURCE"\s*==\s*"stable"',
                 text,
             )
         )

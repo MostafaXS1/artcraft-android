@@ -25,7 +25,7 @@ flowchart TD
     Staging --> Choice{Custom Adapter in adapters/?}
     
     Choice -- Yes --> CustomPrep[Execute adapters/app/prepare.sh]
-    Choice -- No --> AutoGen[Auto-generate Launcher Shell: generate_launcher]
+    Choice -- No --> AutoGen[Auto-generate Launcher Shell: lib/launcher_generator.py]
     
     CustomPrep --> JavaBridge[Integrate Java Bridge: SafActivity / Termux / JNI]
     AutoGen --> JavaBridge
@@ -504,7 +504,7 @@ Follow these steps to add a new application to the ArtCraft Android ecosystem:
 flowchart LR
     A[1. Add to app-catalog.json] --> B[2. Create adapters/app/]
     B --> C[3. Implement prepare.sh]
-    C --> D[4. Add to lib/build-common.sh]
+    C --> D[4. Add to lib/catalog.sh & lib/toolchain.sh]
     D --> E[5. Test Build via CI]
 ```
 
@@ -531,8 +531,9 @@ Create `adapters/myapp/`:
 - `adapters/myapp/prepare.sh`: Shell script to clone or stage upstream crates and apply platform patches.
 
 ### Step 3: Register in Build Script & CI Matrix
-1. Add the app ID to `SAF_APPS` in `lib/build-common.sh`.
-2. Add the app ID to `ALL_APPS` in `.github/workflows/build.yml`.
+1. Add the app ID, title, and repo URL to `lib/catalog.sh` (`resolve_app_catalog` and `print_usage`).
+2. Add the app ID to `SAF_APPS` in `lib/toolchain.sh` (if the application uses Storage Access Framework).
+3. Add the app ID to `ALL_APPS` in `.github/workflows/build.yml`.
 
 ### Step 4: Verify via CI
 Push the branch with a selective commit directive to test the build on CI without building all apps:

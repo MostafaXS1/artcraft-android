@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### 🏗️ Major: Core Build System Decentralization (Issue #73)
+* **Modular Pipeline Architecture**: Decentralized the monolithic `lib/build-common.sh` script, shrinking it from over 8,300 lines down to a concise 245-line coordinator (a 97.1% line reduction) that sources single-responsibility modules and calls standalone CLI tools.
+* **Extracted Modular Subsystems**:
+  - `lib/toolchain.sh`: SDK/NDK/JDK discovery, tool verification (`cargo ndk`, `git`, `python3`), `.artcraft-build.lock` concurrency control, and builder constants.
+  - `lib/catalog.sh`: Centralized app catalog resolution (`resolve_app_catalog`), repository mapping, and custom git origin safety routing.
+  - `lib/source.sh`: Upstream shallow cloning (`--depth 1`), release tag resolution, branch checkouts, and checkout integrity validation.
+  - `lib/upstream_patches.py`: Standalone script for idempotent compile fixes (PhotoCraft export presets, CADCraft egui downgrade, Coiman IDE).
+  - `lib/launcher_generator.py`: Standalone generator for GameActivity Rust launchers (`apps/$APP-android/`), SAF bridge recipes, and Android manifests (`GENERATOR_VERSION="83"`).
+  - `lib/vendoring.sh`: Dependency vendoring from `vendor/` to `source/$APP/vendor/` and workspace configuration.
+  - `lib/cargo_patches.py`: Workspace `[patch.crates-io]` table injection, winit Wayland/X11 removal, egui-dock/egui-wgpu surface recovery overrides, and update checker injection.
+  - `lib/signing.sh`: Local keystore creation, certificate generation, and signing key configuration.
+  - `lib/packaging.sh`: Cargo NDK compilation, Gradle packaging, bridge verification (`verify_android_bridge`), and artifact staging to `output/`.
+* **Automated Unit Test Suite (`test/`)**:
+  - Added 23 unit tests across 5 test suites (`test_launcher_generator.py`, `test_upstream_patches.py`, `test_cargo_patches.py`, `test_toolchain.py`, `test_catalog.py`).
+  - Updated `test/check_releases.py` to dynamically parse `lib/catalog.sh`.
+* **Complete Documentation Overhaul**:
+  - Synchronized `architecture.md`, `agents.md`, `test/README.md`, `docs/porting-guide.md`, and `docs/ci-workflow.md` to reflect the new modular architecture.
+
+---
+
 ## v0.7.0 — 2026-11-21
 
 > **Summary:**  

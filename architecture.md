@@ -44,7 +44,7 @@ This document describes the end-to-end architecture of the ArtCraft Android Buil
 
 The ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Android APKs from official upstream repositories of the ArtCraft suite and community creative tools. It uses a hybrid approach:
 - Directly builds 32 applications and the standalone ArtCraft Launcher APK.
-- For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="81"`).
+- For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="83"`).
 - For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 19 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, etc.).
 - It vendors and patches dependencies (`winit`, `egui-winit`, `rfd`, `arboard`, `egui-wgpu`, `android-activity`, `krilla`, `ffmpeg-sys-next`, `midir`, etc.) to add Android-specific desktop input (mouse/trackpad hover, wheel, gestures), system clipboard via JNI, SAF integration, ANR-safe non-blocking lifecycles, and surface recovery fixes.
 - It shares runtime modules (SAF bridge, system fonts, update checker) across generated launchers and adapters; soft-keyboard input uses `android-activity`'s native GameActivity IME.
@@ -62,7 +62,16 @@ artcraft-android-builder/
 ├── build-launcher.sh        # Dedicated build script for ArtCraft Launcher APK
 ├── clean.sh                 # Workspace cleanup script
 ├── lib/
-│   ├── build-common.sh      # Main orchestrator script (~4100 lines)
+│   ├── build-common.sh      # Modular coordinator script (~245 lines)
+│   ├── toolchain.sh         # SDK/NDK/JDK discovery, constants, tool verification
+│   ├── catalog.sh           # App catalog resolution, titles, repos, origins
+│   ├── source.sh            # Source acquisition, clone/checkout, integrity checks
+│   ├── upstream_patches.py  # Standalone upstream compile fixes
+│   ├── launcher_generator.py# Generates GameActivity launchers & SAF recipes
+│   ├── vendoring.sh         # Dependency vendoring & workspace setup
+│   ├── cargo_patches.py     # Cargo workspace patching & crate overrides
+│   ├── signing.sh           # Keystore & certificate generation
+│   ├── packaging.sh         # cargo-ndk compilation, Gradle assembly, verification
 │   ├── android_project.py   # Generates AndroidManifest.xml, Gradle project, themes
 │   ├── app_icons.py         # Generates adaptive and legacy launcher icons
 │   ├── file_associations.py  # Central intent filter and MIME registry
@@ -71,6 +80,13 @@ artcraft-android-builder/
 │   ├── subcraft.sh          # SubCraft file handoff patch (files::deliver_android)
 │   ├── ffmpeg_android.sh    # Builds Android FFmpeg / libvpx / opus libraries
 │   └── wordcraft_opt.sh     # WordCraft layout and typing performance optimizations
+├── test/                    # Validation and unit test suite
+│   ├── check_releases.py        # Release tag and upstream sync validator
+│   ├── test_launcher_generator.py # Tests for launcher generator
+│   ├── test_upstream_patches.py   # Tests for upstream compile fixes
+│   ├── test_cargo_patches.py      # Tests for Cargo workspace patching
+│   ├── test_toolchain.py          # Tests for toolchain and SDK discovery
+│   └── test_catalog.py            # Tests for app catalog resolution
 ├── templates/
 │   ├── android/             # Shared Java and Rust runtime modules
 │   │   ├── SafActivity.java
@@ -134,20 +150,17 @@ All 36 applications in groups 1 and 2 plus the ArtCraft Launcher are built via `
 ```mermaid
 flowchart TD
   A[build.sh/build-debug.sh] --> B[lib/build-common.sh]
-  B --> C[Parse args, validate, lock]
-  C --> D[Check tools: git/cargo/python3]
-  D --> E[SDK/JDK/NDK discovery/bootstrap]
-  E --> F[Fetch/reuse upstream source]
-  F --> G[Upstream fixes]
-  G --> H[Apply patches: scrolling/ime/subcraft]
-  H --> I[Prepare launcher: adapter or generate]
-  I --> J[Vendor deps & patch Cargo.toml]
-  J --> K[Generate Android project & icons]
-  K --> L[Prepare signing key]
-  L --> M[cargo-ndk build -> jniLibs]
-  M --> N[Gradle assemble -> APK]
-  N --> O[Verify bridge]
-  O --> P[Copy to output/]
+  B --> C[lib/toolchain.sh: Validate tools, lock, bootstrap SDK/NDK/JDK]
+  B --> D[lib/catalog.sh: Resolve app metadata & origins]
+  B --> E[lib/source.sh: Fetch/reuse upstream source & integrity]
+  B --> F[lib/upstream_patches.py: Apply upstream fixes]
+  B --> G[Apply patches: scrolling/ime/subcraft]
+  B --> H[lib/launcher_generator.py or adapter: Prepare launcher]
+  B --> I[lib/vendoring.sh & lib/cargo_patches.py: Patch Cargo.toml & vendor deps]
+  B --> J[lib/android_project.py & lib/app_icons.py: Gradle project & icons]
+  B --> K[lib/signing.sh: Keystore & signing key]
+  B --> L[lib/packaging.sh: cargo-ndk build, Gradle assemble, verify bridge]
+  L --> M[Copy to output/]
 ```
 
 ---
@@ -161,23 +174,16 @@ Simple wrappers that call `lib/build-common.sh` with `MODE` ("release"/"debug") 
 Dedicated script that compiles the ArtCraft Launcher Android APK (`output/Artcraft-launcher.apk`) by building `launcher/apps/artcraft-launcher-android`.
 
 ### `lib/build-common.sh`
-Main orchestrator (~4100 lines). Key responsibilities:
-- Argument parsing: `-<app>`, `-stable|-main|-latest`, `-tag=`, `-branch=`, `-appname=`, `-packagename=`, `-appicon=`, `-h`
-- Resolve app metadata: `TITLE`, `REPO` (defaults to `https://github.com/storytold/<app>.git`), with explicit origin routing for community apps (SubCraft from `Aalzard/subcraft`, SolidCraft from `tangency-labs/solidcraft`, Coiman IDE from `ManuelCoimbra/coiman-ide`, PicassoSuite/ProWave from `fabox-os`, Transit from `transit-audio/transit`, etc.)
-- Constants: `BUILDER_VERSION="0.6.0"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `GENERATOR_VERSION="81"`
-- Locking: single build lock via `flock` on `.artcraft-build.lock` (records PID)
-- Tool checks: git, cargo, python3 with tomllib
-- SDK/JDK/NDK discovery and bootstrap
-- Source fetch/reuse with integrity checks
-- Upstream fixes (Python script)
-- Patches: `scrolling.sh`, `subcraft.sh`, `ime.sh`
-- Launcher preparation (adapter or generator)
-- Vendoring and Cargo.toml patching
-- Gradle project generation
-- Signing key management
-- Build (cargo-ndk + Gradle)
-- Verification
-- Output copy
+Modular coordinator script (~245 lines). It coordinates the 8 build stages by sourcing single-responsibility shell modules and invoking dedicated Python tools:
+- **`lib/toolchain.sh`**: Discovers and bootstraps Android SDK/NDK and Temurin JDK, manages `.artcraft-build.lock`, verifies CLI tools (`cargo ndk`, `git`, `python3`), and defines platform constants (`BUILDER_VERSION="0.7.0"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `SAF_APPS`, `VALID_MODES`, `VALID_SOURCES`).
+- **`lib/catalog.sh`**: Central registry for supported apps (`resolve_app_catalog`), mapping app identifiers to `TITLE`, upstream `REPO`, and custom `APP_ORIGIN` routing (e.g. SubCraft, SolidCraft, Coiman IDE, PicassoSuite, ProWave, Transit).
+- **`lib/source.sh`**: Handles upstream git cloning (`--depth 1`), release tag resolution (`-stable`), branch checkout (`-main`), source reuse verification (`source_tree_is_complete`), and craft fonts checkout.
+- **`lib/upstream_patches.py`**: Standalone script applying upstream compilation fixes (PhotoCraft export presets, CADCraft egui downgrade, Coiman IDE).
+- **`lib/launcher_generator.py`**: Generates thin GameActivity launchers (`apps/$APP-android/`), SAF recipe glue, and manifest configurations (`GENERATOR_VERSION="83"`).
+- **`lib/vendoring.sh`**: Handles crate vendoring from `vendor/` to `source/$APP/vendor/` and workspace configuration.
+- **`lib/cargo_patches.py`**: Applies `[patch.crates-io]` workspace overrides to `Cargo.toml`, strips Wayland/X11 from winit, updates crates, and installs the update checker bridge.
+- **`lib/signing.sh`**: Manages the local keystore, certificate generation, and signing keys.
+- **`lib/packaging.sh`**: Executes `cargo-ndk` compilation, Gradle project build, bridge verification (`verify_android_bridge`), APK alignment, and release copying to `output/`.
 
 ---
 
@@ -220,10 +226,11 @@ For apps embedding shared fonts (WordCraft, PdfCraft): looks for `source/craft-f
 
 ## Upstream Fixes and Patches
 
-### Upstream compile fixes (Python in build-common)
+### Upstream compile fixes (`lib/upstream_patches.py`)
 Guarded fixes applied only if broken text present and not already fixed:
 - **PhotoCraft**: adds missing `export_presets: take(&mut m, "export_presets")` in `crates/engine/src/presets/mod.rs`
 - **CADCraft**: downgrades dependencies due to egui 0.37 breakage (egui/eframe/egui-wgpu to 0.36, harfrust to 0.13.3, quick-xml to 0.41, rstar to 0.12)
+- **Coiman IDE**: patches upstream dependencies and Termux command shims
 
 ### App-side patches (shell scripts)
 - **`lib/scrolling.sh`**: Patches app source for two-finger scrolling/momentum. Works with vendored winit/egui-winit that recognize gestures. Patches to prevent selection on first finger, add momentum (Android sends no momentum). Applied to all apps.
@@ -238,18 +245,18 @@ All patches are guarded/idempotent.
 
 ### Detection
 - If `adapters/$APP/prepare.sh` exists and is executable: run it with args `"$APP" "$TITLE" "$SRC" "$MODE"`. Sets up custom adapter.
-- Else: run inline Python generator (heredoc in build-common.sh starting around line ~613) to create `source/$APP/apps/$APP-android/`.
+- Else: run `lib/launcher_generator.py` to create `source/$APP/apps/$APP-android/`.
 
 ### Generator behavior (summary)
 - Creates Android crate dir `apps/$APP-android/`
-- Uses `GENERATOR_VERSION="81"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
+- Uses `GENERATOR_VERSION="83"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
 - Inspects upstream workspace: reads `Cargo.toml` to find crates, detects UI crate type (eframe/App, Services/Hooks patterns), determines app type/constructors
 - Copies shared modules: `templates/android/system_fonts.rs`, and conditionally `templates/android/saf_bridge.rs` (if SAF needed)
 - Generates `src/lib.rs` with `android_main` wiring eframe/GameActivity, immersive fullscreen, modifier key handling, clipboard shortcuts (Ctrl/Cmd+C/X/V), native IME polling, system fonts, bar appearance, back button mapping to Escape, close-guard integration, input probe, persistence/UI scale/staged pruning logic as applicable
 - Adds dependencies to `Cargo.toml` of launcher (eframe with features, egui-winit, android-activity, log, android_logger, serde_json if needed, jni)
 - Copies resources/icons via `lib/app_icons.py`
 - Patches intent filters via `lib/file_associations.py`
-- Installs update checker (`UpdateCheck.java`) later
+- Installs update checker (`UpdateCheck.java`) later via `lib/cargo_patches.py`
 
 ### Adapter behavior
 - `adapters/README.md` describes adapter structure: `adapters/<app>/Cargo.toml`, `src/lib.rs`, `res/...`, optionally `java/...`, `prepare.sh`
@@ -333,7 +340,7 @@ Checks GitHub latest release vs baked `__BUILDER_VERSION__`, shows notification 
 - Timeout 180s for blocking picks.
 
 ### SAF Apps
-`SAF_APPS` in build-common includes: `designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft` (15). PhotoCraft/VectorCraft use custom adapters with similar SAF patterns.
+`SAF_APPS` (defined in `lib/toolchain.sh`) includes: `designcraft deckcraft gridcraft wordcraft lightcraft effectcraft filmcraft cadcraft soundcraft pdfcraft figcraft subcraft solidcraft materialcraft texturecraft` (15). PhotoCraft/VectorCraft use custom adapters with similar SAF patterns.
 
 ### Per-app SAF Recipes (in generator)
 Complex recipes define how each app integrates SAF:
@@ -607,7 +614,16 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 |------|---------|
 | `build.sh` / `build-debug.sh` | Main application build entry points |
 | `build-launcher.sh` | Dedicated ArtCraft Launcher build entry point |
-| `lib/build-common.sh` | Main orchestrator, launcher generator, SAF recipes, vendoring |
+| `lib/build-common.sh` | Modular coordinator script (< 250 lines) |
+| `lib/toolchain.sh` | SDK/NDK/JDK discovery, constants, tool verification, lock management |
+| `lib/catalog.sh` | App catalog resolution, titles, repository URLs, custom origin checks |
+| `lib/source.sh` | Source acquisition, git shallow cloning, integrity checks, craft fonts |
+| `lib/upstream_patches.py` | Standalone script for upstream compile fixes (PhotoCraft, CADCraft, Coiman IDE) |
+| `lib/launcher_generator.py` | Standalone GameActivity launcher generator & per-app SAF recipes |
+| `lib/vendoring.sh` | Crate vendoring and workspace setup |
+| `lib/cargo_patches.py` | Cargo workspace patching, crates-io overrides, winit stripping, updater injection |
+| `lib/signing.sh` | Keystore management and local certificate signing |
+| `lib/packaging.sh` | cargo-ndk compilation, Gradle assembly, bridge verification, output copying |
 | `lib/android_project.py` | Manifest/Gradle/theme generation |
 | `lib/file_associations.py` | Intent filter registry |
 | `lib/app_icons.py` | Icon generation |
@@ -615,6 +631,12 @@ See `.github/workflows/build.yml` and `docs/ci-workflow.md`. Key points:
 | `lib/ime.sh` | WordCraft Backspace-at-paragraph-start patch |
 | `lib/subcraft.sh` | SubCraft file handoff patch |
 | `launcher/` | ArtCraft Launcher source code (desktop & Android) |
+| `test/check_releases.py` | Release tag and upstream sync validator |
+| `test/test_launcher_generator.py` | Unit tests for launcher generator |
+| `test/test_upstream_patches.py` | Unit tests for upstream compile fixes |
+| `test/test_cargo_patches.py` | Unit tests for Cargo workspace patching |
+| `test/test_toolchain.py` | Unit tests for toolchain and SDK discovery |
+| `test/test_catalog.py` | Unit tests for app catalog resolution |
 | `templates/android/SafActivity.java` | Shared Activity base |
 | `templates/android/saf_bridge.rs` | Rust SAF JNI bridge |
 | `templates/android/system_fonts.rs` | System fonts |

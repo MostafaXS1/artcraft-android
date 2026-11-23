@@ -109,13 +109,13 @@ Rust Android cross-compilation builds hundreds of native crates and dependencies
 ### Tier 2: Cargo Registry & Git DB
 * **Action:** `actions/cache@v4`
 * **Paths:** `~/.cargo/registry/index/`, `~/.cargo/registry/cache/`, `~/.cargo/git/db/`
-* **Key:** `cargo-registry-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh') }}`
+* **Key:** `cargo-registry-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh', 'lib/*.sh', 'lib/*.py') }}`
 * **Purpose:** Avoids re-downloading source crates and git repos from crates.io on every job.
 
 ### Tier 3: Gradle Wrapper & Cache
 * **Action:** `actions/cache@v4`
 * **Paths:** `~/.gradle/caches`, `~/.gradle/wrapper`
-* **Key:** `gradle-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh') }}`
+* **Key:** `gradle-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('lib/build-common.sh', 'lib/*.sh', 'lib/*.py') }}`
 * **Purpose:** Caches the Gradle binary and downloaded Android Gradle Plugin (AGP) dependencies.
 
 ---
@@ -227,12 +227,12 @@ bundle:
 
 To introduce a new app into ArtCraft Android (such as a newly released Craft app like `AniCraft`, or a standalone external Rust project), follow these steps:
 
-### Step 1: Register the App in `lib/build-common.sh`
+### Step 1: Register the App in `lib/catalog.sh` and `lib/toolchain.sh`
 
 1. **App Title & Repository Definition:**
-   Locate the app resolution `case "$APP" in` block (~line 123):
+   Locate `resolve_app_catalog()` in `lib/catalog.sh`:
    ```bash
-   case "$APP" in
+   case "$app" in
        photocraft) TITLE="PhotoCraft" ;;
        ...
        cadcraft) TITLE="CADCraft" ;;
@@ -243,21 +243,15 @@ To introduce a new app into ArtCraft Android (such as a newly released Craft app
            # If the app is external (not under storytold/), override REPO:
            # REPO="https://github.com/my-org/myapp.git"
            ;;
-       *) echo "Unsupported app: $APP" >&2; usage; exit 2 ;;
+       *) echo "Unsupported app: $app" >&2; return 1 ;;
    esac
    ```
 
-2. **Verify Git Origin Safety Check:**
-   Ensure the origin check (~line 450) validates against `${REPO%.git}`:
-   ```bash
-   case "${ORIGIN%.git}" in
-       "${REPO%.git}") ;;
-       *) fail "$SRC has unexpected origin '$ORIGIN'; refusing to reuse or overwrite it." ;;
-   esac
-   ```
+2. **Add the CLI Flag to `print_usage()`:**
+   Add `-myapp` to the `App names:` list in `print_usage()` in `lib/catalog.sh` so it appears in `--help`.
 
-3. **Add the CLI Flag to `usage()`:**
-   Add `-myapp` to the `App names:` list in `usage()` (~line 24) so it appears in `--help`.
+3. **Storage Access Framework (SAF) Registration:**
+   If the application requires the Storage Access Framework (SAF) document bridge, add the app ID to `SAF_APPS` in `lib/toolchain.sh`.
 
 ---
 
@@ -266,7 +260,7 @@ To introduce a new app into ArtCraft Android (such as a newly released Craft app
 ArtCraft Android supports two porting models:
 
 * **Model A: Automatic Generator (Zero Code):**
-  If the application is a standard Rust `egui`/`eframe` workspace (similar to the Craft suite), `build-common.sh`'s built-in generator (`generate_android_launcher()`) automatically inspects the workspace, creates `apps/<app>-android`, synthesizes JNI entrypoints (`android_main`), and sets up Gradle build scripts.
+  If the application is a standard Rust `egui`/`eframe` workspace (similar to the Craft suite), `lib/launcher_generator.py` automatically inspects the workspace, creates `apps/<app>-android`, synthesizes JNI entrypoints (`android_main`), and sets up Gradle build scripts.
 * **Model B: Custom Adapter (`adapters/<app>/`):**
   If the app requires custom window loops, JNI bridges, Android Storage Access Framework (SAF) file pickers, or specific C library bindings:
   1. Create directory `adapters/<app>/`

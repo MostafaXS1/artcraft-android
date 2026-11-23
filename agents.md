@@ -71,11 +71,11 @@ ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Andro
 - **Template-based generation**: Shared Java/Rust templates provide common Android functionality
 - **App-specific adapters**: Complex apps can have custom ports
 - **Vendor patching**: Critical crates (winit, egui-winit, rfd, arboard, egui-wgpu, android-activity) are patched for Android support
-- **Single orchestration**: `lib/build-common.sh` coordinates the entire build process
+- **Modular orchestration**: `lib/build-common.sh` acts as a clean coordinator (< 250 lines), delegating toolchain, catalog, source, patching, and packaging responsibilities to modular sub-scripts
 
 ## 2. Supported Apps
 
-From `lib/build-common.sh` and `README.md`:
+From `lib/catalog.sh`, `lib/build-common.sh`, and `README.md`:
 ```text
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
@@ -98,13 +98,29 @@ artcraft-android-builder/
 ├── README.md               # User documentation
 ├── CHANGELOG.md            # Change history
 ├── lib/
-│   ├── build-common.sh     # Main orchestrator (~4110 lines)
+│   ├── build-common.sh     # Modular coordinator script (~245 lines)
+│   ├── toolchain.sh        # SDK/NDK/JDK discovery, constants, tool verification
+│   ├── catalog.sh          # App catalog resolution, titles, repos, origins
+│   ├── source.sh           # Source acquisition, clone/checkout, integrity checks
+│   ├── upstream_patches.py # Standalone upstream compile fixes
+│   ├── launcher_generator.py # Generates GameActivity launchers & SAF recipes
+│   ├── vendoring.sh        # Dependency vendoring & workspace setup
+│   ├── cargo_patches.py    # Cargo workspace patching & crate overrides
+│   ├── signing.sh          # Keystore & certificate generation
+│   ├── packaging.sh        # cargo-ndk compilation, Gradle assembly, verification
 │   ├── android_project.py  # Generates AndroidManifest.xml, Gradle project, themes
 │   ├── app_icons.py        # Generates adaptive/legacy launcher icons
 │   ├── file_associations.py # Central intent filter registry
 │   ├── scrolling.sh        # Two-finger scroll/momentum patches
 │   ├── ime.sh              # WordCraft Backspace-at-paragraph-start patch
 │   └── subcraft.sh         # SubCraft file handoff patch
+├── test/                   # Validation and unit test suite
+│   ├── check_releases.py        # Release tag and upstream sync validator
+│   ├── test_launcher_generator.py # Tests for launcher generator
+│   ├── test_upstream_patches.py   # Tests for upstream compile fixes
+│   ├── test_cargo_patches.py      # Tests for Cargo workspace patching
+│   ├── test_toolchain.py          # Tests for toolchain and SDK discovery
+│   └── test_catalog.py            # Tests for app catalog resolution
 ├── templates/
 │   ├── android/            # Shared Java/Rust modules
 │   │   ├── SafActivity.java
@@ -131,21 +147,21 @@ artcraft-android-builder/
 
 ## 4. Build System Architecture
 
-### 4.1 Hybrid Orchestration Model
-The system uses a hybrid approach:
-- **Bash orchestration** (`lib/build-common.sh`): Toolchain verification, environment setup, git operations, build stage management, locking
-- **Python logic** (embedded via heredocs): Cargo.toml parsing, manifest generation, template instantiation, dependency patching
+### 4.1 Hybrid Modular Orchestration Model
+The system uses a decentralized modular approach:
+- **Modular Bash orchestration** (`lib/build-common.sh`): Coordinates the 8 pipeline stages, delegating toolchain bootstrapping, catalog mapping, source checkouts, crate vendoring, keystore signing, and Gradle packaging to dedicated sub-modules.
+- **Dedicated Python modules**: Standalone scripts manage AST inspection, upstream compile fixing (`lib/upstream_patches.py`), GameActivity launcher generation (`lib/launcher_generator.py`), and Cargo workspace patching (`lib/cargo_patches.py`).
 
 ### 4.2 Build Configuration
-**Constants in `lib/build-common.sh`:**
+**Constants:**
 ```bash
-BUILDER_VERSION="0.2.0"
+BUILDER_VERSION="0.7.0"  # Set in lib/build-common.sh
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
-GENERATOR_VERSION="55"  # Bumped when generated launcher template changes
+GENERATOR_VERSION="83"   # Set in lib/launcher_generator.py
 ```
 
-**Repository mappings:**
+**Repository mappings (`lib/catalog.sh`):**
 ```bash
 REPO="https://github.com/storytold/$APP.git"  # Default for most apps
 # SubCraft and SolidCraft exceptions
@@ -155,7 +171,7 @@ APP_ORIGIN="https://github.com/tangency-labs/solidcraft"
 REPO="https://github.com/tangency-labs/solidcraft.git"
 ```
 
-**Locking mechanism:**
+**Locking mechanism (`lib/toolchain.sh`):**
 - Uses `flock` on `.artcraft-build.lock` to ensure only one build runs at a time
 - Records PID in lock file
 - Prevents concurrent builds that would corrupt the launcher crate
@@ -168,21 +184,19 @@ Simple wrappers that:
 2. Call `lib/build-common.sh "$MODE" "$@"`
 
 ### 5.2 `lib/build-common.sh` Main Flow
-Key responsibilities in order:
-1. Argument parsing and validation
-2. App metadata resolution (TITLE, REPO, origins)
-3. Environment setup and locking
-4. Tool validation (git, cargo, python3 with tomllib)
-5. SDK/JDK/NDK discovery and bootstrap
-6. Source fetch/reuse
-7. Upstream fixes and patches
-8. Launcher preparation (adapter or generator)
-9. Vendoring and Cargo.toml patching
-10. Android project generation
-11. Signing key management
-12. Build execution (cargo-ndk + Gradle)
-13. Verification
-14. Output copy
+Key responsibilities delegated to modular sub-scripts:
+1. Argument parsing and mode validation (`lib/toolchain.sh`)
+2. App metadata resolution via `resolve_app_catalog` (`lib/catalog.sh`)
+3. Environment setup and locking (`lib/toolchain.sh`)
+4. Tool validation and SDK/NDK/JDK discovery (`lib/toolchain.sh`)
+5. Source fetch/reuse and tree integrity checks (`lib/source.sh`)
+6. Upstream fixes (`lib/upstream_patches.py`) and shell patches (`scrolling.sh`, `subcraft.sh`, `ime.sh`)
+7. Launcher preparation (`adapters/$APP/prepare.sh` or `lib/launcher_generator.py`)
+8. Vendoring (`lib/vendoring.sh`) and Cargo workspace patching (`lib/cargo_patches.py`)
+9. Android project generation (`lib/android_project.py`, `lib/app_icons.py`)
+10. Signing key management (`lib/signing.sh`)
+11. Build execution: `cargo ndk` + Gradle assemble (`lib/packaging.sh`)
+12. Bridge verification and output copy (`lib/packaging.sh`)
 
 ## 6. Build Pipeline Stages
 
@@ -224,7 +238,7 @@ For apps embedding shared fonts (WordCraft, PdfCraft):
 
 ## 8. Upstream Fixes and Patches
 
-### 8.1 Upstream Compile Fixes (Python in build-common.sh)
+### 8.1 Upstream Compile Fixes (`lib/upstream_patches.py`)
 Guarded fixes applied only if broken text present and not already fixed:
 
 **PhotoCraft:**
@@ -236,6 +250,9 @@ Guarded fixes applied only if broken text present and not already fixed:
   - harfrust to 0.13.3
   - quick-xml to 0.41
   - rstar to 0.12
+
+**Coiman IDE:**
+- Patches upstream dependencies and Termux command shims
 
 ### 8.2 App-Side Patches (Shell Scripts)
 
@@ -266,22 +283,20 @@ if [[ -x "adapters/$APP/prepare.sh" ]]; then
     echo "Using app-specific adapter: adapters/$APP/prepare.sh"
     bash "adapters/$APP/prepare.sh" "$APP" "$TITLE" "$SRC" "$MODE"
 else
-    # Run inline Python generator
-    python3 - "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON" <<'PY'
-    ...
-    PY
+    # Run standalone Python generator
+    python3 "$ROOT/lib/launcher_generator.py" "$ROOT" "$SRC" "$APP" "$TITLE" "$TARGET_SDK" "$APPNAME" "$PACKAGENAME" "$APPICON"
 fi
 ```
 
 ### 9.2 Adapter Overview
-Apps using custom adapters: `photocraft`, `vectorcraft`, `subcraft`
+Apps using custom adapters: `photocraft`, `vectorcraft`, `subcraft`, etc.
 - Have complete control over Android shell
 - May have custom JNI SAF bridges
 - Copied into `source/$APP/apps/$APP-android/` by `prepare.sh`
 - Builder does not rewrite adapter sources
 
 ### 9.3 Generated Launcher Overview
-All other apps use the inline Python generator in `lib/build-common.sh` (starting around line ~613).
+All other apps use the standalone Python generator in `lib/launcher_generator.py`.
 - Creates Android crate directory structure
 - Generates Rust launcher code
 - Configures Cargo.toml with dependencies
@@ -291,7 +306,7 @@ All other apps use the inline Python generator in `lib/build-common.sh` (startin
 
 ### 10.1 Generator Constants and Flow
 ```python
-GENERATOR_VERSION = "55"
+GENERATOR_VERSION = "83"
 # Marker file: .artcraft-android-builder-generated contains version
 ```
 
@@ -325,6 +340,7 @@ The generator creates `android_main` function that wires:
 - **Persistence/UI scale**: Load prefs, apply device scale on first phone launch, save periodically
 
 ### 10.4 SAF Apps Configuration
+Defined in `lib/toolchain.sh` (and imported in `lib/launcher_generator.py`):
 ```python
 SAF_APPS = {
     "designcraft", "deckcraft", "gridcraft", "wordcraft", "lightcraft",
@@ -364,7 +380,7 @@ serde_json = "..." # if needed
 
 ## 11. Cargo Workspace Patching and Vendoring
 
-For each build, `lib/build-common.sh` applies patches to `source/$APP/Cargo.toml` via Python regex replacements in `[patch.crates-io]`:
+For each build, `lib/cargo_patches.py` applies patches to `source/$APP/Cargo.toml` via Python regex replacements in `[patch.crates-io]`:
 
 ### 11.1 Vendored Crate Replacements
 | Crate | Vendor Path | Purpose |
@@ -1203,7 +1219,7 @@ adb install -r output/soundcraft-0.12.1.apk
 | Permissions not in manifest | Stale launcher/Cargo.toml | Delete `source/<app>/apps/<app>-android/` and rebuild |
 | Permission dialog doesn't appear | Runtime request issue | Check SafActivity.java, ensure requested in safRequestStoragePermission() |
 | Generator version mismatch | Template changed | Delete launcher dir or bump GENERATOR_VERSION |
-| Build fails with Python syntax error | Bad escaping in templates | Check f-string escaping in lib/build-common.sh |
+| Build fails with Python syntax error | Bad escaping in templates | Check f-string escaping in lib/launcher_generator.py |
 | ANR on file picker | NonblockingCallbacks not used | Check android-activity vendor patch |
 | Keyboard doesn't work | Native IME not polled | Check generated `poll_ime` sets editor info and polls `text_input_state`, and that the launcher was regenerated (GENERATOR_VERSION) |
 | Fonts missing | Symlink issues | Must use internal storage for HOME/XDG_DATA_HOME |
@@ -1244,7 +1260,18 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 
 | File | Purpose |
 |------|---------|
-| `lib/build-common.sh` | Main orchestrator, launcher generator, SAF recipes, vendoring, patches |
+| `build.sh` / `build-debug.sh` | Main application build entry points |
+| `build-launcher.sh` | Dedicated ArtCraft Launcher build entry point |
+| `lib/build-common.sh` | Modular coordinator script (< 250 lines) |
+| `lib/toolchain.sh` | SDK/NDK/JDK discovery, constants, tool verification, lock management |
+| `lib/catalog.sh` | App catalog resolution, titles, repository URLs, custom origin checks |
+| `lib/source.sh` | Source acquisition, git shallow cloning, integrity checks, craft fonts |
+| `lib/upstream_patches.py` | Standalone script for upstream compile fixes (PhotoCraft, CADCraft, Coiman IDE) |
+| `lib/launcher_generator.py` | Standalone GameActivity launcher generator & per-app SAF recipes |
+| `lib/vendoring.sh` | Crate vendoring and workspace setup |
+| `lib/cargo_patches.py` | Cargo workspace patching, crates-io overrides, winit stripping, updater injection |
+| `lib/signing.sh` | Keystore management and local certificate signing |
+| `lib/packaging.sh` | cargo-ndk compilation, Gradle assembly, bridge verification, output copying |
 | `lib/android_project.py` | Manifest/Gradle/theme generation from Cargo metadata |
 | `lib/file_associations.py` | Intent filter registry (EXT_MIME, ASSOCIATIONS) |
 | `lib/app_icons.py` | Adaptive icon generation (mipmaps + monochrome) |
@@ -1256,6 +1283,12 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 | `templates/android/saf_bridge.rs` | Rust SAF JNI bridge with SaveMirror, NonblockingCallbacks |
 | `templates/android/system_fonts.rs` | System font integration with linking |
 | `templates/android/UpdateCheck.java` | GitHub update checker |
+| `test/check_releases.py` | Release tag and upstream sync validator |
+| `test/test_launcher_generator.py` | Unit tests for launcher generator |
+| `test/test_upstream_patches.py` | Unit tests for upstream compile fixes |
+| `test/test_cargo_patches.py` | Unit tests for Cargo workspace patching |
+| `test/test_toolchain.py` | Unit tests for toolchain and SDK discovery |
+| `test/test_catalog.py` | Unit tests for app catalog resolution |
 | `adapters/*/prepare.sh` | Adapter preparation scripts |
 | `adapters/*/Cargo.toml` | Adapter launcher configurations |
 | `adapters/*/src/lib.rs` | Adapter launcher implementations |
@@ -1278,7 +1311,7 @@ adb shell appops set com.artcraft.<app> MANAGE_EXTERNAL_STORAGE allow
 ### 35.2 Common Tasks
 
 **Adding permissions:**
-1. Add to `[[package.metadata.android.uses_permission]]` in `lib/build-common.sh` manifest template
+1. Add to `[[package.metadata.android.uses_permission]]` in `lib/launcher_generator.py` manifest template
 2. Request at runtime in `templates/android/SafActivity.java` if needed
 3. Regenerate launcher: delete `source/<app>/apps/<app>-android/` or bump GENERATOR_VERSION
 
@@ -1654,7 +1687,7 @@ See `adapters/photocraft/src/lib.rs` for full implementation:
 On Android, the Rust standard library `std::env::temp_dir()` defaults to `/data/local/tmp` if the `TMPDIR` environment variable is unset. Non-rooted Android applications running in their sandbox lack read/write permissions to `/data/local/tmp`, triggering `Permission denied (os error 13)` whenever an engine allocates temporary files or spills memory to disk (e.g. PhotoCraft raster tile spilling: `"could not create a scratch file in /data/local/tmp: Permission denied (os error 13); spilling is paused"`).
 
 **System-Wide Solution**:
-All 18 custom adapters and the generated launcher templates in `lib/build-common.sh` set `TMPDIR` at the very start of `android_main` before initializing any engine services or preferences:
+All 18 custom adapters and the generated launcher templates in `lib/launcher_generator.py` set `TMPDIR` at the very start of `android_main` before initializing any engine services or preferences:
 ```rust
 #[allow(unused_unsafe)]
 unsafe {
@@ -1903,11 +1936,11 @@ bash build.sh -app
 ## 51. Version History & Changelog Notes
 
 ### 51.1 Generator Version
-`GENERATOR_VERSION = "55"` in lib/build-common.sh
+`GENERATOR_VERSION = "83"` in `lib/launcher_generator.py`
 Bump when launcher template changes significantly.
 
 ### 51.2 Builder Version
-`BUILDER_VERSION = "0.4.1"` (current)
+`BUILDER_VERSION = "0.7.0"` (current)
 Shown in UpdateCheck, included in APK metadata.
 
 ### 51.3 Key Milestones
