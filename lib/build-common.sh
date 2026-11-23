@@ -913,33 +913,7 @@ if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" ]
     # SolidCraft, PCBCraft and FieldCraft prepare.sh handle all egui/egui-winit/egui-wgpu patching
     echo "Skipping egui patching for $APP (handled by prepare.sh)"
 else
-python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-# The apps now ship the storytold egui 0.37 fork, whose egui-winit (vendored under
-# vendor/egui/crates/egui-winit or vendor/egui-winit) is the matching winit 0.30 build. Patch crate-io
-# so egui-winit is used. Keep the builder's egui-winit vendored as a harmless fallback.
-winit_rel = "vendor/egui/crates/egui-winit" if (p.parent / "vendor/egui/crates/egui-winit").is_dir() else "vendor/egui-winit"
-entry = f'egui-winit = {{ path = "{winit_rel}" }}'
-import re
-s = re.sub(r'^\s*egui-winit\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-header = "[patch.crates-io]"
-if entry not in s:
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-git_header = '[patch."https://github.com/storytold/egui.git"]'
-if "https://github.com/storytold/egui.git" in s:
-    if git_header in s:
-        section = s.split(git_header)[1].split("\n[")[0]
-        if entry not in section:
-            s = s.replace(git_header, git_header + "\n" + entry, 1)
-    else:
-        s = s.rstrip() + "\n\n" + git_header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" egui-winit auto "https://github.com/storytold/egui.git"
 fi
 
 # Some apps call `rfd` directly from a crate that ends up in the launcher's dependency graph
@@ -952,25 +926,7 @@ if grep -rqE '\brfd::' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null || grep
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/rfd"
     cp -a "$ROOT/vendor/rfd" "$SRC/vendor/rfd"
-    python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import re, sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'rfd = { path = "vendor/rfd" }'
-header = "[patch.crates-io]"
-if header in s:
-    parts = s.split(header, 1)
-    next_sec = re.search(r'\n\[', parts[1])
-    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
-    rest = parts[1][next_sec.start():] if next_sec else ""
-    patch_sec = re.sub(r'^\s*rfd\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
-    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
-else:
-    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" rfd "vendor/rfd"
 fi
 
 # Some apps also use arboard (the clipboard) from a crate in the launcher's dependency graph
@@ -983,7 +939,7 @@ if grep -rqE '\barboard\b' "$SRC"/crates "$SRC"/apps "$SRC"/src "$SRC"/Cargo.loc
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/arboard"
     cp -a "$ROOT/vendor/arboard" "$SRC/vendor/arboard"
-    python3 "$ROOT/fix_arboard.py" "$SRC/Cargo.toml" "$SRC"
+    python3 "$ROOT/lib/cargo_patches.py" patch-arboard "$SRC/Cargo.toml" "$SRC"
 fi
 
 # midir on Android needs a platform adapter or dummy backend. Vendor the builder's Android-compatible
@@ -993,25 +949,7 @@ if [[ -d "$ROOT/vendor/midir" ]] && (grep -rqE '\bmidir\b' "$SRC"/crates "$SRC"/
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/midir"
     cp -a "$ROOT/vendor/midir" "$SRC/vendor/midir"
-    python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import re, sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'midir = { path = "vendor/midir" }'
-header = "[patch.crates-io]"
-if header in s:
-    parts = s.split(header, 1)
-    next_sec = re.search(r'\n\[', parts[1])
-    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
-    rest = parts[1][next_sec.start():] if next_sec else ""
-    patch_sec = re.sub(r'^\s*midir\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
-    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
-else:
-    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" midir "vendor/midir"
 fi
 
 # rustls-platform-verifier on Android delegates to Kotlin `org.rustls.platformverifier.CertificateVerifier`.
@@ -1022,25 +960,7 @@ if [[ -d "$ROOT/vendor/rustls-platform-verifier" ]] && (grep -rqE '\brustls-plat
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/rustls-platform-verifier"
     cp -a "$ROOT/vendor/rustls-platform-verifier" "$SRC/vendor/rustls-platform-verifier"
-    python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import re, sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'rustls-platform-verifier = { path = "vendor/rustls-platform-verifier" }'
-header = "[patch.crates-io]"
-if header in s:
-    parts = s.split(header, 1)
-    next_sec = re.search(r'\n\[', parts[1])
-    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
-    rest = parts[1][next_sec.start():] if next_sec else ""
-    patch_sec = re.sub(r'^\s*rustls-platform-verifier\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
-    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
-else:
-    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" rustls-platform-verifier "vendor/rustls-platform-verifier"
 fi
 
 # winit's stock Android backend only translates touch actions: `handle_input_event` maps
@@ -1070,96 +990,7 @@ fi
 # winit and egui-winit consistent: ensure the vendored winit declares `ImeResetCompleted` + its
 # `reset_ime_with_request` method, and add a no-op `reset_ime_with_request` to the Android `Window`
 # impl (Android drives its own IME pipeline).
-python3 - "$SRC" <<'PY'
-from pathlib import Path
-import re, sys
-src = Path(sys.argv[1])
-event_rs = src / "vendor" / "winit" / "src" / "event.rs"
-window_rs = src / "vendor" / "winit" / "src" / "window.rs"
-mod_rs = src / "vendor" / "winit" / "src" / "platform_impl" / "android" / "mod.rs"
-if not event_rs.is_file() or not window_rs.is_file() or not mod_rs.is_file():
-    sys.exit(0)
-
-changed = False
-
-# Ensure ImeResetCompleted is in event.rs
-ev = event_rs.read_text()
-if "ImeResetCompleted" not in ev:
-    anchor = "    Ime(Ime),\n"
-    if anchor in ev:
-        ev = ev.replace(anchor, anchor + '''\
-    /// The ordered cancellation fence requested by [`Window::reset_ime_with_request`].
-    ///
-    /// ## Platform-specific
-    ///
-    /// - **Android:** No-op; Android drives its own input-method pipeline.
-    ImeResetCompleted { request_id: u64 },
-''')
-        event_rs.write_text(ev)
-        changed = True
-
-# Ensure reset_ime_with_request is in window.rs
-wn = window_rs.read_text()
-if "fn reset_ime_with_request" not in wn:
-    import re as _re
-    m = _re.search(r"set_ime_purpose\(purpose\)\)\s*\n    \}\n", wn)
-    if m:
-        end = m.end()
-        wn = wn[:end] + '''
-    /// Requests an IME reset, identifying the request with `request_id`. No-op on Android.
-    #[inline]
-    pub fn reset_ime_with_request(&self, _request_id: u64) {}
-''' + wn[end:]
-        window_rs.write_text(wn)
-        changed = True
-
-# Ensure reset_ime_with_request is in Android mod.rs
-text = mod_rs.read_text()
-text = re.sub(r'    pub fn reset_ime_with_request\(&self, _request_id: u64\) \{\}\n', '', text)
-text = text.replace(
-    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n'
-    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
-    '    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n',
-)
-if "fn reset_ime_with_request" not in text:
-    marker = "    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n"
-    idx = text.find(marker)
-    if idx >= 0:
-        insert = '''
-    /// No-op on Android: the platform drives its own input-method pipeline and does not use the
-    /// winit IME-reset protocol.
-    pub fn reset_ime_with_request(&self, _request_id: u64) {}
-'''
-        text = text[:idx+len(marker)] + insert + text[idx+len(marker):]
-        mod_rs.write_text(text)
-        changed = True
-
-# Also ensure any egui-winit copy present covers ImeResetCompleted in its match statements
-for ew_path in (
-    src / "vendor" / "egui" / "crates" / "egui-winit" / "src" / "lib.rs",
-    src / "vendor" / "egui-winit" / "src" / "lib.rs",
-):
-    if ew_path.is_file():
-        ew = ew_path.read_text()
-        if "ImeResetCompleted" not in ew:
-            target1 = "WindowEvent::DoubleTapGesture { .. } => EventResponse {"
-            repl1 = "WindowEvent::DoubleTapGesture { .. }\n            | WindowEvent::ImeResetCompleted { .. } => EventResponse {"
-            if target1 in ew:
-                ew = ew.replace(target1, repl1, 1)
-                changed = True
-
-            target2 = 'WindowEvent::ActivationTokenDone { .. } => "WindowEvent::ActivationTokenDone",\n'
-            repl2 = target2 + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n'
-            if target2 in ew:
-                ew = ew.replace(target2, repl2, 1)
-                changed = True
-
-            if changed:
-                ew_path.write_text(ew)
-
-if changed:
-    print("  Synced winit IME-reset support with fork egui-winit")
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-winit-ime "$SRC"
 
 # egui_dock (docking system for egui) vendors egui itself. Subcraft depends on egui_dock 0.21
 # which pulls crates.io egui 0.36 into the graph alongside the builder's vendored egui 0.37,
@@ -1170,75 +1001,15 @@ if grep -rqE '\begui_dock\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null; 
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/egui_dock"
     cp -a "$ROOT/vendor/egui_dock" "$SRC/vendor/egui_dock"
-    python3 - "$SRC" <<'PY'
-from pathlib import Path
-import re, sys
-src = Path(sys.argv[1])
-ws_toml = src / "Cargo.toml"
-ws_text = ws_toml.read_text()
-new_ws, n = re.subn(
-    r'^\s*egui_dock\s*=\s*\{[^}]*\}\s*(?:#.*)?\n?',
-    'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n',
-    ws_text,
-    flags=re.M,
-)
-if n > 0:
-    ws_toml.write_text(new_ws)
-    print("  Replaced egui_dock with vendored path in [workspace.dependencies]")
-elif 'egui_dock = { path = "vendor/egui_dock"' not in ws_text:
-    marker = "[workspace.dependencies]\n"
-    idx = ws_text.find(marker)
-    if idx >= 0:
-        ws_text = (ws_text[:idx + len(marker)]
-                   + 'egui_dock = { path = "vendor/egui_dock", features = ["serde"] }\n'
-                   + ws_text[idx + len(marker):])
-        ws_toml.write_text(ws_text)
-        print("  Added egui_dock to [workspace.dependencies]")
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-egui-dock "$SRC"
 fi
 
 # subcraft's fork egui-winit references accesskit_winit via a relative path that resolves to a
 # non-existent nested `vendor/egui/vendor/winit`. Point it at the top-level vendored winit which
 # the builder keeps in sync.
-python3 - "$SRC" <<'PY'
-from pathlib import Path
-import re, sys
-src = Path(sys.argv[1])
-efw = src / "vendor" / "egui" / "crates" / "egui-winit" / "Cargo.toml"
-if not efw.is_file():
-    sys.exit(0)
-text = efw.read_text()
-# The storytold fork sometimes stores a broken relative path (`../../vendor/winit` or a mangled
-# `../..../winit`) that resolves outside the crate tree. Point it at the top-level vendored winit
-# (`../../../winit` from `vendor/egui/crates/egui-winit/`).
-new = re.sub(r'path = "[^"]*/winit"', 'path = "../../../winit"', text)
-# subcraft's fork egui-winit points accesskit_winit at the winit crate directory (wrong -
-# winit is not accesskit_winit). Use the workspace's crates.io accesskit_winit instead.
-new = new.replace('accesskit_winit = { path = "../../../winit", optional = true }',
-                  'accesskit_winit = { workspace = true, optional = true }')
-if new != text:
-    efw.write_text(new)
-    print("  Fixed subcraft fork egui-winit accesskit_winit path")
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-subcraft-accesskit "$SRC"
 
-python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'winit = { path = "vendor/winit" }'
-# Remove any existing winit patch entry to avoid duplicate keys
-import re
-# Remove lines starting with winit = (possibly with whitespace) within patch.crates-io section
-# Simple approach: remove all occurrences of lines that look like winit patch
-s = re.sub(r'^\s*winit\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" winit "vendor/winit"
 
 # egui-wgpu's lost-surface recovery kept the old surface alive while it created the new one: the
 # old `SurfaceState` owns the old `wgpu::Surface`, and it lived until the end of the function, so
@@ -1253,53 +1024,7 @@ if [[ ("$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft")
     # and patch the Android surface-loss recovery in-place in its winit.rs.
     wgpu_target="$SRC/vendor/egui/crates/egui-wgpu"
     [[ -d "$wgpu_target" ]] || wgpu_target="$SRC/vendor/egui-wgpu"
-    python3 - "$wgpu_target" <<'PY'
-from pathlib import Path
-import sys
-winit_rs = Path(sys.argv[1]) / "src" / "winit.rs"
-if not winit_rs.is_file():
-    sys.exit(0)
-text = winit_rs.read_text()
-if 'cfg!(target_os = "android")' not in text:
-    target = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };"""
-    replacement = """        let Some(old_state) = self.surfaces.remove(&viewport_id) else {
-            return Ok(());
-        };
-
-        if cfg!(target_os = "android") {
-            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
-            return Ok(());
-        }"""
-    if target in text:
-        text = text.replace(target, replacement, 1)
-        winit_rs.write_text(text)
-        print("  Patched existing vendored egui-wgpu recreate_surface for Android surface handling")
-else:
-    buggy = """        let (requested, resizing, mut retry) = (old_state.requested, old_state.resizing, old_state.retry);
-
-        if cfg!(target_os = "android") {
-            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
-            return Ok(());
-        }
-
-        self.instance.poll_all(true);
-
-        drop(old_state);"""
-    clean = """        if cfg!(target_os = "android") {
-            log::info!("egui-wgpu: dropping the lost surface of {viewport_id:?} (Android)");
-            return Ok(());
-        }"""
-    if buggy in text:
-        text = text.replace(buggy, clean)
-    if "let mut retry = old_state.retry" not in text and "retry.recreated();" in text:
-        text = text.replace("retry.recreated();", "let mut retry = old_state.retry;\n        retry.recreated();", 1)
-    if "requested.0" in text:
-        text = text.replace("requested.0,\n            requested.1,\n            resizing,\n            retry,", "old_state.requested.0,\n            old_state.requested.1,\n            old_state.resizing,\n            retry,")
-    winit_rs.write_text(text)
-    print("  Cleaned up egui-wgpu recreate_surface patch for Android surface handling")
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-egui-wgpu-surface "$wgpu_target"
 elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
     # SolidCraft, FieldCraft, PCBCraft and Ferrite handle their own graphics backend
     echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
@@ -1313,29 +1038,7 @@ fi
 
 # Skip egui-wgpu patching for SolidCraft, FieldCraft, PCBCraft and Ferrite - prepare.sh handles it
 if [[ "$APP" != "solidcraft" && "$APP" != "fieldcraft" && "$APP" != "pcbcraft" && "$APP" != "ferrite" ]]; then
-python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'egui-wgpu = { path = "vendor/egui-wgpu" }'
-import re
-s = re.sub(r'^\s*egui-wgpu\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-header = "[patch.crates-io]"
-if entry not in s:
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-git_header = '[patch."https://github.com/storytold/egui.git"]'
-if "https://github.com/storytold/egui.git" in s:
-    if git_header in s:
-        section = s.split(git_header)[1].split("\n[")[0]
-        if entry not in section:
-            s = s.replace(git_header, git_header + "\n" + entry, 1)
-    else:
-        s = s.rstrip() + "\n\n" + git_header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" egui-wgpu "vendor/egui-wgpu" "https://github.com/storytold/egui.git"
 fi
 
 # Every launcher uses the builder's vendored android-activity: the native-activity backend now
@@ -1349,21 +1052,7 @@ fi
 echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
 rm -rf "$SRC/vendor/android-activity"
 cp -a "$ROOT/vendor/android-activity" "$SRC/vendor/android-activity"
-python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'android-activity = { path = "vendor/android-activity" }'
-import re
-s = re.sub(r'^\s*android-activity\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', s, flags=re.M)
-if entry not in s:
-    header = "[patch.crates-io]"
-    s = (s.replace(header, header + "\n" + entry, 1) if header in s
-         else s.rstrip() + "\n\n" + header + "\n" + entry + "\n")
-    tomllib.loads(s)
-    p.write_text(s)
-PY
+python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" android-activity "vendor/android-activity"
 
 # sys-locale on Android reads persist.sys.locale via libc, which modern Android SELinux rejects.
 # Vendor the builder's patched sys-locale (which inspects LC_ALL, LANG, LANGUAGE first).
@@ -1372,25 +1061,7 @@ if grep -rqE '\bsys_locale\b' "$SRC"/crates/*/src "$SRC"/apps/*/src 2>/dev/null 
     mkdir -p "$SRC/vendor"
     rm -rf "$SRC/vendor/sys-locale"
     cp -a "$ROOT/vendor/sys-locale" "$SRC/vendor/sys-locale"
-    python3 - "$SRC/Cargo.toml" <<'PY'
-from pathlib import Path
-import re, sys, tomllib
-p = Path(sys.argv[1])
-s = p.read_text()
-entry = 'sys-locale = { path = "vendor/sys-locale" }'
-header = "[patch.crates-io]"
-if header in s:
-    parts = s.split(header, 1)
-    next_sec = re.search(r'\n\[', parts[1])
-    patch_sec = parts[1][:next_sec.start()] if next_sec else parts[1]
-    rest = parts[1][next_sec.start():] if next_sec else ""
-    patch_sec = re.sub(r'^\s*sys-locale\s*=\s*\{.*?\}\s*(?:#.*)?\n?', '', patch_sec, flags=re.M)
-    s = parts[0] + header + "\n" + entry + "\n" + patch_sec.lstrip('\n') + rest
-else:
-    s = s.rstrip() + "\n\n" + header + "\n" + entry + "\n"
-tomllib.loads(s)
-p.write_text(s)
-PY
+    python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$SRC/Cargo.toml" sys-locale "vendor/sys-locale"
 fi
 
 # A `target/` directory left behind by running cargo inside a vendored crate must never be
@@ -1452,37 +1123,7 @@ fi
 # egui_kittest still inherits them via `workspace = true`, which breaks `cargo metadata` for
 # the whole workspace. Re-add them (vendored egui fork) when missing. Run here, after vendoring
 # (which rewrites Cargo.toml), so the addition survives to the cargo metadata call below.
-python3 - "$SRC" "$APP" <<'PY'
-from pathlib import Path
-import re, sys
-src, app = Path(sys.argv[1]), sys.argv[2]
-for key, relpaths in [
-    ("egui-wgpu", ["vendor/egui-wgpu", "vendor/egui/crates/egui-wgpu"]),
-    ("egui-winit", ["vendor/egui-winit", "vendor/egui/crates/egui-winit"]),
-    ("winit", ["vendor/winit"]),
-    ("arboard", ["vendor/arboard"]),
-]:
-    try:
-        text = (src / "Cargo.toml").read_text()
-    except OSError:
-        continue
-    if "[workspace.dependencies]" not in text:
-        continue
-    section = text.split("[workspace.dependencies]", 1)[1].split("\n[", 1)[0]
-    if re.search(rf"^\s*{re.escape(key)}\s*=", section, flags=re.M):
-        continue
-    relpath = next((p for p in relpaths if (src / p).is_dir()), None)
-    if not relpath:
-        continue
-    marker = "[workspace.dependencies]\n"
-    idx = text.find(marker)
-    if idx >= 0:
-        text = (text[:idx + len(marker)]
-                + f'{key} = {{ path = "{relpath}" }}\n'
-                + text[idx + len(marker):])
-        (src / "Cargo.toml").write_text(text)
-        print(f"  Added {key} to [workspace.dependencies]")
-PY
+python3 "$ROOT/lib/cargo_patches.py" ensure-workspace-deps "$SRC" "$APP"
 
 # The storytold winit fork enables desktop wayland by default, which pulls sctk-adwaita ->
 # crossfont -> fontconfig-sys v5 into the resolution graph. That collides with
@@ -1491,31 +1132,7 @@ PY
 # (drop from default + empty the definitions) so crossfont is never pulled. The ImeReset variant
 # that egui-winit 0.37 needs lives in winit's source (untouched here), so fork egui-winit keeps
 # compiling against fork winit.
-python3 - "$SRC" <<'PY'
-from pathlib import Path
-import re, sys
-src = Path(sys.argv[1])
-winit_toml = src / "vendor" / "winit" / "Cargo.toml"
-if not winit_toml.is_file():
-    sys.exit(0)
-text = winit_toml.read_text()
-for name in ("wayland", "wayland-dlopen", "wayland-csd-adwaita"):
-    text = re.sub(rf'(?m)^\s*"{re.escape(name)}",\s*\n', '', text)
-for name in ("wayland", "wayland-dlopen", "wayland-csd-adwaita", "wayland-csd-adwaita-crossfont", "wayland-csd-adwaita-notitle"):
-    text = re.sub(
-        rf'(?ms)^(\s*{re.escape(name)}\s*=\s*\[\s*\n)(.*?)^(\s*\]\s*\n)',
-        r'\1\3',
-        text,
-    )
-for name in ("wayland-dlopen", "wayland-csd-adwaita-notitle"):
-    text = re.sub(
-        rf'(?m)^(\s*{re.escape(name)}\s*=\s*\[)[^\]]*(\]\s*)$',
-        r'\1\2',
-        text,
-    )
-winit_toml.write_text(text)
-print("  Emptied wayland features in vendor/winit/Cargo.toml (fontconfig links conflict)")
-PY
+python3 "$ROOT/lib/cargo_patches.py" strip-winit-wayland "$SRC"
 
 say 6 "Building $TITLE ($MODE)..."
 mkdir -p "build/$APP/target" output logs
@@ -1665,80 +1282,7 @@ echo "  -> pre-fetching Cargo dependencies"
 cargo fetch --manifest-path "$ANDROID_DIR/Cargo.toml" || true
 
 echo "  -> patching wgpu for Adreno Vulkan swapchain support across the suite"
-python3 - <<'WGPUPY'
-from pathlib import Path
-import os, stat
-
-cargo_home = Path(os.environ.get("CARGO_HOME", os.path.expanduser("~/.cargo")))
-search_dirs = [cargo_home / "registry" / "src", Path.home() / ".cargo" / "registry" / "src"]
-
-for base in search_dirs:
-    if not base.exists():
-        continue
-    # 1. Patch wgpu-hal swapchain latency calculation
-    for p in base.glob("**/wgpu-hal-*/src/vulkan/swapchain/native.rs"):
-        try:
-            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-            txt = p.read_text()
-            old = "maximum_frame_latency: (caps.min_image_count - 1)..=(max_image_count - 1)"
-            if old in txt:
-                new = (
-                    "maximum_frame_latency: {\n"
-                    "                let min_lat = caps.min_image_count.saturating_sub(1);\n"
-                    "                let max_lat = if max_image_count == 0 { min_lat.max(2) } else { max_image_count.saturating_sub(1) };\n"
-                    "                let (lo, hi) = if min_lat <= max_lat { (min_lat, max_lat) } else { (max_lat, min_lat) };\n"
-                    "                lo..=hi\n"
-                    "            }"
-                )
-                p.write_text(txt.replace(old, new))
-                print(f"  -> patched wgpu-hal swapchain latency in {p.name}")
-        except Exception as e:
-            pass
-
-    # 2. Patch wgpu-core clamp panic guard
-    for p in base.glob("**/wgpu-core-*/src/device/resource.rs"):
-        try:
-            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-            txt = p.read_text()
-            old = (
-                "                let maximum_frame_latency = config.desired_maximum_frame_latency.clamp(\n"
-                "                    *caps.maximum_frame_latency.start(),\n"
-                "                    *caps.maximum_frame_latency.end(),\n"
-                "                );"
-            )
-            if old in txt:
-                new = (
-                    "                let max_lat_lo = *caps.maximum_frame_latency.start();\n"
-                    "                let max_lat_hi = (*caps.maximum_frame_latency.end()).max(max_lat_lo);\n"
-                    "                let maximum_frame_latency = config.desired_maximum_frame_latency.clamp(\n"
-                    "                    max_lat_lo,\n"
-                    "                    max_lat_hi,\n"
-                    "                );"
-                )
-                p.write_text(txt.replace(old, new))
-                print(f"  -> patched wgpu-core clamp guard in {p.name}")
-        except Exception as e:
-            pass
-
-    # 3. Patch wgpu-hal to enable VK_ANDROID_external_memory_android_hardware_buffer
-    for p in base.glob("**/wgpu-hal-*/src/vulkan/adapter.rs"):
-        try:
-            p.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-            txt = p.read_text()
-            old = "if self.supports_extension(ext::external_memory_dma_buf::NAME) {"
-            if old in txt and "VK_ANDROID_external_memory_android_hardware_buffer" not in txt:
-                new = (
-                    'const ANDROID_HWB_EXT: &std::ffi::CStr = c"VK_ANDROID_external_memory_android_hardware_buffer";\n'
-                    '        if self.supports_extension(ANDROID_HWB_EXT) {\n'
-                    '            extensions.push(ANDROID_HWB_EXT);\n'
-                    '        }\n'
-                    '        if self.supports_extension(ext::external_memory_dma_buf::NAME) {'
-                )
-                p.write_text(txt.replace(old, new, 1))
-                print(f"  -> patched wgpu-hal android_hardware_buffer extension in {p.name}")
-        except Exception as e:
-            pass
-WGPUPY
+python3 "$ROOT/lib/cargo_patches.py" patch-wgpu-registry
 
 if [[ "$MODE" == "release" ]]; then
     VAR_SHA="${APP_UPPER}_BUILD_SHA"
