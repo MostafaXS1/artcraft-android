@@ -103,25 +103,34 @@ build_native_library() {
     rm -rf "$ANDROID_DIR/jniLibs"
 
     # For apps using path dependencies from workspace root
-    if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" ]]; then
+    local ndk_jobs=""
+    if [[ "$APP" == "solidcraft" ]]; then
+        export CARGO_BUILD_JOBS=2
+        ndk_jobs="-j 2"
+    else
+        export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+        ndk_jobs="-j ${CARGO_BUILD_JOBS}"
+    fi
+
+    if [[ "$APP" == "solidcraft" || "$APP" == "pcbcraft" || "$APP" == "fieldcraft" || "$APP" == "ferrite" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
         local ndk_package="$APP-android"
         local ndk_manifest="$ROOT/$SRC/Cargo.toml"
         if [[ "$MODE" == "release" ]]; then
-            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$ndk_manifest" build --release -p "$ndk_package" 2>&1 | tee "$ROOT/$LOG"; then
+            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$ndk_manifest" build --release $ndk_jobs -p "$ndk_package" 2>&1 | tee "$ROOT/$LOG"; then
                 fail "Release native build failed. Log: $ROOT/$LOG"
             fi
         else
-            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$ndk_manifest" build -p "$ndk_package" 2>&1 | tee "$ROOT/$LOG"; then
+            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" --manifest-path "$ndk_manifest" build $ndk_jobs -p "$ndk_package" 2>&1 | tee "$ROOT/$LOG"; then
                 fail "Debug native build failed. Log: $ROOT/$LOG"
             fi
         fi
     else
         if [[ "$MODE" == "release" ]]; then
-            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release 2>&1 | tee "$ROOT/$LOG"; then
+            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build --release $ndk_jobs 2>&1 | tee "$ROOT/$LOG"; then
                 fail "Release native build failed. Log: $ROOT/$LOG"
             fi
         else
-            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build 2>&1 | tee "$ROOT/$LOG"; then
+            if ! cargo ndk -t arm64-v8a -P "$MIN_SDK" -o "$ANDROID_DIR/jniLibs" build $ndk_jobs 2>&1 | tee "$ROOT/$LOG"; then
                 fail "Debug native build failed. Log: $ROOT/$LOG"
             fi
         fi

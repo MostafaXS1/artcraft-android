@@ -23,6 +23,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
@@ -826,7 +827,8 @@ public final class VectorCraftActivity extends NativeActivity {
         // re-apply once the first layout pass runs.
         Window window = getWindow();
         if (window != null) {
-            window.getDecorView().post(this::applyImmersiveFullscreen);
+            window.setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        window.getDecorView().post(this::applyImmersiveFullscreen);
         }
         installCaptionBarInsets();
         suppressSelectionHandles();

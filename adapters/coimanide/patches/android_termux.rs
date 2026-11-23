@@ -60,4 +60,6 @@ const TOOLS: &[&str] = &[
     "rust-analyzer", "gopls", "pyright", "pyright-langserver", "clangd", "clangd-18",
     "typescript-language-server", "bash-language-server", "yaml-language-server",
     "vscode-json-language-server", "taplo", "jdtls", "lua-language-server", "intelephense",
+    // Agent and developer tools.
+    "opencode",
 ];

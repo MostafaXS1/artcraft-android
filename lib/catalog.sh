@@ -43,6 +43,7 @@ resolve_app_catalog() {
         papercraft) TITLE="PaperCraft" ;;
         ferrite) TITLE="Ferrite" ;;
         pixelcraft) TITLE="PixelCraft" ;;
+        clothcraft) TITLE="ClothCraft" ;;
         *) echo "Unsupported app: $app" >&2; usage; exit 2 ;;
     esac
 
@@ -117,6 +118,9 @@ resolve_app_catalog() {
     elif [[ "$app" == "pixelcraft" ]]; then
         REPO="https://github.com/asad-albadi/PixelCraft.git"
         APP_ORIGIN="https://github.com/asad-albadi/PixelCraft"
+    elif [[ "$app" == "clothcraft" ]]; then
+        REPO="https://github.com/erythrofr/ClothCraft.git"
+        APP_ORIGIN="https://github.com/erythrofr/ClothCraft"
     fi
 
     # Repositories whose releases either lack tags or require specific branches

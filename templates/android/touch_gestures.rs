@@ -150,15 +150,18 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
     let is_multi_touch = state.fingers.len() >= 2 || state.was_multi;
     if is_multi_touch {
         raw.events.retain(|event| !matches!(event, Event::PointerButton { .. }));
+        if let Some(mid) = state.prev_midpoint {
+            raw.events.push(Event::PointerMoved(mid));
+        }
     }
 
-    // 2-finger panning: emit mouse wheel scroll events
+    // 2-finger panning: emit mouse wheel scroll events with Trackpad source for fluid navigation
     if let Some(delta) = pan_delta {
         raw.events.push(Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta,
             phase: TouchPhase::Move,
-            source: egui::MouseWheelSource::Unknown,
+            source: egui::MouseWheelSource::Trackpad,
             modifiers: Modifiers::NONE,
         });
         ctx.request_repaint();
@@ -176,14 +179,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
-                raw.events.push(Event::ModifiersChanged(mods));
-                raw.events.push(Event::Key {
-                    key: Key::ControlLeft,
-                    physical_key: Some(Key::ControlLeft),
-                    pressed: true,
-                    repeat: false,
-                    modifiers: mods,
-                });
                 raw.events.push(Event::Key {
                     key: Key::Z,
                     physical_key: Some(Key::Z),
@@ -198,14 +193,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: mods,
                 });
-                raw.events.push(Event::Key {
-                    key: Key::ControlLeft,
-                    physical_key: Some(Key::ControlLeft),
-                    pressed: false,
-                    repeat: false,
-                    modifiers: Modifiers::NONE,
-                });
-                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             3 => {
@@ -217,21 +204,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     mac_cmd: false,
                     command: true,
                 };
-                raw.events.push(Event::ModifiersChanged(mods));
-                raw.events.push(Event::Key {
-                    key: Key::ControlLeft,
-                    physical_key: Some(Key::ControlLeft),
-                    pressed: true,
-                    repeat: false,
-                    modifiers: mods,
-                });
-                raw.events.push(Event::Key {
-                    key: Key::ShiftLeft,
-                    physical_key: Some(Key::ShiftLeft),
-                    pressed: true,
-                    repeat: false,
-                    modifiers: mods,
-                });
                 raw.events.push(Event::Key {
                     key: Key::Z,
                     physical_key: Some(Key::Z),
@@ -246,27 +218,6 @@ pub fn process_raw_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     repeat: false,
                     modifiers: mods,
                 });
-                raw.events.push(Event::Key {
-                    key: Key::ShiftLeft,
-                    physical_key: Some(Key::ShiftLeft),
-                    pressed: false,
-                    repeat: false,
-                    modifiers: Modifiers {
-                        alt: false,
-                        ctrl: true,
-                        shift: false,
-                        mac_cmd: false,
-                        command: true,
-                    },
-                });
-                raw.events.push(Event::Key {
-                    key: Key::ControlLeft,
-                    physical_key: Some(Key::ControlLeft),
-                    pressed: false,
-                    repeat: false,
-                    modifiers: Modifiers::NONE,
-                });
-                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
                 ctx.request_repaint();
             }
             _ => {}

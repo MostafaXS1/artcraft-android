@@ -72,6 +72,7 @@
         <package android:name="com.artcraft.bimcraft" />
         <package android:name="com.artcraft.cadcraft" />
         <package android:name="com.artcraft.capsulecraft" />
+        <package android:name="com.artcraft.clothcraft" />
         <package android:name="com.artcraft.coimanide" />
         <package android:name="com.artcraft.deckcraft" />
         <package android:name="com.artcraft.designcraft" />

@@ -96,7 +96,7 @@ vendor_dependencies() {
         python3 "$ROOT/lib/cargo_patches.py" patch-egui-wgpu-surface "$wgpu_target"
     elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
         echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
-    elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" ]]; then
+    elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
         rm -rf "$src_dir/vendor/egui-wgpu"
         cp -a "$ROOT/vendor/egui-wgpu-0.36" "$src_dir/vendor/egui-wgpu"
     else
@@ -108,11 +108,14 @@ vendor_dependencies() {
         python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$src_dir/Cargo.toml" egui-wgpu "vendor/egui-wgpu" "https://github.com/storytold/egui.git"
     fi
 
+    cargo update -p winit --manifest-path "$src_dir/Cargo.toml" 2>/dev/null || true
+
     # android-activity
     echo "Vendoring the ANR-safe android-activity glue for $TITLE..."
     rm -rf "$src_dir/vendor/android-activity"
     cp -a "$ROOT/vendor/android-activity" "$src_dir/vendor/android-activity"
     python3 "$ROOT/lib/cargo_patches.py" patch-crates-io "$src_dir/Cargo.toml" android-activity "vendor/android-activity"
+    cargo update -p android-activity --manifest-path "$src_dir/Cargo.toml" 2>/dev/null || true
 
     # sys-locale
     if grep -rqE '\bsys_locale\b' "$src_dir"/crates/*/src "$src_dir"/apps/*/src 2>/dev/null || grep -qE '^\s*sys-locale\s*=' "$src_dir/Cargo.toml" 2>/dev/null; then

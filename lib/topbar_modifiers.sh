@@ -15,7 +15,7 @@ TITLE="${3:?title}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 case "$APP" in
-    photocraft|vectorcraft|designcraft|wordcraft|gridcraft|deckcraft)
+    photocraft|vectorcraft|designcraft|wordcraft|gridcraft|deckcraft|tracedraw)
         ;;
     *)
         exit 0
@@ -36,11 +36,16 @@ no_buttons = no_buttons_str.lower() in ("true", "1", "yes")
 
 ui_egui_src = src / "crates" / "ui-egui" / "src"
 if not ui_egui_src.is_dir():
+    ui_egui_src = src / "apps" / "tracedraw" / "src"
+if not ui_egui_src.is_dir():
     sys.exit(0)
 
 # 1. Copy topbar_modifiers.rs into crates/ui-egui/src/topbar_modifiers.rs
 template_file = "topbar_modifiers_disabled.rs" if no_buttons else "topbar_modifiers.rs"
 shutil.copy2(root / "templates" / "android" / template_file, ui_egui_src / "topbar_modifiers.rs")
+font_file = root / "templates" / "android" / "modifier_symbols.ttf"
+if font_file.is_file():
+    shutil.copy2(font_file, ui_egui_src / "modifier_symbols.ttf")
 
 # 2. Register pub mod topbar_modifiers; in crates/ui-egui/src/lib.rs
 lib_rs = ui_egui_src / "lib.rs"
@@ -163,4 +168,52 @@ elif app in ("wordcraft", "gridcraft", "deckcraft"):
                 text,
             )
             ribbon_rs.write_text(text, encoding="utf-8")
+
+elif app == "tracedraw":
+    mod_rs = ui_egui_src / "ui" / "mod.rs"
+    if mod_rs.is_file():
+        text = mod_rs.read_text(encoding="utf-8")
+        bad = "menus::menu_bar(app, ui);\n                crate::topbar_modifiers::render_topbar_modifiers_right(ui);"
+        if bad in text:
+            text = text.replace(bad, "menus::menu_bar(app, ui);")
+            mod_rs.write_text(text, encoding="utf-8")
+            print(f"  Cleaned up legacy topbar modifiers call in {title} mod.rs")
+
+    menus_rs = ui_egui_src / "ui" / "menus.rs"
+    if menus_rs.is_file():
+        text = menus_rs.read_text(encoding="utf-8")
+        old_room = "let all = widths.iter().map(|w| w + gap).sum::<f32>();\n            let room = if all > ui.available_width() {\n                ui.available_width() - MORE_W\n            } else {\n                f32::INFINITY\n            };"
+        new_room = "let all = widths.iter().map(|w| w + gap).sum::<f32>();\n            let mod_w = if crate::topbar_modifiers::hardware_keyboard_connected() { 0.0 } else { 210.0 };\n            let room = if all > ui.available_width() - mod_w {\n                (ui.available_width() - mod_w - MORE_W).max(MORE_W)\n            } else {\n                f32::INFINITY\n            };"
+        if old_room in text:
+            text = text.replace(old_room, new_room, 1)
+
+        target_render = "crate::ui::keynav::note_titles(\n                ui.ctx(),\n                crate::ui::keynav::Titles {\n                    popups: titles\n                        .iter()\n                        .map(egui::Popup::default_response_id)\n                        .collect(),\n                    keys: keys.clone(),\n                },\n            );"
+        replacement_render = "crate::ui::keynav::note_titles(\n                ui.ctx(),\n                crate::ui::keynav::Titles {\n                    popups: titles\n                        .iter()\n                        .map(egui::Popup::default_response_id)\n                        .collect(),\n                    keys: keys.clone(),\n                },\n            );\n            if !crate::topbar_modifiers::hardware_keyboard_connected() {\n                let row_rect = ui.max_rect();\n                if row_rect.width() > 220.0 {\n                    let right_rect = egui::Rect::from_min_max(\n                        egui::pos2((row_rect.right() - 210.0).max(row_rect.left()), row_rect.top()),\n                        row_rect.max,\n                    );\n                    ui.scope_builder(\n                        egui::UiBuilder::new()\n                            .max_rect(right_rect)\n                            .layout(egui::Layout::right_to_left(egui::Align::Center)),\n                        |ui| {\n                            crate::topbar_modifiers::render_topbar_modifiers(ui);\n                        },\n                    );\n                }\n            }"
+        if target_render in text and "render_topbar_modifiers" not in text:
+            text = text.replace(target_render, replacement_render, 1)
+            menus_rs.write_text(text, encoding="utf-8")
+            print(f"  Integrated topbar modifiers into {title} menu bar right side")
+        elif old_room in text:
+            menus_rs.write_text(text, encoding="utf-8")
+
+    lib_rs = ui_egui_src / "lib.rs"
+    if lib_rs.is_file():
+        text = lib_rs.read_text(encoding="utf-8")
+        if "topbar_modifiers::set_hardware_keyboard_connected" not in text:
+            target = "crate::topbar_modifiers::apply_to_raw_input(&egui::Modifiers::NONE, raw_input);"
+            replacement = "#[cfg(target_os = \"android\")]\n        crate::topbar_modifiers::set_hardware_keyboard_connected(android_activity::hardware_keyboard_connected());\n        crate::topbar_modifiers::apply_to_raw_input(&egui::Modifiers::NONE, raw_input);"
+            if target in text:
+                text = text.replace(target, replacement, 1)
+                lib_rs.write_text(text, encoding="utf-8")
+                print(f"  Added dynamic hardware keyboard detection to {title} raw_input_hook")
+            elif "pen::filter_raw_input(ctx, raw_input);" in text:
+                target = "pen::filter_raw_input(ctx, raw_input);"
+                replacement = "pen::filter_raw_input(ctx, raw_input);\n        #[cfg(target_os = \"android\")]\n        crate::topbar_modifiers::set_hardware_keyboard_connected(android_activity::hardware_keyboard_connected());\n        crate::topbar_modifiers::apply_to_raw_input(&egui::Modifiers::NONE, raw_input);"
+                text = text.replace(target, replacement, 1)
+                lib_rs.write_text(text, encoding="utf-8")
+                print(f"  Hooked topbar modifiers into {title} raw_input_hook")
+        elif "&raw_input.modifiers" in text:
+            text = text.replace("&raw_input.modifiers", "&egui::Modifiers::NONE")
+            lib_rs.write_text(text, encoding="utf-8")
+            print(f"  Updated topbar modifiers in {title} raw_input_hook to use Modifiers::NONE")
 PY

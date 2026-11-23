@@ -397,8 +397,10 @@ int main(int argc, char **argv) {
         return 127;
     }
 
+    char rand_part[32];
+    get_random_token(rand_part, 24);
     char token[64];
-    get_random_token(token, 32);
+    snprintf(token, sizeof(token), "%d-%s", (int)getpid(), rand_part);
 
     char in_secret[64];
     get_random_token(in_secret, 32);
@@ -463,7 +465,10 @@ int main(int argc, char **argv) {
 
     int columns = 80, lines = 24;
     const char *size = getenv("COIMAN_TERMUX_SIZE");
-    if (size) sscanf(size, "%dx%d", &columns, &lines);
+    if (size) {
+        sscanf(size, "%dx%d", &columns, &lines);
+        write_file(size_path, size, strlen(size));
+    }
     if (columns < 2 || columns > 1000) columns = 80;
     if (lines < 2 || lines > 1000) lines = 24;
 
@@ -479,7 +484,7 @@ int main(int argc, char **argv) {
     fprintf(script, " 2>/dev/null\n");
     fprintf(script, "echo 1 > ");
     shell_quote(script, started_path);
-    fprintf(script, "\nexport PATH=\"$PREFIX/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH\"\n");
+    fprintf(script, "\nexport PATH=\"$PREFIX/bin:$HOME/.cargo/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH\"\n");
     /* A project folder lives in shared storage, so it belongs to the editor app and not to
      * Termux. Without this, git refuses to work in it ("detected dubious ownership"). */
     fprintf(script, "if [ -z \"${GIT_CONFIG_COUNT:-}\" ]; then\n");
@@ -565,15 +570,23 @@ int main(int argc, char **argv) {
         fprintf(script, "export COIMAN_SIZE_FILE=");
         shell_quote(script, size_path);
         fprintf(script, "\n");
-        char command[512];
+        char command[1024];
         snprintf(
             command,
             sizeof(command),
             "stty rows %d cols %d 2>/dev/null; "
+            "MY_TTY=$(tty 2>/dev/null); [ -c \"$MY_TTY\" ] || MY_TTY=/dev/tty; "
+            "last_s=\"\"; "
             "(while :; do "
             "if [ -f \"$COIMAN_SIZE_FILE\" ]; then "
             "s=$(cat \"$COIMAN_SIZE_FILE\" 2>/dev/null); "
-            "case \"$s\" in *x*) stty -F /dev/tty rows \"${s#*x}\" cols \"${s%%x*}\" 2>/dev/null;; esac; "
+            "if [ -n \"$s\" ] && [ \"$s\" != \"$last_s\" ]; then "
+            "last_s=\"$s\"; "
+            "case \"$s\" in *x*) "
+            "stty -F \"$MY_TTY\" rows \"${s#*x}\" cols \"${s%%%%x*}\" 2>/dev/null || stty rows \"${s#*x}\" cols \"${s%%%%x*}\" < \"$MY_TTY\" 2>/dev/null; "
+            "kill -WINCH $$ 2>/dev/null; "
+            ";; esac; "
+            "fi; "
             "fi; sleep 0.1; done) & "
             "exec bash -i",
             lines,

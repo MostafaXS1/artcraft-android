@@ -1,5 +1,45 @@
 # Changelog
 
+## Since Release v0.7.0
+
+### Added
+- **ClothCraft**: Full Android port and APK build support with bundled mannequin 3D assets, SAF integration, GPU acceleration, mobile viewport scaling, and launcher catalog entry.
+- **Hardware Media Acceleration (EffectCraft)**: Android MediaCodec (`AMediaCodec`) hardware decoding and H.264 encoding with non-blocking buffer queuing/dequeuing and RGBA-to-AVCC NAL unit stream conversion.
+- **Sensible Video Export Directory**: Automatic export path resolution to `/storage/emulated/0/Movies` (with `/sdcard/Movies` fallback) across video editing apps (EffectCraft, FilmCraft, PicassoSuite) for standard gallery accessibility.
+- **Sequential Build Suite Script**: Added `build-remaining.sh` to sequentially compile all suite targets locally with error trapping and progress tracking.
+- **OpenCode in Coiman IDE**: Termux bridge integration for running `opencode run`.
+
+### Performance & Hardware Optimization
+- **SolidCraft OOM Prevention**: Capped compiler concurrency (`-j 2` / `CARGO_BUILD_JOBS=2`), disabled release LTO (`lto = "off"`), set `codegen-units = 1`, and disabled debug symbols (`debug = false`) to compile within memory limits and prevent kernel OOM kills.
+- **MediaCodec Engine Optimization**:
+  - Eliminated full GOP decode flush loops on seek, providing instantaneous timeline scrubbing in FilmCraft and PicassoSuite.
+  - Implemented Surface swapchain pacing and Rayon multi-threaded biplanar YUV conversion.
+  - Eliminated software CPU fallback during video export, routing all encoding directly through hardware AMediaCodec encoders.
+  - Added smooth per-frame progress reporting for video exports.
+- **Suite-wide Dynamic Compiler Jobs**: Configured memory-aware `CARGO_BUILD_JOBS` based on available RAM to prevent compiler OOM across the entire suite.
+
+### Fixed
+- **Coiman IDE**:
+  - Fixed `opencode run` erroring on unrecognized `--standalone` flag.
+  - Fixed terminal PTY window reseeding/resizing so the shell prompt correctly expands to fit the full terminal window on mobile.
+  - Cleaned up virtual modifier keys (removed overlapping Shift/Ctrl/Alt buttons) and fixed Unicode character rendering.
+  - Fixed settings and new-file popup scaling on mobile displays.
+  - Updated palette and OpenVSX theme extraction using pure Rust ZIP handling.
+- **Android Printing & PDF Export**: Fixed `PrintDocumentAdapter` in PDFCraft by properly passing `PageRange.ALL_PAGES` and flushing output streams, with safe fallback to `PrintDocumentInfo.PAGE_COUNT_UNKNOWN`.
+- **Mobile UI & Auto-Scaling**:
+  - Implemented adaptive 75%/150% UI scaling for displays <600dp across suite adapters.
+  - Fixed popup, modal, and camera preview scaling within window bounds for PhotoCraft and community apps.
+  - Fixed trackpad pinch-to-zoom and fluid simultaneous pan handling (issues #164, #165).
+  - Resolved WordCraft DOCX error 30 by preserving staged paths and fonts.
+- **TraceDraw**: Cleaned up canvas floating keys and fixed modifier raw input hooks.
+- **DiagramCraft**: Patched `crates/dc/src/spellcheck.rs` to return empty dictionaries on Android, resolving compilation failures.
+- **Touch & Gesture Handling**: Fixed `MouseWheelSource` enum compatibility for apps using egui <0.37.
+
+### Changed & Removed
+- **Cleaned Up Deprecated Apps**: Completely removed discontinued apps (`Splice`, `VidCut`, `Photonic`, `RustyPainter`, `Dziwak`) from the builder, launcher, and tablet interfaces.
+- **Launcher Improvements**: Full list item tap targeting on mobile and tablet to view app details; responsive two-tone wordmark and catalog categorization.
+- **Documentation**: Comprehensive MediaCodec architecture guidelines and documentation cleanups.
+
 ## Unreleased
 
 ### 🏗️ Major: Core Build System Decentralization (Issue #73)

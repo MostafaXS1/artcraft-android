@@ -1694,6 +1694,9 @@ fn android_main(android_app: android_activity::AndroidApp) {
         Box::new(move |cc| {
             if let Ok(mut g) = EGUI_CTX.lock() { *g = Some(cc.egui_ctx.clone()); }
             cc.egui_ctx.set_theme(egui::ThemePreference::System);
+            if device_is_high_density(&shell.app) == Some(true) {
+                cc.egui_ctx.set_zoom_factor(0.75);
+            }
             solidcraft_ui_egui::fonts::setup_bundled_fonts(&cc.egui_ctx);
             if let Some(rs) = &cc.wgpu_render_state {
                 let supported = eframe::egui_wgpu::supported_msaa_samples(&rs.adapter, &rs.device, rs.target_format, None);

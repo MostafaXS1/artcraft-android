@@ -8,6 +8,36 @@ use egui::{vec2, Color32, CornerRadius, Modifiers, Pos2, Rect, Response, Stroke,
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+const MODIFIER_FONT_BYTES: &[u8] = include_bytes!("modifier_symbols.ttf");
+static FONT_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+fn ensure_modifier_fonts(ctx: &egui::Context) {
+    if FONT_INSTALLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let already = ctx.fonts(|f| f.definitions().font_data.contains_key("modifier-symbols"));
+    if already {
+        FONT_INSTALLED.store(true, Ordering::Relaxed);
+        return;
+    }
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "modifier-symbols",
+        egui::FontData::from_static(MODIFIER_FONT_BYTES),
+        vec![
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+        ],
+    ));
+    ctx.request_repaint();
+    FONT_INSTALLED.store(true, Ordering::Relaxed);
+}
+
 /// Whether a hardware keyboard is attached.
 ///
 /// With a keyboard the soft keyboard is not needed, and buttons that stand in for it (the
@@ -104,6 +134,7 @@ pub fn render_topbar_modifiers(ui: &mut Ui) {
         // get in the way.
         return;
     }
+    ensure_modifier_fonts(ui.ctx());
     ui.spacing_mut().item_spacing.x = 6.0;
     ui.spacing_mut().button_padding = vec2(6.0, 3.0);
 

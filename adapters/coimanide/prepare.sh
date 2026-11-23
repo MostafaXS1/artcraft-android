@@ -102,7 +102,7 @@ s = p.read_text()
 # eframe: the desktop build uses glow; Android uses wgpu and the native Activity. `accesskit`
 # adds a second accessibility event loop (and an Android touch-exploration service) that the
 # touch-first shell does not need; the other adapter launchers leave it out too.
-line = ('eframe = { version = "0.37.0", default-features = false, features = ["wgpu", '
+line = ('eframe = { version = "0.37.0", default-features = false, features = ["wgpu", "glow", '
         '"clipboard", "default_fonts", "links", "android-native-activity"] }')
 if re.search(r"(?m)^eframe\s*=", s):
     s = re.sub(r"(?m)^eframe\s*=.*$", line, s, count=1)
@@ -204,9 +204,48 @@ def ensure_section(header_line, content_line):
 # The Android terminal session signals its child (the Termux shim) with libc::kill.
 # portable-pty compiles on aarch64-linux-android and stays in [dependencies].
 ensure_section(android_libc, 'libc = "0.2"')
+ensure_section("[dependencies]", 'zip = { version = "9.1", default-features = false, features = ["deflate"] }')
 tomllib.loads(s)
 p.write_text(s)
-print("coiman-core: libc added for Android")
+print("coiman-core: libc and zip added")
+PY
+
+# Patch vscode_import.rs to unpack .vsix using pure Rust zip archive instead of host tar
+python3 - "$SRC_ABS/crates/coiman-core/src/extensions/vscode_import.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    text = p.read_text(encoding="utf-8")
+    old_unpack = '''pub fn unpack_vsix(file: &Path, into: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(into).map_err(|e| e.to_string())?;
+    // Git's tar may come first on the path, and can't read zip files.
+    let system = std::env::var_os("SystemRoot").map(|r| PathBuf::from(r).join("System32").join("tar.exe"));
+    let tar = system.filter(|p| p.exists()).unwrap_or_else(|| PathBuf::from("tar"));
+    let status = crate::language::lsp::discovery::quiet_command(&tar).arg("-xf").arg(file).arg("-C").arg(into).status();
+    match status {
+        Ok(done) if done.success() => {}
+        Ok(done) => return Err(format!("Couldn't unpack {}: tar said {done}", file.display())),
+        Err(e) => return Err(format!("Couldn't unpack {}: {e}", file.display())),
+    }
+    let folder = into.join("extension");
+    if folder.join("package.json").exists() { Ok(folder) } else { Err("That file has no extension in it".to_owned()) }
+}'''
+
+    new_unpack = '''pub fn unpack_vsix(file: &Path, into: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(into).map_err(|e| e.to_string())?;
+    let archive_file = std::fs::File::open(file).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(archive_file).map_err(|e| e.to_string())?;
+    archive.extract(into).map_err(|e| e.to_string())?;
+    let folder = into.join("extension");
+    if folder.join("package.json").exists() { Ok(folder) } else { Err("That file has no extension in it".to_owned()) }
+}'''
+
+    if old_unpack in text:
+        text = text.replace(old_unpack, new_unpack, 1)
+        p.write_text(text, encoding="utf-8")
+        print("coiman-core: patched unpack_vsix to use zip crate")
 PY
 
 cp -f "$ADAPTER/patches/android_termux.rs" "$SRC_ABS/crates/coiman-core/src/android_termux.rs"
@@ -418,6 +457,104 @@ else:
     print("workbench.rs: the keyboard button is in the status bar")
 PY
 
+# OpenCode: disable --standalone flag which causes 'ERROR Unrecognized flag: --standalone in command opencode run'
+python3 - "$SRC_ABS/crates/coiman-ide/src/app/agents.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old_standalone = """    fn standalone(program: &Path) -> bool {
+        static STANDALONE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *STANDALONE.get_or_init(|| {
+            Self::opencode_command(program)
+                .args(["run", "--help"])
+                .stdin(Stdio::null())
+                .output()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout).contains("--standalone")
+                        || String::from_utf8_lossy(&o.stderr).contains("--standalone")
+                })
+                .unwrap_or(true)
+        })
+    }"""
+    new_standalone = """    fn standalone(_program: &Path) -> bool {
+        false
+    }"""
+    if old_standalone in s:
+        s = s.replace(old_standalone, new_standalone, 1)
+        p.write_text(s)
+        print("agents.rs: OpenCode standalone disabled")
+    elif "fn standalone(_program: &Path) -> bool {\n        false\n    }" in s:
+        print("agents.rs: OpenCode standalone already disabled")
+PY
+
+# Fix settings and new-file popup scaling on Android
+python3 - "$SRC_ABS/crates/coiman-ide/src/app/shell/settings_ui.rs" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old_settings = """        let room = ctx.content_rect().size();
+        // Narrow screens (a phone, a small window) get nearly all the width. The size follows
+        // the window each frame, so shrinking the window never leaves Settings cut off.
+        // The content's width: the frame adds its margins (18 each side) and the gap to the edge.
+        let width = if room.x < 700.0 { room.x - 52.0 } else { (room.x * 0.8).min(860.0) };
+        let size = egui::vec2(width.max(200.0), (room.y * 0.86).clamp(200.0, room.y - 80.0));
+        let narrow = size.x < 600.0;
+        let pal = theme::colors();
+        egui::Window::new(RichText::new("Settings").size(17.0).strong())
+            // egui keeps a window as wide as its content was, so a new width is a new window.
+            .id(egui::Id::unique(("settings_window_fitted", size.x.round() as i32)))
+            .open(&mut open)
+            .collapsible(false)
+            .frame(
+                egui::Frame::window(&ctx.global_style())
+                    .fill(pal.editor_bg)
+                    .corner_radius(16.0)
+                    .stroke(egui::Stroke::new(1.0, pal.border))
+                    .inner_margin(egui::Margin::symmetric(18, 12)),
+            )
+            .fixed_size(size)
+            .default_pos(ctx.content_rect().center() - size / 2.0)
+            .constrain(true)"""
+
+    new_settings = """        let room = ctx.content_rect().size();
+        let max_w = (room.x - 24.0).max(180.0);
+        let max_h = (room.y - 24.0).max(180.0);
+        let width = if room.x < 700.0 { room.x - 28.0 } else { (room.x * 0.85).min(860.0) }.min(max_w);
+        let height = (room.y * 0.88).clamp(180.0, max_h);
+        let size = egui::vec2(width.max(180.0), height);
+        let narrow = size.x < 600.0;
+        let pal = theme::colors();
+        egui::Window::new(RichText::new("Settings").size(17.0).strong())
+            .id(egui::Id::new("settings_window_fitted"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::window(&ctx.global_style())
+                    .fill(pal.editor_bg)
+                    .corner_radius(16.0)
+                    .stroke(egui::Stroke::new(1.0, pal.border))
+                    .inner_margin(egui::Margin::symmetric(18, 12)),
+            )
+            .pivot(egui::Align2::CENTER_CENTER)
+            .fixed_pos(ctx.content_rect().center())
+            .fixed_size(size)
+            .constrain(true)"""
+
+    if old_settings in s:
+        s = s.replace(old_settings, new_settings, 1)
+        p.write_text(s)
+        print("settings_ui.rs: settings window scaling and positioning patched")
+    elif "settings_window_fitted" in s and "pivot(egui::Align2::CENTER_CENTER)" in s:
+        print("settings_ui.rs: settings window already patched")
+PY
+
 # The command palette closes on a press outside its own area. On Android a tap arrives as a
 # press and a release in the same frame, so the tap on Explorer's "New File"/"New Folder"/
 # "Rename" opens the field and that very press then reads as "outside", closing it again before
@@ -495,7 +632,30 @@ elif list_close in s:
 else:
     raise SystemExit("palette.rs no longer closes the list on an outside press")
 
+old_input_w = "let width = (ctx.content_rect().width() * 0.4).clamp(300.0, 500.0);"
+new_input_w = """let max_w = (ctx.content_rect().width() - 24.0).max(120.0);
+        let width = (ctx.content_rect().width() * 0.6).clamp(260.0, 500.0).min(max_w);"""
+if old_input_w in s:
+    s = s.replace(old_input_w, new_input_w, 1)
+
+old_pal_w = """        let shown_tab = self.everywhere_tab();
+        let width = if shown_tab.is_some() {
+            (ctx.content_rect().width() * 0.6).clamp(500.0, 860.0)
+        } else {
+            (ctx.content_rect().width() * 0.5).clamp(400.0, 700.0)
+        };"""
+new_pal_w = """        let shown_tab = self.everywhere_tab();
+        let max_w = (ctx.content_rect().width() - 24.0).max(120.0);
+        let width = if shown_tab.is_some() {
+            (ctx.content_rect().width() * 0.7).clamp(280.0, 860.0).min(max_w)
+        } else {
+            (ctx.content_rect().width() * 0.6).clamp(280.0, 700.0).min(max_w)
+        };"""
+if old_pal_w in s:
+    s = s.replace(old_pal_w, new_pal_w, 1)
+
 p.write_text(s)
+print("palette.rs: popup width scaling patched")
 PY
 
 # The editor on Android: a tap has to place the cursor, and the platform's text bar

@@ -46,7 +46,7 @@ flowchart TD
 
 ### Triggers
 1. **Push to Branches (`branches: ['**']`):**
-   - **Default behavior:** Automatically builds all 32 applications and the ArtCraft Launcher.
+   - **Default behavior:** Automatically builds all 40 applications and the ArtCraft Launcher.
    - **Commit Message Directives:** You can selectively control which apps build by including tags in the commit message or description:
      - `[build: wordcraft]` or `[ci: wordcraft]` — Builds only WordCraft.
      - `[build: wordcraft, filmcraft]` — Builds WordCraft and FilmCraft.

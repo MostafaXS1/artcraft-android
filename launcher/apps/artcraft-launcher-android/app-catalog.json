@@ -654,6 +654,21 @@
       "site": "https://github.com/asad-albadi/PixelCraft",
       "bundle": "com.artcraft.pixelcraft",
       "image": "pixelcraft.png"
+    },
+    {
+      "id": "clothcraft",
+      "name": "ClothCraft",
+      "tagline": "Native garment editor and CPU FEM drape simulation",
+      "color": [
+        30,
+        136,
+        229
+      ],
+      "repo": "erythrofr/ClothCraft",
+      "publisher": "erythrofr",
+      "site": "https://github.com/erythrofr/ClothCraft",
+      "bundle": "com.artcraft.clothcraft",
+      "image": "clothcraft.png"
     }
   ]
 }

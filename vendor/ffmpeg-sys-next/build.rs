@@ -552,7 +552,7 @@ fn build(sysroot: Option<&str>) -> io::Result<()> {
     }
 
     // Android MediaCodec (Android only)
-    if env::var("CARGO_FEATURE_BUILD_MEDIACODEC").is_ok() && target_os == "android" {
+    if target_os == "android" {
         configure.arg("--enable-mediacodec");
         configure.arg("--enable-jni");
 

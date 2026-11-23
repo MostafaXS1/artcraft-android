@@ -333,6 +333,7 @@ pub fn app_icon_png(id: &str) -> Option<&'static [u8]> {
         "papercraft" => include_bytes!("../../../assets/app-icons/papercraft.png"),
         "ferrite" => include_bytes!("../../../assets/app-icons/ferrite.png"),
         "pixelcraft" => include_bytes!("../../../assets/app-icons/pixelcraft.png"),
+        "clothcraft" => include_bytes!("../../../assets/app-icons/clothcraft.png"),
         "keydeck" => include_bytes!("../../../assets/app-icons/keydeck.png"),
         "values" => include_bytes!("../../../assets/app-icons/values.png"),
         "letters" => include_bytes!("../../../assets/app-icons/letters.png"),

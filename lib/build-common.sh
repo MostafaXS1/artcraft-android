@@ -5,6 +5,10 @@ set -Eeuo pipefail
 
 MODE="${1:-release}"
 shift || true
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export GIT_LFS_SKIP_SMUDGE=1
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+cd "$ROOT"
 
 usage() {
     cat <<'USAGE'
@@ -32,7 +36,7 @@ App names:
   designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
   subcraft solidcraft materialcraft texturecraft
   notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
-  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft
+  rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft
 
 Examples:
   bash build.sh -photocraft
@@ -137,7 +141,7 @@ APP="${RAW_APP#-}"
 [[ "$APP" != -* && "$APP" =~ ^[a-z]+$ ]] || { echo "Invalid app name: $RAW_APP" >&2; usage; exit 2; }
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILDER_VERSION="0.7.0"
+BUILDER_VERSION="0.7.1"
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 
@@ -212,7 +216,7 @@ if [[ -x "$ROOT/adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$ROOT/$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs"
-        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" ]]; then
+        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
             sed -i '/source: egui::MouseWheelSource::Unknown,/d' "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
         fi
     fi

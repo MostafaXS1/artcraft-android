@@ -89,11 +89,19 @@ android {
             enableV3Signing true
             enableV4Signing true
             def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
+            def fallback = file('../../../../../keys/artcraft-builder.jks')
             if (keystorePath && file(keystorePath).exists()) {
                 storeFile file(keystorePath)
                 storePassword System.getenv('ARTCRAFT_KEYSTORE_PASSWORD') ?: System.getenv('RELEASE_KEYSTORE_PASSWORD') ?: System.getenv('ARTCRAFT_KEY_PASSWORD') ?: 'android'
                 keyAlias System.getenv('ARTCRAFT_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: 'artcraftbuilder'
                 keyPassword System.getenv('ARTCRAFT_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: System.getenv('ARTCRAFT_KEYSTORE_PASSWORD') ?: 'android'
+            } else if (fallback.exists()) {
+                storeFile fallback
+                def passFile = file('../../../../../keys/.keystore-password')
+                def p = passFile.exists() ? passFile.text.trim() : 'android'
+                storePassword p
+                keyAlias 'artcraftbuilder'
+                keyPassword p
             } else if (file('keystore/release.keystore').exists()) {
                 storeFile file('keystore/release.keystore')
                 storePassword System.getenv('RELEASE_KEYSTORE_PASSWORD') ?: 'android'
@@ -108,8 +116,9 @@ android {
             // GameActivity calls into Java by name from native code: keep every class as is.
             minifyEnabled false
             def keystorePath = System.getenv('ARTCRAFT_KEYSTORE') ?: System.getenv('RELEASE_KEYSTORE')
+            def fallback = file('../../../../../keys/artcraft-builder.jks')
             def isReleaseTag = System.getenv('GITHUB_REF')?.startsWith('refs/tags/')
-            if ((keystorePath && file(keystorePath).exists()) || file('keystore/release.keystore').exists()) {
+            if ((keystorePath && file(keystorePath).exists()) || fallback.exists() || file('keystore/release.keystore').exists()) {
                 signingConfig signingConfigs.release
             } else if (System.getenv('CI') && isReleaseTag) {
                 throw new GradleException("Release tag build in CI requires a release signing key (set ARTCRAFT_KEYSTORE or keystore/release.keystore).")

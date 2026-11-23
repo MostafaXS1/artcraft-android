@@ -12,11 +12,11 @@ This document provides a comprehensive index of all applications ported to Andro
 ArtCraft Android brings the complete desktop creative experience to Android devices (`aarch64-linux-android`). The suite comprises:
 
 * **Official Storytold Suite (16 apps):** The core creative and office applications from the Storytold project.
-* **Community Applications with In-Tree Adapters & CI Targets (20 apps):** Community-developed creative software with native Android build targets and custom port adapters.
+* **Community Applications with In-Tree Adapters & CI Targets (24 apps):** Community-developed creative software with native Android build targets and custom port adapters.
 * **Community Applications Tracked via Launcher Catalog (7 apps):** External community applications indexed and distributed directly through the ArtCraft Android Launcher.
 * **ArtCraft Launcher (1 app):** The centralized Android launcher for discovering, managing, launching, and updating ArtCraft apps.
 
-**Total Applications:** 44
+**Total Applications:** 48
 
 ---
 
@@ -72,6 +72,7 @@ These community applications have custom port adapters under `adapters/<app>/` a
 | **PaperCraft** | `papercraft` | Local design canvas built in Rust and egui | [slyim/papercraft](https://github.com/slyim/papercraft) | slyim |
 | **Ferrite** | `ferrite` | Fast, lightweight text editor for Markdown and JSON | [OlaProeis/Ferrite](https://github.com/OlaProeis/Ferrite) | OlaProeis |
 | **PixelCraft** | `pixelcraft` | Fast, native pixel art editor and animator | [asad-albadi/PixelCraft](https://github.com/asad-albadi/PixelCraft) | Asad |
+| **ClothCraft** | `clothcraft` | Cloth simulation, garment patterning and 3D draping | [erythrofr/ClothCraft](https://github.com/erythrofr/ClothCraft) | erythrofr |
 
 ---
 

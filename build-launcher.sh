@@ -15,6 +15,7 @@ OUT_APK="$OUT_DIR/Artcraft-launcher.apk"
 # Export environment for the build script
 export ANDROID_HOME="${ANDROID_HOME:-$SCRIPT_DIR/android-sdk}"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.2.12479018}"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 
 # Run the launcher's build script
 cd "$LAUNCHER_DIR"

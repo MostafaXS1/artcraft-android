@@ -30,6 +30,7 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.os.Process;
@@ -116,6 +117,7 @@ public class TraceDrawActivity extends NativeActivity {
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
                 controller.hide(WindowInsets.Type.systemBars());
@@ -152,11 +154,33 @@ public class TraceDrawActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        applyImmersiveFullscreen();
+        if (getWindow() != null) {
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        }
         Window win = getWindow();
         if (win != null) {
+            win.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                android.view.WindowManager.LayoutParams lp = win.getAttributes();
+                lp.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                win.setAttributes(lp);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                win.setDecorFitsSystemWindows(false);
+            }
+            try {
+                win.setStatusBarColor(0x00000000);
+                win.setNavigationBarColor(0x00000000);
+            } catch (Throwable ignored) {}
             win.getDecorView().post(this::applyImmersiveFullscreen);
+            win.getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> {
+                if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                    win.getDecorView().post(this::applyImmersiveFullscreen);
+                }
+            });
         }
+        applyImmersiveFullscreen();
         textInput = new TextInputView(this);
         addContentView(textInput, new ViewGroup.LayoutParams(1, 1));
         // The screen's safe area, read again at every layout (a rotation,

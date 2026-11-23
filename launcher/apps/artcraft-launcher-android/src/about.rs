@@ -405,6 +405,19 @@ pub static ABOUT: &[AppDetails] = &[
         shots: &[],
         platforms: "Android, macOS, Windows, Linux",
     },
+    AppDetails {
+        id: "clothcraft",
+        headline: "Native garment editor with CPU FEM drape simulation.",
+        about: "An open-source garment editor and drape simulator by erythrofr. Features 2D pattern authoring, 3D fitting, double-precision CPU FEM reference, VBD solver, and OGC contact detection.",
+        features: &[
+            Feature { title: "2D Pattern Authoring", text: "Parametric drafting, seams, darts, and pattern import from SVG and DXF." },
+            Feature { title: "3D Fitting & Drape", text: "Interactive 3D garment fitting on OBJ mannequins and animated avatars." },
+            Feature { title: "FEM & VBD Physics", text: "Accurate physical drape simulation with Vertex Block Descent and contact handling." },
+            Feature { title: "Completely Offline", text: "Runs entirely on your device with zero cloud tracking or subscriptions." },
+        ],
+        shots: &[],
+        platforms: "Android, macOS, Windows, Linux",
+    },
 ];
 
 /// The apps without a core page: anything in the Android catalog that artcraft-launcher-core's

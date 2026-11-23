@@ -61,6 +61,7 @@
 - [57. Mobile Text Selection Context Bar](#57-mobile-text-selection-context-bar)
 - [58. Integrated Topbar Modifier Controls](#58-integrated-topbar-modifier-controls)
 - [59. Platform Hardening & Build Reliability](#59-platform-hardening--build-reliability)
+- [60. Hardware-Accelerated Video Rendering & Playback Engine (MediaCodec NDK & FFmpeg Integration)](#60-hardware-accelerated-video-rendering--playback-engine-mediacodec-ndk--ffmpeg-integration)
 
 ## 1. Project Overview
 
@@ -80,12 +81,10 @@ From `lib/catalog.sh`, `lib/build-common.sh`, and `README.md`:
 photocraft vectorcraft filmcraft lightcraft pdfcraft effectcraft
 designcraft figcraft wordcraft soundcraft deckcraft cadcraft gridcraft
 subcraft solidcraft materialcraft texturecraft
-anicraft bimcraft capsulecraft diagramcraft earthcraft
-humanmotioncraft mapcraft notecraft paintcraft picassosuite
-prowave rustgis tracedraw transit coimanide
-pcbcraft fieldcraft papercraft ferrite
+notecraft diagramcraft paintcraft bimcraft tracedraw picassosuite capsulecraft humanmotioncraft
+rustgis earthcraft mapcraft prowave transit anicraft coimanide pcbcraft fieldcraft papercraft ferrite pixelcraft clothcraft
 ```
-Total: 36 apps. CI matrix builds all of them.
+Total: 38 buildable applications + 1 ArtCraft Launcher = 39 built by repository; 7 external community applications tracked via launcher catalog; 46 applications across the ecosystem.
 
 ## 3. Repository Structure
 
@@ -113,23 +112,30 @@ artcraft-android-builder/
 │   ├── file_associations.py # Central intent filter registry
 │   ├── scrolling.sh        # Two-finger scroll/momentum patches
 │   ├── ime.sh              # WordCraft Backspace-at-paragraph-start patch
-│   └── subcraft.sh         # SubCraft file handoff patch
+│   ├── subcraft.sh         # SubCraft file handoff patch
+│   └── ffmpeg_android.sh   # Builds Android FFmpeg / libvpx / opus / mediacodec libraries
 ├── test/                   # Validation and unit test suite
 │   ├── check_releases.py        # Release tag and upstream sync validator
+│   ├── test_adapters.py         # Tests for all custom adapters
+│   ├── test_android_project.py  # Tests for Gradle project generation
+│   ├── test_cargo_patches.py    # Tests for Cargo workspace patching
+│   ├── test_catalog.py          # Tests for app catalog resolution
+│   ├── test_file_associations.py # Tests for file associations & MIME
 │   ├── test_launcher_generator.py # Tests for launcher generator
-│   ├── test_upstream_patches.py   # Tests for upstream compile fixes
-│   ├── test_cargo_patches.py      # Tests for Cargo workspace patching
-│   ├── test_toolchain.py          # Tests for toolchain and SDK discovery
-│   └── test_catalog.py            # Tests for app catalog resolution
+│   ├── test_source.py           # Tests for source tree completeness
+│   ├── test_toolchain.py        # Tests for toolchain and SDK discovery
+│   └── test_upstream_patches.py # Tests for upstream compile fixes
 ├── templates/
 │   ├── android/            # Shared Java/Rust modules
 │   │   ├── SafActivity.java
 │   │   ├── saf_bridge.rs
 │   │   ├── system_fonts.rs
+│   │   ├── mobile_text_bar.rs
+│   │   ├── touch_gestures.rs
 │   │   └── UpdateCheck.java
 │   └── gradle/             # Gradle wrapper template
-├── adapters/               # Per-app custom adapters
-├── vendor/                 # Vendored patched crates
+├── adapters/               # 27 per-app custom adapters
+├── vendor/                 # 15 vendored patched crates
 ├── .github/workflows/      # CI configuration
 ├── docs/                   # Documentation
 ├── source/                 # Upstream checkouts (per-app, preserved)
@@ -155,7 +161,7 @@ The system uses a decentralized modular approach:
 ### 4.2 Build Configuration
 **Constants:**
 ```bash
-BUILDER_VERSION="0.7.0"  # Set in lib/build-common.sh
+BUILDER_VERSION="0.7.1"  # Set in lib/build-common.sh
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
 GENERATOR_VERSION="83"   # Set in lib/launcher_generator.py
@@ -2198,4 +2204,42 @@ Rather than employing floating button overlays that obscure canvas artwork, ArtC
 ### 59.3 AniCraft Brand Identity Refresh
 - **Upstream Asset Sync**: AniCraft upstream introduced an updated official engraved rabbit mascot icon across high-resolution tile formats.
 - **Asset Pipeline**: Master vector and raster assets (`adapters/anicraft/assets/app-icon/`) are processed via `lib/app_icons.py` to generate full-bleed adaptive vector layers (`res/mipmap-*/ic_launcher.png`, `ic_launcher_foreground.xml`) and legacy mipmaps, ensuring consistent presentation across modern Android launcher grids.
+
+---
+
+## 60. Hardware-Accelerated Video Rendering & Playback Engine (MediaCodec NDK & FFmpeg Integration)
+
+### 60.1 Architectural Context
+Video playback, multi-track scrubbing, frame extraction, and high-resolution exporting on Android devices face strict battery, memory bandwidth, and thermal dissipation budgets. CPU software decoding and encoding (via software libavcodec decoders like `libx264`, `libvpx`, `dav1d`) are prohibitively slow for real-time mobile timeline previews, causing UI stutter, dropped frames, export bottlenecks (~1 fps), and rapid thermal throttling.
+
+ArtCraft Android implements a suite-wide hardware-accelerated video rendering, playback, and export engine.
+
+### 60.2 Android NDK AMediaCodec Integration & FFmpeg CLI Binding
+- **Framework Driver**: Utilizes Android's NDK `AMediaCodec` C API (`libmediandk.so`), available on API 21+.
+- **Named MediaCodec Decoder Wrappers**: In FFmpeg CLI, passing `-hwaccel mediacodec` alone does not bind MediaCodec to default decoders and silently falls back to CPU software decoding. Instead, FFmpeg requires explicit named decoder wrappers passed before the `-i` parameter:
+  - H.264 / AVC: `-c:v h264_mediacodec`
+  - HEVC / H.265: `-c:v hevc_mediacodec`
+  - VP9: `-c:v vp9_mediacodec`
+  - AV1: `-c:v av1_mediacodec`
+- **Zero-Staging Memory Path**: In FFmpeg's `amediacodec_ndk` wrapper, decoded output buffers have hardware alignment stride and cropping already resolved, returning standard planar (RGBA/NV12/YUV420P) memory buffers. This allows direct texture upload to egui (`TextureHandle`) with zero intermediate staging copies and without requiring OpenGL surface context sharing.
+- **Hardware-Accelerated Encoding**: Export and rendering passes across the video suite utilize `-c:v h264_mediacodec -b:v <bitrate> -pix_fmt nv12`, bypassing slow CPU software encoders (`libx264 -preset medium`) and increasing rendering speed by up to 10-20x.
+- **Global Header Handling**: MediaCodec writes SPS/PPS parameter sets directly in-band in the initial frame packets. Setting `AV_CODEC_FLAG_GLOBAL_HEADER` causes MediaCodec container stalls; global headers are explicitly omitted for `_mediacodec` encoders.
+
+### 60.3 Builder-Level Custom FFmpeg Pipeline (`lib/ffmpeg_android.sh`)
+- Automated build script cross-compiles FFmpeg for `aarch64-linux-android` with:
+  - `--enable-jni --enable-mediacodec`
+  - `--enable-libx264 --enable-libvpx --enable-libopus`
+  - `--disable-vulkan --disable-static --enable-shared`
+- Output binaries (`ffmpeg`, `ffprobe`) are bundled into the APK under `extra-jniLibs/arm64-v8a/` and discovered dynamically at runtime via `/proc/self/maps` and native library directories.
+
+### 60.4 Video Suite Integration Details & CPU Fallback Elimination
+1. **PicassoSuite (`adapters/picassosuite/prepare.sh`)**:
+   - `vendor/ffmpeg-sys-next/build.rs`: Configures `--enable-mediacodec --enable-jni` automatically on `target_os == "android"`.
+   - `crates/picasso-decode/src/hw.rs` & `lib.rs`: Eliminates the startup latency benchmark trap where initial 50–100ms MediaCodec initialization caused `Trial` benchmarks to permanently force CPU decoding (`faster_way = false`); Android forces `faster_way = Some(true)` and disables trial step down.
+   - `crates/picasso-export/src/lib.rs` & `video.rs`: Introduces `Hardware::MediaCodec` as default on Android across `ExportSpec`, `Options::default()`, and `DeliverForm`, targeting `h264_mediacodec` / `hevc_mediacodec` with `Pixel::NV12`, automatic bitrate steering, parameter set header synchronization, and zero B-frames (`set_max_b_frames(0)`).
+2. **FilmCraft (`templates/filmcraft/android_mediacodec.rs`)**:
+   - **Zero-Copy Surface Pipeline**: Implemented surface encoder via `AMediaCodec_createInputSurface` with `COLOR_FormatSurface` (2130706441), `priority = 0`, and `operating-rate = 10000.0`. Surfaces are hooked directly to `VideoEncoder::input_surface(&self)`, activating `job.rs`'s `step_surface_batch` hardware surface pipeline.
+   - **Direct In-Place Buffer Conversion (`rgba_to_nv12_direct`)**: In buffer fallback mode, Rayon-parallelized integer color conversion writes directly into `input_buf.buffer_mut()`, eliminating intermediate `Vec<u8>` heap allocations and full-frame `memcpy` overhead.
+   - **Elimination of `HybridDecoder` CPU Fallback Trap**: Removed `HybridDecoder` tripwire from `decoder_factory`, returning `MediaCodecDecoder` directly so SPS/PPS parameter set changes or temporary dequeue timeouts never permanently degrade the session to CPU software decoding.
+
 

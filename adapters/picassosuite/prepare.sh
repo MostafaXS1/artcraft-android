@@ -271,7 +271,523 @@ rm -f "$DEST/prepare.sh" "$DEST/README.md"
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
+sed -i '/source: egui::MouseWheelSource::/d' "$DEST/src/touch_gestures.rs" 2>/dev/null || true
 [[ -f "$ADAPTER/src/mcp_http.rs" ]] || cp -f "$ROOT/templates/android/mcp_http.rs" "$DEST/src/mcp_http.rs"
+
+# Enable MediaCodec hardware decode backend in picasso-decode
+python3 - "$SRC_ABS/crates/picasso-decode/src/hw.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = '''    } else if cfg!(target_os = "macos") {
+        &[AV_HWDEVICE_TYPE_VIDEOTOOLBOX]'''
+new = '''    } else if cfg!(target_os = "macos") {
+        &[AV_HWDEVICE_TYPE_VIDEOTOOLBOX]
+    } else if cfg!(target_os = "android") {
+        &[AV_HWDEVICE_TYPE_MEDIACODEC]'''
+if old in s and 'target_os = "android"' not in s:
+    s = s.replace(old, new, 1)
+
+helper = '''
+pub(crate) fn open_video_decoder(
+    params: &ff::codec::Parameters,
+    time_base: ff::Rational,
+    on_card: bool,
+) -> Result<(ff::decoder::Video, bool), ff::Error> {
+    #[cfg(target_os = "android")]
+    if on_card {
+        let mc_name = match params.id() {
+            ff::codec::Id::H264 => Some("h264_mediacodec"),
+            ff::codec::Id::HEVC => Some("hevc_mediacodec"),
+            ff::codec::Id::VP9 => Some("vp9_mediacodec"),
+            ff::codec::Id::AV1 => Some("av1_mediacodec"),
+            _ => None,
+        };
+        if let Some(name) = mc_name {
+            if let Some(dec) = ff::decoder::find_by_name(name) {
+                if let Ok(mut ctx) = ff::codec::context::Context::from_parameters(params.clone()) {
+                    ctx.set_threading(ff::threading::Config {
+                        kind: ff::threading::Type::Frame,
+                        count: 1,
+                    });
+                    unsafe {
+                        (*ctx.as_mut_ptr()).pkt_timebase = time_base.into();
+                    }
+                    let mut opts = ff::Dictionary::new();
+                    opts.set("ndk_codec", "1");
+                    opts.set("low_power", "0");
+                    if let Ok(opened) = ctx.decoder().open_as_with(dec, opts) {
+                        if let Ok(video) = opened.video() {
+                            return Ok((video, true));
+                        }
+                    } else if let Ok(mut ctx2) = ff::codec::context::Context::from_parameters(params.clone()) {
+                        ctx2.set_threading(ff::threading::Config {
+                            kind: ff::threading::Type::Frame,
+                            count: 1,
+                        });
+                        unsafe {
+                            (*ctx2.as_mut_ptr()).pkt_timebase = time_base.into();
+                        }
+                        if let Ok(opened) = ctx2.decoder().open_as(dec) {
+                            if let Ok(video) = opened.video() {
+                                return Ok((video, true));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut ctx = ff::codec::context::Context::from_parameters(params.clone())?;
+    let attached = on_card && attach(&mut ctx);
+    ctx.set_threading(ff::threading::Config {
+        kind: ff::threading::Type::Frame,
+        count: if attached { 1 } else { 0 },
+    });
+    let video = ctx.decoder().video()?;
+    Ok((video, attached))
+}
+'''
+if 'pub(crate) fn open_video_decoder' not in s:
+    s = s + helper
+
+p.write_text(s)
+PY
+
+# Bind named MediaCodec decoders on Android in picasso-decode
+python3 - "$SRC_ABS/crates/picasso-decode/src/lib.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_card = '''fn card_decoder_exists(params: &ff::codec::parameters::Parameters) -> bool {
+    let Ok(mut probe) = ff::codec::context::Context::from_parameters(params.clone()) else {
+        return false;
+    };
+    hw::attach(&mut probe)
+}'''
+
+new_card = '''fn card_decoder_exists(params: &ff::codec::parameters::Parameters) -> bool {
+    #[cfg(target_os = "android")]
+    {
+        match params.id() {
+            ff::codec::Id::H264 => ff::decoder::find_by_name("h264_mediacodec").is_some(),
+            ff::codec::Id::HEVC => ff::decoder::find_by_name("hevc_mediacodec").is_some(),
+            ff::codec::Id::VP9 => ff::decoder::find_by_name("vp9_mediacodec").is_some(),
+            ff::codec::Id::AV1 => ff::decoder::find_by_name("av1_mediacodec").is_some(),
+            _ => false,
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let Ok(mut probe) = ff::codec::context::Context::from_parameters(params.clone()) else {
+            return false;
+        };
+        hw::attach(&mut probe)
+    }
+}'''
+
+old_dec = '''        let mut context = ff::codec::context::Context::from_parameters(params)?;
+        let on_card = hardware && learnt != Some(false) && hw::attach(&mut context);
+        // Decode on every core: pictures of a 1080p or 4K file do not arrive in time on one. The
+        // card needs no threads, and each would hold more of its memory.
+        context.set_threading(ff::threading::Config {
+            kind: ff::threading::Type::Frame,
+            count: if on_card { 1 } else { 0 },
+        });
+        let decoder = context.decoder().video()?;'''
+
+new_dec = '''        let (decoder, on_card) = hw::open_video_decoder(&params, time_base, hardware && learnt != Some(false))?;'''
+
+old_faster = '''fn faster_way(path: &Path) -> Option<bool> {
+    let known = FASTER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    known.as_ref()?.get(path).copied()
+}'''
+
+new_faster = '''fn faster_way(path: &Path) -> Option<bool> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = path;
+        return Some(true);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let known = FASTER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        known.as_ref()?.get(path).copied()
+    }
+}'''
+
+old_trial_rec = '''    fn record(&mut self, ms: f64, on_card: bool) -> TrialStep {'''
+new_trial_rec = '''    fn record(&mut self, ms: f64, on_card: bool) -> TrialStep {
+        #[cfg(target_os = "android")]
+        {
+            let _ = (ms, on_card);
+            return TrialStep::Use(true);
+        }'''
+
+if old_card in s:
+    s = s.replace(old_card, new_card, 1)
+if old_dec in s:
+    s = s.replace(old_dec, new_dec, 1)
+if old_faster in s:
+    s = s.replace(old_faster, new_faster, 1)
+if old_trial_rec in s:
+    s = s.replace(old_trial_rec, new_trial_rec, 1)
+s = s.replace(
+    'trial: (on_card && learnt.is_none()).then(Trial::default),',
+    'trial: (!cfg!(target_os = "android") && on_card && learnt.is_none()).then(Trial::default),'
+)
+p.write_text(s)
+PY
+
+# Add MediaCodec hardware encoder to picasso-export
+python3 - "$SRC_ABS/crates/picasso-export/src/lib.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_hw = '''pub enum Hardware {
+    /// The processor (x264, x265, SVT-AV1 ...): the best picture for the size, the slowest.
+    #[default]
+    Native,
+    /// NVIDIA's NVENC.
+    Nvidia,
+    /// Intel's Quick Sync.
+    Intel,
+    /// AMD's AMF (Windows).
+    Amd,
+    /// Apple's VideoToolbox (macOS).
+    Apple,
+    /// VA-API (Linux, Intel and AMD cards).
+    Vaapi,
+}'''
+
+new_hw = '''pub enum Hardware {
+    #[default]
+    Native,
+    MediaCodec,
+    Nvidia,
+    Intel,
+    Amd,
+    Apple,
+    Vaapi,
+}'''
+
+old_all = '''    pub const ALL: [Self; 6] = [
+        Self::Native,
+        Self::Nvidia,
+        Self::Intel,
+        Self::Amd,
+        Self::Apple,
+        Self::Vaapi,
+    ];'''
+
+new_all = '''    pub const ALL: [Self; 7] = [
+        Self::Native,
+        Self::MediaCodec,
+        Self::Nvidia,
+        Self::Intel,
+        Self::Amd,
+        Self::Apple,
+        Self::Vaapi,
+    ];'''
+
+old_label = '''    pub fn label(self) -> &'static str {
+        match self {
+            Self::Native => "Native",'''
+
+new_label = '''    pub fn label(self) -> &'static str {
+        match self {
+            Self::MediaCodec => "MediaCodec (Android HW)",
+            Self::Native => "Native",'''
+
+old_enc = '''        Some(match (self, codec) {
+            (Self::Nvidia, "h264") => "h264_nvenc",'''
+
+new_enc = '''        Some(match (self, codec) {
+            (Self::MediaCodec, "h264") => "h264_mediacodec",
+            (Self::MediaCodec, "hevc") => "hevc_mediacodec",
+            (Self::Nvidia, "h264") => "h264_nvenc",'''
+
+old_spec_default = '''    pub fn default_spec(preset: Preset) -> ExportSpec {
+        ExportSpec {
+            preset,
+            hardware: Hardware::Native,'''
+
+new_spec_default = '''    pub fn default_spec(preset: Preset) -> ExportSpec {
+        ExportSpec {
+            preset,
+            #[cfg(target_os = "android")]
+            hardware: Hardware::MediaCodec,
+            #[cfg(not(target_os = "android"))]
+            hardware: Hardware::Native,'''
+
+if old_hw in s:
+    s = s.replace(old_hw, new_hw, 1)
+if old_all in s:
+    s = s.replace(old_all, new_all, 1)
+if old_label in s:
+    s = s.replace(old_label, new_label, 1)
+if old_enc in s:
+    s = s.replace(old_enc, new_enc, 1)
+if old_spec_default in s:
+    s = s.replace(old_spec_default, new_spec_default, 1)
+
+old_opt_default = '''            hardware: Hardware::Native,'''
+new_opt_default = '''            #[cfg(target_os = "android")]
+            hardware: Hardware::MediaCodec,
+            #[cfg(not(target_os = "android"))]
+            hardware: Hardware::Native,'''
+if old_opt_default in s:
+    s = s.replace(old_opt_default, new_opt_default, 1)
+
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-export/src/video.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_spec = '''    let mut spec = VideoSpec {
+        encoder,
+        pixel: if ten { pixel_10 } else { pixel_8 },
+        hardware: hardware != Hardware::Native,
+        vaapi: hardware == Hardware::Vaapi,
+        options: Vec::new(),
+        bit_rate,
+        global_quality: None,
+        qscale: false,
+        intra: false,
+    };'''
+
+new_spec = '''    let is_mc = encoder.ends_with("_mediacodec");
+    let mut spec = VideoSpec {
+        encoder,
+        pixel: if is_mc { Pixel::NV12 } else if ten { pixel_10 } else { pixel_8 },
+        hardware: hardware != Hardware::Native || is_mc,
+        vaapi: hardware == Hardware::Vaapi,
+        options: Vec::new(),
+        bit_rate: if is_mc && bit_rate == 0 { 16_000_000 } else { bit_rate },
+        global_quality: None,
+        qscale: false,
+        intra: false,
+    };'''
+
+old_hdr = '''        if global_header {
+            flags |= codec::Flags::GLOBAL_HEADER;
+        }'''
+new_hdr = '''        if global_header && !spec.encoder.ends_with("_mediacodec") {
+            flags |= codec::Flags::GLOBAL_HEADER;
+        }'''
+
+old_b_frames = '''        if !o.frame_reordering || o.profile == crate::Profile::Baseline {
+            enc.set_max_b_frames(0);
+        }'''
+new_b_frames = '''        if !o.frame_reordering || o.profile == crate::Profile::Baseline || spec.encoder.ends_with("_mediacodec") {
+            enc.set_max_b_frames(0);
+        }'''
+
+old_opens = '''    enc.set_frame_rate(Some(Rational(30, 1)));'''
+new_opens = '''    enc.set_frame_rate(Some(Rational(30, 1)));
+    if name.ends_with("_mediacodec") {
+        enc.set_bit_rate(16_000_000);
+        enc.set_max_b_frames(0);
+    }'''
+
+old_mc_opts = '''        if choice.low_power {
+            options.set("low_power", "1");
+        }'''
+new_mc_opts = '''        if spec.encoder.ends_with("_mediacodec") {
+            options.set("threads", "4");
+            options.set("ndk_codec", "1");
+        }
+        if choice.low_power {
+            options.set("low_power", "1");
+        }'''
+
+if old_spec in s:
+    s = s.replace(old_spec, new_spec, 1)
+if old_hdr in s:
+    s = s.replace(old_hdr, new_hdr, 1)
+if old_b_frames in s:
+    s = s.replace(old_b_frames, new_b_frames, 1)
+if old_opens in s and "if name.ends_with(\"_mediacodec\")" not in s:
+    s = s.replace(old_opens, new_opens, 1)
+if old_mc_opts in s:
+    s = s.replace(old_mc_opts, new_mc_opts, 1)
+else:
+    s = s.replace('options.set("threads", "4");', 'options.set("threads", "4");\n            options.set("ndk_codec", "1");', 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-export/src/yuv.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_yuv = '''pub fn rgba_to_yuv(
+    rgba: &[u8],
+    (w, h): (usize, usize),
+    layout: Layout,
+    planes: &mut [&mut [u8]],
+    strides: &[usize],
+    full: bool,
+) {
+    let bytes = if layout.ten_bit { 2 } else { 1 };'''
+
+new_yuv = '''pub fn rgba_to_yuv(
+    rgba: &[u8],
+    (w, h): (usize, usize),
+    layout: Layout,
+    planes: &mut [&mut [u8]],
+    strides: &[usize],
+    full: bool,
+) {
+    if layout.step == (2, 2) && !layout.ten_bit && layout.interleaved && w % 2 == 0 && h % 2 == 0 && planes.len() >= 2 {
+        let y_stride = strides.first().copied().unwrap_or(w);
+        let uv_stride = strides.get(1).copied().unwrap_or(w);
+        let (y_plane_ref, rest) = planes.split_first_mut().unwrap();
+        let y_plane = &mut **y_plane_ref;
+        let uv_plane = &mut *rest[0];
+        let half_h = h / 2;
+        let half_w = w / 2;
+        for cy in 0..half_h {
+            let y0 = cy * 2;
+            let y1 = y0 + 1;
+            let src_row0 = &rgba[y0 * w * 4..(y0 + 1) * w * 4];
+            let src_row1 = &rgba[y1 * w * 4..(y1 + 1) * w * 4];
+
+            for cx in 0..half_w {
+                let x0 = cx * 2;
+                let x1 = x0 + 1;
+                let px00 = &src_row0[x0 * 4..x0 * 4 + 3];
+                let px01 = &src_row0[x1 * 4..x1 * 4 + 3];
+                let px10 = &src_row1[x0 * 4..x0 * 4 + 3];
+                let px11 = &src_row1[x1 * 4..x1 * 4 + 3];
+
+                let (y00, _, _) = yuv709(px00[0] as f32, px00[1] as f32, px00[2] as f32, full);
+                let (y01, _, _) = yuv709(px01[0] as f32, px01[1] as f32, px01[2] as f32, full);
+                let (y10, _, _) = yuv709(px10[0] as f32, px10[1] as f32, px10[2] as f32, full);
+                let (y11, _, _) = yuv709(px11[0] as f32, px11[1] as f32, px11[2] as f32, full);
+
+                y_plane[y0 * y_stride + x0] = byte(y00);
+                y_plane[y0 * y_stride + x1] = byte(y01);
+                y_plane[y1 * y_stride + x0] = byte(y10);
+                y_plane[y1 * y_stride + x1] = byte(y11);
+
+                let avg_r = (px00[0] as u32 + px01[0] as u32 + px10[0] as u32 + px11[0] as u32) as f32 * 0.25;
+                let avg_g = (px00[1] as u32 + px01[1] as u32 + px10[1] as u32 + px11[1] as u32) as f32 * 0.25;
+                let avg_b = (px00[2] as u32 + px01[2] as u32 + px10[2] as u32 + px11[2] as u32) as f32 * 0.25;
+
+                let (_, cb, cr) = yuv709(avg_r, avg_g, avg_b, full);
+                uv_plane[cy * uv_stride + cx * 2] = byte(cb);
+                uv_plane[cy * uv_stride + cx * 2 + 1] = byte(cr);
+            }
+        }
+        return;
+    }
+    let bytes = if layout.ten_bit { 2 } else { 1 };'''
+
+if old_yuv in s:
+    s = s.replace(old_yuv, new_yuv, 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-ui/src/deliver_form.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_deliv_hw = '''            let hardware = if choices.contains(&self.deliver.options.hardware) {
+                self.deliver.options.hardware
+            } else {
+                if choices.len() > 1 {
+                    self.deliver.options.hardware = Hardware::Native;
+                }
+                Hardware::Native
+            };'''
+
+new_deliv_hw = '''            let default_hw = if cfg!(target_os = "android") && choices.contains(&Hardware::MediaCodec) {
+                Hardware::MediaCodec
+            } else {
+                Hardware::Native
+            };
+            let hardware = if choices.contains(&self.deliver.options.hardware) {
+                self.deliver.options.hardware
+            } else {
+                if choices.len() > 1 {
+                    self.deliver.options.hardware = default_hw;
+                }
+                default_hw
+            };'''
+
+if old_deliv_hw in s:
+    s = s.replace(old_deliv_hw, new_deliv_hw, 1)
+p.write_text(s)
+PY
+
+python3 - "$SRC_ABS/crates/picasso-ui/src/deliver.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old = '            location: String::new(),'
+    new = '''            location: {
+                #[cfg(target_os = "android")]
+                {
+                    if std::path::Path::new("/storage/emulated/0/Movies").is_dir() {
+                        "/storage/emulated/0/Movies".into()
+                    } else if std::path::Path::new("/sdcard/Movies").is_dir() {
+                        "/sdcard/Movies".into()
+                    } else {
+                        "/storage/emulated/0/Movies".into()
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
+                String::new()
+            },'''
+    if old in s:
+        s = s.replace(old, new, 1)
+        p.write_text(s)
+        print("picasso-ui/src/deliver.rs: default location set to Movies on Android")
+PY
+
+python3 - "$SRC_ABS/crates/picasso-ui/src/queue.rs" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+if p.is_file():
+    s = p.read_text()
+    old = '            let location = self.deliver_ui.location.trim().to_string();'
+    new = '''            let mut location = self.deliver_ui.location.trim().to_string();
+            #[cfg(target_os = "android")]
+            if location.is_empty() {
+                location = if std::path::Path::new("/storage/emulated/0/Movies").is_dir() {
+                    "/storage/emulated/0/Movies".to_string()
+                } else if std::path::Path::new("/sdcard/Movies").is_dir() {
+                    "/sdcard/Movies".to_string()
+                } else {
+                    let _ = std::fs::create_dir_all("/storage/emulated/0/Movies");
+                    "/storage/emulated/0/Movies".to_string()
+                };
+            }'''
+    if old in s:
+        s = s.replace(old, new, 1)
+        p.write_text(s)
+        print("picasso-ui/src/queue.rs: default export path set to Movies on Android")
+PY
 
 # Write .cargo/config.toml to pass PKG_CONFIG_PATH to the build
 mkdir -p "$SRC_ABS/.cargo"

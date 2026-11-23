@@ -157,13 +157,13 @@ fn device_is_phone(app: &AndroidApp) -> Option<bool> {
     }
 }
 
-/// Applies the 95% phone zoom to Coiman's user settings once per device.
+/// Applies the 75% phone zoom to Coiman's user settings once per device.
 ///
 /// `settings.toml` belongs to the user, so the choice is remembered with a `device_class` sidecar:
-/// the first launch on a phone sets 95%, while a user who later changes the zoom by hand keeps it.
+/// the first launch on a phone sets 75%, while a user who later changes the zoom by hand keeps it.
 #[cfg(target_os = "android")]
 fn apply_phone_zoom_once(app: &AndroidApp) {
-    const PHONE_ZOOM: &str = "0.95";
+    const PHONE_ZOOM: &str = "0.75";
     let Some(settings) = coiman_core::settings::user_settings_path() else { return };
     let Some(folder) = settings.parent() else { return };
     let marker = folder.join("device_class");
@@ -645,7 +645,7 @@ impl eframe::App for CoimanAndroidApp {
         self.keyboard.apply(ui.ctx(), &self.bridge);
     }
 
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.state.mirror.sync(&self.bridge);
     }
 }
@@ -755,12 +755,33 @@ fn android_main(android_app: AndroidApp) {
         create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("wgpu device"),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
+        });
     }
     let app_bridge = bridge.clone_ref();
     let result = eframe::run_native(
         "Coiman IDE",
         native,
         Box::new(move |cc| {
+            if device_is_phone(app_bridge.android_app()) == Some(true) {
+                cc.egui_ctx.set_zoom_factor(0.75);
+            }
             let inner = coiman_ide::app::CodeApp::new(None, &cc.egui_ctx);
             Ok(Box::new(CoimanAndroidApp {
                 inner,
