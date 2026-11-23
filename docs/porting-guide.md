@@ -4,6 +4,7 @@ This comprehensive guide details the technical architecture, runtime bridges, an
 
 > [!TIP]
 > **Quick Navigation:**
+> - If you are **new to Android platform concepts** (Manifest, Scoped Storage/SAF, NDK, JNI, Vulkan, IME), read [**Section 10: Core Android Concepts & Learning Guide**](#10-core-android-concepts--learning-guide-for-rust-developers) or the dedicated [**`docs/android-fundamentals.md`**](android-fundamentals.md).
 > - If you want to **port a desktop Rust/egui application to Android**, jump straight to [**Section 7: In-Tree Porting of Rust/egui Applications**](#7-step-by-step-guide-in-tree-porting-of-rustegui-applications).
 > - If you maintain an **externally built Android app and want it listed in the Launcher**, jump straight to [**Section 8: Adding Community-Distributed Applications to the Launcher**](#8-adding-community-distributed-applications-to-the-launcher).
 
@@ -38,6 +39,7 @@ This comprehensive guide details the technical architecture, runtime bridges, an
   - [8.5 Step 4: Run Code Generators & Update Manifest Queries](#85-step-4-run-code-generators--update-manifest-queries)
   - [8.6 Step 5: Build and Test the Launcher](#86-step-5-build-and-test-the-launcher)
 - [9. Community Submission, Security Audits & Best Practices](#9-community-submission-security-audits--best-practices)
+- [10. Core Android Concepts & Learning Guide for Rust Developers](#10-core-android-concepts--learning-guide-for-rust-developers)
 
 ---
 
@@ -979,3 +981,23 @@ Open the launcher: your app will appear in the catalog. Tapping "Install" will d
    ```bash
    git commit -m "feat(ports): add myapp [build: myapp, launcher]"
    ```
+
+---
+
+## 10. Core Android Concepts & Learning Guide for Rust Developers
+
+For a complete deep-dive curriculum, architectural comparisons, and official Google/NDK/Rust-mobile links, see the dedicated companion guide:
+👉 [**`docs/android-fundamentals.md` (Android Fundamentals & Platform Architecture Guide)**](android-fundamentals.md)
+
+### Summary of Key Android Concepts
+
+| Concept | What It Is | Why It Matters When Porting Desktop Apps | Official Reference |
+| :--- | :--- | :--- | :--- |
+| **App Manifest (`AndroidManifest.xml`)** | Identity and capability declaration file for the Android operating system. | Defines the package ID, hardware features, orientation, permissions, and entrypoint activity. | [App Manifest](https://developer.android.com/guide/topics/manifest/manifest-intro) |
+| **Package Queries (`<queries>`)** | Android 11+ security declaration allowing an app to discover other installed apps. | The ArtCraft Launcher cannot detect if ported applications are installed on the device without declaring them in `<queries>`. | [Package Visibility](https://developer.android.com/training/package-visibility) |
+| **Scoped Storage & SAF** | Android storage sandboxing; direct POSIX file path access to user files is restricted. | Standard desktop file pickers (`rfd`) fail; apps must use the Storage Access Framework (`saf.rs`) to stream content via `ContentResolver`. | [Storage Guide](https://developer.android.com/training/data-storage) · [SAF Guide](https://developer.android.com/guide/topics/providers/document-provider) |
+| **Android NDK & JNI** | Native Development Kit compiling C/C++/Rust into ARM64 `.so` libraries, with JNI bridging native and Java runtimes. | Pure native Rust binaries cannot directly display dialogs or access Android OS services without JNI. | [NDK Guides](https://developer.android.com/ndk/guides) · [JNI Tips](https://developer.android.com/training/articles/perf-jni) |
+| **`NativeActivity` / `GameActivity`** | Android activity classes that connect OS window surfaces and inputs directly to native code loops. | Allows immediate-mode UI frameworks (`egui`) to render custom frames directly onto the device surface without Android views. | [GameActivity](https://developer.android.com/games/agdk/game-activity) · [android-activity](https://github.com/rust-mobile/android-activity) |
+| **Tile-Based GPUs & Vulkan** | Mobile GPUs (Mali, Adreno) use Tile-Based Deferred Rendering (TBDR); APIs include OpenGL ES and Vulkan. | Desktop shader pipelines must be tuned to prevent excessive bandwidth, depth buffer stalls, or thermal throttling. | [Vulkan on Android](https://developer.android.com/ndk/guides/graphics) · [wgpu](https://wgpu.rs/) |
+| **Hardware Video (`AMediaCodec`)** | Dedicated mobile video decoding silicon exposed via NDK C APIs. | CPU software decoding (software FFmpeg) causes thermal throttling and battery drain on mobile; video apps use `AMediaCodec`. | [AMediaCodec](https://developer.android.com/ndk/reference/group/media) |
+| **Virtual Keyboard (IME) & Insets** | Soft keyboards are independent system services that emit composed text and cover half the display. | The application must handle IME focus, 16 ms input polling, and dynamic viewport resizing to keep widgets visible above the keyboard. | [Window Insets](https://developer.android.com/develop/ui/views/layout/edge-to-edge) · [Touch & Input](https://developer.android.com/develop/ui/views/touch-and-input/input-devices) |
