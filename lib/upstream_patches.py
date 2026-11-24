@@ -1748,6 +1748,27 @@ elif app == "vectorcraft":
         fixed.append("crates/render/src/images.rs (Android meminfo)")
     fix_all("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
     fix("crates/render/src/images.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos", target_os = "freebsd")))]')
+    if fix(
+        "crates/ui-egui/src/dialogs/modal.rs",
+        "        .show(ctx, add)?;\n    keep_rest(ctx, id, shown.response.rect.height());\n    shown.inner",
+        "        .show(ctx, add)?;\n"
+        "    let dialog_layer = shown.response.layer_id;\n"
+        "    let popups: Vec<Id> = ctx.viewport(|vp| {\n"
+        "        vp.this_pass\n"
+        "            .layers\n"
+        "            .get(&dialog_layer)\n"
+        "            .map_or_else(Vec::new, |layer| layer.open_popups.iter().copied().collect())\n"
+        "    });\n"
+        "    for popup_id in popups {\n"
+        "        let popup_layer = egui::LayerId::new(egui::Order::Foreground, popup_id);\n"
+        "        if dialog_layer.order == popup_layer.order && dialog_layer != popup_layer {\n"
+        "            ctx.set_sublayer(dialog_layer, popup_layer);\n"
+        "        }\n"
+        "    }\n"
+        "    keep_rest(ctx, id, shown.response.rect.height());\n"
+        "    shown.inner",
+    ):
+        fixed.append("crates/ui-egui/src/dialogs/modal.rs (keep modal popups above modal dialog)")
 elif app == "lightcraft":
     if fix("crates/engine/src/memory.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/engine/src/memory.rs (Android meminfo)")

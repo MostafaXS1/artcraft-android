@@ -150,6 +150,32 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertIn('rayon = { workspace = true }', patched_content)
             self.assertIn('ndk = { version = "0.9"', patched_content)
 
+    def test_vectorcraft_modal_popup_sublayer_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            modal_rs = tmp_src / "crates" / "ui-egui" / "src" / "dialogs" / "modal.rs"
+            modal_rs.parent.mkdir(parents=True, exist_ok=True)
+            modal_rs.write_text(
+                "    let shown = egui::Window::new(title)\n"
+                "        .id(id)\n"
+                "        .order(egui::Order::Foreground)\n"
+                "        .show(ctx, add)?;\n"
+                "    keep_rest(ctx, id, shown.response.rect.height());\n"
+                "    shown.inner\n"
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "vectorcraft", "VectorCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("keep modal popups above modal dialog", result.stdout)
+            patched = modal_rs.read_text()
+            self.assertIn("layer.open_popups.iter()", patched)
+            self.assertIn("ctx.set_sublayer(dialog_layer, popup_layer);", patched)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
 
 if __name__ == "__main__":
     unittest.main()
