@@ -2,49 +2,49 @@
   "schema": 1,
   "repo": "storytold/vectorcraft",
   "branch": "main",
-  "head": "15001f7dfcd5c0677121a36c9de770e393516c81",
-  "head_date": "2026-11-23T01:24:58Z",
-  "commits": 19565,
+  "head": "3935fcb28cb19b5c9a5723f27ee22141f9df09d3",
+  "head_date": "2026-11-24T02:03:43Z",
+  "commits": 19588,
   "unattributed_commits": 14,
   "contributors": [
     {
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
-      "prs": 3152,
-      "commits": 8356,
-      "lines_added": 1159653,
-      "lines_deleted": 114707,
+      "prs": 3153,
+      "commits": 8357,
+      "lines_added": 1159958,
+      "lines_deleted": 114728,
       "binary_added": 15,
       "binary_deleted": 0,
       "first_commit": "2026-10-08T22:18:57Z",
-      "last_commit": "2026-11-22T01:31:08Z"
+      "last_commit": "2026-11-23T17:54:50Z"
     },
     {
       "login": "bflatastic",
       "people_entry": false,
       "github_name": null,
-      "prs": 790,
-      "commits": 7121,
-      "lines_added": 387866,
-      "lines_deleted": 67640,
+      "prs": 794,
+      "commits": 7126,
+      "lines_added": 541989,
+      "lines_deleted": 332166,
       "binary_added": 5,
       "binary_deleted": 0,
       "first_commit": "2026-10-02T15:22:29Z",
-      "last_commit": "2026-11-22T04:38:53Z"
+      "last_commit": "2026-11-24T02:03:43Z"
     },
     {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 168,
-      "commits": 310,
-      "lines_added": 32383,
-      "lines_deleted": 34537,
+      "prs": 171,
+      "commits": 313,
+      "lines_added": 32386,
+      "lines_deleted": 34539,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:42Z",
-      "last_commit": "2026-11-22T22:21:09Z"
+      "last_commit": "2026-11-23T19:45:47Z"
     },
     {
       "login": "echelon",
@@ -180,14 +180,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 25,
-      "commits": 87,
-      "lines_added": 9933,
-      "lines_deleted": 3862,
+      "prs": 28,
+      "commits": 100,
+      "lines_added": 10181,
+      "lines_deleted": 4390,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T16:21:10Z",
-      "last_commit": "2026-11-23T01:24:58Z"
+      "last_commit": "2026-11-23T06:33:44Z"
     },
     {
       "login": "vangel76",
@@ -2816,6 +2816,19 @@
       "last_commit": "2026-10-13T23:18:38Z"
     },
     {
+      "login": "mohamedwithai",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 320,
+      "lines_deleted": 2,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-23T23:22:04Z",
+      "last_commit": "2026-11-23T23:22:04Z"
+    },
+    {
       "login": "MorningFrog",
       "people_entry": false,
       "github_name": null,
@@ -3355,9 +3368,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 1494,
-      "lines_added": 567906,
-      "lines_deleted": 88561
+      "commits": 1495,
+      "lines_added": 568226,
+      "lines_deleted": 88563
     },
     {
       "id": "anthropic/claude-sonnet/5.5",

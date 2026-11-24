@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/deckcraft",
   "branch": "main",
-  "head": "7fbdc085ebfd6ded43abd3d12a87377a7a0fa852",
-  "head_date": "2026-11-22T22:59:10Z",
-  "commits": 2281,
+  "head": "9db2fa0ca994ad8ae8d9cc5032d860ae985477d5",
+  "head_date": "2026-11-23T22:45:43Z",
+  "commits": 2285,
   "unattributed_commits": 24,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 145,
-      "commits": 205,
-      "lines_added": 28139,
-      "lines_deleted": 86291,
+      "prs": 148,
+      "commits": 208,
+      "lines_added": 28142,
+      "lines_deleted": 86293,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T10:17:45Z",
-      "last_commit": "2026-11-21T17:25:33Z"
+      "last_commit": "2026-11-23T19:44:51Z"
     },
     {
       "login": "aiongg",
@@ -90,13 +90,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 12,
-      "commits": 69,
-      "lines_added": 2413,
-      "lines_deleted": 6846,
+      "commits": 70,
+      "lines_added": 2418,
+      "lines_deleted": 6847,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-11-01T20:36:45Z",
-      "last_commit": "2026-11-22T22:59:10Z"
+      "last_commit": "2026-11-23T22:45:43Z"
     },
     {
       "login": "MarekSpodBiedry",
@@ -944,6 +944,19 @@
       "last_commit": "2026-10-09T14:30:12Z"
     },
     {
+      "login": "gmrmad1",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 5,
+      "lines_deleted": 1,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-23T22:45:43Z",
+      "last_commit": "2026-11-23T22:45:43Z"
+    },
+    {
       "login": "hajdukste",
       "people_entry": false,
       "github_name": null,
@@ -1089,7 +1102,7 @@
     {
       "login": "Momentum96",
       "people_entry": true,
-      "github_name": "Jay",
+      "github_name": "JayG",
       "prs": 1,
       "commits": 1,
       "lines_added": 7,

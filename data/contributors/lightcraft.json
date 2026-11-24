@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "3200590acb7737624c3d62cd4a207e6d59902267",
-  "head_date": "2026-11-23T01:31:50Z",
-  "commits": 5651,
+  "head": "94219de04c01396922eb3f56c37a21529bcf187c",
+  "head_date": "2026-11-23T19:45:22Z",
+  "commits": 5665,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 130,
-      "commits": 422,
-      "lines_added": 25843,
-      "lines_deleted": 70880,
+      "prs": 133,
+      "commits": 425,
+      "lines_added": 25846,
+      "lines_deleted": 70882,
       "binary_added": 2,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:24Z",
-      "last_commit": "2026-11-22T21:57:48Z"
+      "last_commit": "2026-11-23T19:45:22Z"
     },
     {
       "login": "bflatastic",
@@ -76,14 +76,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 31,
-      "commits": 251,
-      "lines_added": 38243,
-      "lines_deleted": 4043,
+      "prs": 32,
+      "commits": 257,
+      "lines_added": 38418,
+      "lines_deleted": 4218,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-23T01:31:50Z"
+      "last_commit": "2026-11-23T19:39:04Z"
     },
     {
       "login": "radialmonster",
@@ -1150,6 +1150,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-12T14:15:08Z",
       "last_commit": "2026-10-13T10:38:21Z"
+    },
+    {
+      "login": "Pareilart",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 5,
+      "lines_added": 232,
+      "lines_deleted": 59,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-06T17:10:59Z",
+      "last_commit": "2026-11-09T11:43:54Z"
     },
     {
       "login": "pick2510",

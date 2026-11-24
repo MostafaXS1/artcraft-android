@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/figcraft",
   "branch": "main",
-  "head": "bbf7ad418f3e02d89546a6c7b044e51df67177f0",
-  "head_date": "2026-11-22T04:48:49Z",
-  "commits": 4677,
+  "head": "c01d391df75cc7a9f04bf3879722770727d89f8d",
+  "head_date": "2026-11-23T19:45:06Z",
+  "commits": 4680,
   "unattributed_commits": 18,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 133,
-      "commits": 232,
-      "lines_added": 21007,
-      "lines_deleted": 15337,
+      "prs": 136,
+      "commits": 235,
+      "lines_added": 21010,
+      "lines_deleted": 15339,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-15T23:53:22Z",
-      "last_commit": "2026-11-21T18:28:27Z"
+      "last_commit": "2026-11-23T19:45:06Z"
     },
     {
       "login": "Silvertree2010",

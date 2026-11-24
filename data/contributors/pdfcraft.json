@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/pdfcraft",
   "branch": "main",
-  "head": "993889aff1d29965a2fa86ebaaf6005386ef5ff7",
-  "head_date": "2026-11-23T01:29:51Z",
-  "commits": 6708,
+  "head": "6e910675c68dd5092e889065cfe8d0274c1b2742",
+  "head_date": "2026-11-23T21:07:14Z",
+  "commits": 7364,
   "unattributed_commits": 16,
   "contributors": [
     {
@@ -19,6 +19,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-13T10:58:39Z",
       "last_commit": "2026-11-20T11:10:17Z"
+    },
+    {
+      "login": "dylanmtaylor",
+      "people_entry": true,
+      "github_name": "Dylan M. Taylor",
+      "prs": 170,
+      "commits": 950,
+      "lines_added": 112479,
+      "lines_deleted": 248831,
+      "binary_added": 0,
+      "binary_deleted": 16,
+      "first_commit": "2026-10-11T15:51:25Z",
+      "last_commit": "2026-11-23T21:07:14Z"
     },
     {
       "login": "echelon",
@@ -97,19 +110,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-11T19:15:48Z",
       "last_commit": "2026-11-10T21:51:42Z"
-    },
-    {
-      "login": "dylanmtaylor",
-      "people_entry": true,
-      "github_name": "Dylan M. Taylor",
-      "prs": 163,
-      "commits": 295,
-      "lines_added": 27890,
-      "lines_deleted": 121879,
-      "binary_added": 0,
-      "binary_deleted": 16,
-      "first_commit": "2026-10-11T15:51:25Z",
-      "last_commit": "2026-11-22T23:47:33Z"
     },
     {
       "login": "alehel",
@@ -3258,6 +3258,19 @@
       "last_commit": "2026-10-19T21:27:00Z"
     },
     {
+      "login": "charlieruk",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 4,
+      "lines_deleted": 4,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-23T03:03:44Z",
+      "last_commit": "2026-11-23T03:03:44Z"
+    },
+    {
       "login": "Checkov23",
       "people_entry": false,
       "github_name": null,
@@ -4889,9 +4902,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 2256,
-      "lines_added": 606748,
-      "lines_deleted": 162462
+      "commits": 2259,
+      "lines_added": 608531,
+      "lines_deleted": 162620
     },
     {
       "id": "anthropic/claude-sonnet/5.5",
@@ -4912,6 +4925,15 @@
       "lines_deleted": 4457
     },
     {
+      "id": "anthropic/claude",
+      "company": "Anthropic",
+      "model": "Claude",
+      "version": "",
+      "commits": 71,
+      "lines_added": 11382,
+      "lines_deleted": 1286
+    },
+    {
       "id": "anthropic/claude-haiku/5.5",
       "company": "Anthropic",
       "model": "Claude Haiku",
@@ -4919,15 +4941,6 @@
       "commits": 68,
       "lines_added": 25264,
       "lines_deleted": 1414
-    },
-    {
-      "id": "anthropic/claude",
-      "company": "Anthropic",
-      "model": "Claude",
-      "version": "",
-      "commits": 66,
-      "lines_added": 11310,
-      "lines_deleted": 1267
     },
     {
       "id": "anthropic/claude-fable/5.1",
