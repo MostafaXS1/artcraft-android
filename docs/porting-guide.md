@@ -646,6 +646,57 @@ value = "myapp_android"
 > [!IMPORTANT]
 > The launcher intent filter must be declared **inline** (`intent_filter = [{ ... }]`), as `cargo-apk2` does not add one automatically and rejects non-inlined intent filter tables.
 
+#### Manifest Field Breakdown & Reference
+
+##### 1. Crate & Dynamic Library Configuration
+* **`name` / `version` / `edition` / `license`**: Standard Cargo crate identity. The crate name dictates the output filename: `myapp-android` compiles to `libmyapp_android.so`.
+* **`crate-type = ["cdylib"]`**: **Critical requirement for Android.** Desktop Rust compiles to standalone binaries (`bin`). Android cannot execute arbitrary native binaries directly; it requires a C-compatible dynamic shared library (`.so`) that the Android runtime (ART/JVM) can load via `dlopen()` or `System.loadLibrary()`.
+
+##### 2. Dependencies & Runtime Bridges
+* **`myapp = { path = "../.." }`**: The relative path to the upstream desktop application crate being ported.
+* **`eframe`**: The official framework wrapper for `egui`:
+  * `glow`: Enables the OpenGL ES 3.0+ rendering backend on Android (avoiding desktop-only OpenGL assumptions).
+  * `persistence`: Enables saving and restoring app state (canvas layouts, settings) across app launches.
+* **`jni`**: Java Native Interface bindings allowing Rust to invoke Android platform APIs (display metrics, clipboard, Storage Access Framework document streams).
+* **`android-activity`**: The official `rust-mobile` event loop bridge. It hooks into Android's `NativeActivity` (or `GameActivity`), initializes the window surface, and provides the `android_main(app: AndroidApp)` entrypoint.
+* **`android_logger`**: Redirects standard Rust logging macros (`log::info!`, `log::error!`) directly into the Android system log buffer (`logcat`).
+
+##### 3. Android Package Metadata (`[package.metadata.android]`)
+* **`package = "com.artcraft.myapp"`**: The **Application ID** (reverse-domain notation). Uniquely identifies the app across the entire Android operating system and package manager.
+* **`apk_name = "myapp-0.1.0"`**: The base filename stem of the generated APK (e.g. `output/myapp-0.1.0.apk`).
+* **`build_targets = ["aarch64-linux-android"]`**: CPU architectures to cross-compile for. `aarch64-linux-android` targets 64-bit ARM devices (standard for modern Android phones and tablets).
+* **`resources = "res"`**: Path to the folder containing Android resources (XML layout files, themes, colors, and mipmap icons in `res/`).
+* **`java_sources = "java"`**: Path to custom Java/Kotlin source code (such as `SafActivity.java`). When declared, the build system automatically selects `cargo-apk2` to compile Java sources into `classes.dex` and package them into the APK.
+
+##### 4. Android SDK Levels (`[package.metadata.android.sdk]`)
+* **`min_sdk_version = 28`**: Minimum Android OS version required to install the APK. API 28 corresponds to **Android 9.0 (Pie)**. Devices running older versions will refuse installation.
+* **`target_sdk_version = 35`**: The Android version the application was tested against (API 35 = **Android 15**). Tells Android to enable modern platform behaviors, Scoped Storage rules, and edge-to-edge layout enforcement.
+
+##### 5. Permissions (`[[package.metadata.android.uses_permission]]`)
+* **`name`**: The Android system permission string requested in `AndroidManifest.xml`.
+* **`max_sdk_version = 32`**: Restricts the permission request to Android 12L (API 32) and older. On Android 13+ (API 33+), general storage permissions are deprecated in favor of Scoped Storage and granular media permissions, so modern OS versions will not prompt for it.
+* **`android.permission.INTERNET`**: Grants network socket access for release checking and asset downloads.
+
+##### 6. Application Branding & Theme (`[package.metadata.android.application]`)
+* **`label = "MyApp"`**: The human-readable application name displayed on the Android home screen launcher and in system settings.
+* **`theme = "@style/Theme.Artcraft"`**: References the XML style defined in `res/values/styles.xml` (removes the default Android title bar, configures window background colors, and sets up fullscreen display).
+* **`icon = "@mipmap/ic_launcher"`**: The launcher icon resource path inside `res/mipmap/`.
+
+##### 7. Activity Configuration (`[[package.metadata.android.application.activity]]`)
+* **`name = ".MyAppActivity"`**: The Activity class. Use your custom Java subclass (e.g. for SAF or fullscreen hooks) or `"android.app.NativeActivity"` if running pure native code without Java sources.
+* **`config_changes`**: **Critical for native Rust games and desktop apps.** By default, Android kills and restarts the entire activity whenever the screen is rotated, a hardware keyboard is attached, or the theme changes. Declaring these flags tells Android: *"Do not restart my process; let my native code handle these events dynamically."*
+* **`window_soft_input_mode = "stateAlwaysHidden|adjustResize"`**:
+  * `stateAlwaysHidden`: Prevents the virtual soft keyboard from opening automatically when the app starts.
+  * `adjustResize`: Resizes the app window when the keyboard opens so text inputs remain visible above the keyboard.
+* **`launch_mode = "singleTask"`**: Prevents Android from creating duplicate instances of the application when launched multiple times.
+* **`orientation = "unspecified"`**: Allows the window to adapt to both portrait and landscape orientations (can be set to `"sensorLandscape"` for video editors).
+* **`exported = true`**: Allows the Android OS launcher to launch this Activity.
+* **`intent_filter`**: Designates this activity as the primary entrypoint shown on the Android home screen (`android.intent.action.MAIN` + `android.intent.category.LAUNCHER`). Must be declared inline (`intent_filter = [{ ... }]`) for `cargo-apk2` compatibility.
+
+##### 8. Native Library Linkage (`[[package.metadata.android.application.activity.meta_data]]`)
+* **`name = "android.app.lib_name"`**: A reserved metadata key recognized by `NativeActivity` and `GameActivity`.
+* **`value = "myapp_android"`**: The base name of the shared library to load (`libmyapp_android.so`). When starting the activity, Android loads this library via `dlopen()` and invokes the exported `android_main` symbol.
+
 ---
 
 ### 7.4 Step 2: Implement Native Entrypoint (`adapters/<app>/src/lib.rs`)
