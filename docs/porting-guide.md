@@ -787,6 +787,110 @@ fn android_main(android_app: AndroidApp) {
 }
 ```
 
+#### What Developers Need to Modify in `src/lib.rs`
+
+When implementing the Android shell entrypoint in `src/lib.rs`, adapt the template to your target desktop application using this reference:
+
+##### 1. Upstream Struct Types & Imports
+Replace the placeholder `myapp::MyApp` with your upstream crate and application struct:
+```rust
+// Replace placeholder:
+struct MyAppAndroid {
+    inner: myapp::MyApp,
+}
+
+// With your actual upstream types, for example:
+struct PaperCraftAndroid {
+    inner: papercraft::app::PaperCraftApp,
+    _bridge: Option<saf::Bridge>, // include if using SAF file dialogs
+}
+```
+
+##### 2. Constructor Call in `eframe::run_native`
+Desktop egui applications initialize their state differently. Update the closure passed to `eframe::run_native`:
+```rust
+Box::new(move |cc| {
+    // Standard eframe (CreationContext):
+    let inner = myapp::MyApp::new(cc);
+
+    // Or if upstream takes custom parameters (e.g. Ferrite):
+    // let inner = FerriteApp::new(cc, false);
+
+    // Or if upstream implements Default:
+    // let inner = myapp::MyApp::default();
+
+    Ok(Box::new(MyAppAndroid { inner }))
+})
+```
+
+##### 3. Identifiers: Logcat Tag & Window Title
+Ensure logging and window titles reflect your application:
+```rust
+// In android_logger::init_once:
+.with_tag("com.artcraft.myapp") // Change to your package ID (e.g. "com.artcraft.papercraft")
+
+// In eframe::NativeOptions:
+.with_title("MyApp")            // Change to your application title
+```
+
+##### 4. Matching the `eframe::App` Trait (`update` vs `logic`/`ui`)
+Depending on the architecture of the upstream desktop app, implement either the standard `update` method or the split `logic`/`ui` lifecycle:
+
+* **Standard `eframe` Apps (`update`):**
+  Most egui applications implement `update`:
+  ```rust
+  impl eframe::App for MyAppAndroid {
+      fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+          system_fonts::install_system_fonts(ctx);
+          self.inner.update(ctx, frame);
+          mobile_text_bar::show_text_bar(ctx);
+      }
+
+      fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+          touch_gestures::process_raw_input(ctx, raw_input);
+          mobile_text_bar::process_raw_input(ctx, raw_input);
+      }
+  }
+  ```
+* **Split Architecture Apps (`logic` and `ui`):**
+  Craft suite apps separate state updates from drawing:
+  ```rust
+  impl eframe::App for MyAppAndroid {
+      fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+          system_fonts::install_system_fonts(ctx);
+          self.inner.logic(ctx, frame);
+      }
+
+      fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+          self.inner.ui(ui, frame);
+          mobile_text_bar::show_text_bar(ui.ctx());
+      }
+  }
+  ```
+
+##### 5. Screen Density & Display Zoom (High-DPI Devices)
+On high-DPI Android phones and tablets, desktop egui widgets often render too large. You can tune the scale factor in the `run_native` closure:
+```rust
+Box::new(move |cc| {
+    // Scale egui elements for tablet/phone viewports (e.g. 75% or 80%):
+    cc.egui_ctx.set_zoom_factor(0.80);
+
+    let inner = myapp::MyApp::new(cc);
+    Ok(Box::new(MyAppAndroid { inner }))
+})
+```
+
+##### 6. Storage & Path Persistence (`XDG_*` Directories)
+Desktop applications assume standard desktop paths (`~/.config/myapp` or `%APPDATA%`). On Android, `install_persist_env(&android_app)` redirects `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME` to app-private or media storage. **Keep this helper function intact** to ensure configurations and caches persist properly without permission denials.
+
+##### 7. Storage Access Framework (SAF) Bridge (Optional)
+If your app opens or saves user documents, initialize the SAF bridge before launching `eframe`:
+```rust
+let bridge = saf::Bridge::new(&android_app);
+bridge.request_storage_permission();
+let app_bridge = bridge.clone_ref();
+```
+
 ---
 
 ### 7.5 Step 3: Implement Staging Script (`adapters/<app>/prepare.sh`)
