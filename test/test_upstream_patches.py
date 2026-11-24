@@ -153,12 +153,21 @@ class TestUpstreamPatches(unittest.TestCase):
     def test_photocraft_cursor_and_persistence_patches(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_src = Path(tmp_dir)
+            mem_system = tmp_src / "crates" / "raster" / "src" / "memory" / "system.rs"
             tool_cursor = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "tool_cursor.rs"
             last_brush = tmp_src / "crates" / "ui-egui" / "src" / "last_brush.rs"
             tool_memory = tmp_src / "crates" / "ui-egui" / "src" / "tool_memory.rs"
             app_rs = tmp_src / "crates" / "ui-egui" / "src" / "app.rs"
-            for f in (tool_cursor, last_brush, tool_memory, app_rs):
+            for f in (mem_system, tool_cursor, last_brush, tool_memory, app_rs):
                 f.parent.mkdir(parents=True, exist_ok=True)
+
+            mem_system.write_text(
+                '#[cfg(target_os = "linux")]\nmod a {}\n'
+                '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))] fn b() {}\n'
+                '#[cfg(target_os = "linux")] fn c() {}\n'
+                '#[cfg(not(target_os = "linux"))] fn d() {}\n'
+                '#[cfg(target_os = "linux")] mod linux {}\n'
+            )
 
             tool_cursor.write_text(
                 'fn native(ctx: &egui::Context) -> bool {\n'
@@ -222,6 +231,10 @@ class TestUpstreamPatches(unittest.TestCase):
             cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "photocraft", "PhotoCraft"]
             result = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            mem_patched = mem_system.read_text()
+            self.assertNotIn('#[cfg(target_os = "linux")]', mem_patched)
+            self.assertNotIn('#[cfg(not(target_os = "linux"))]', mem_patched)
+            self.assertEqual(mem_patched.count('#[cfg(any(target_os = "linux", target_os = "android"))]'), 3)
             self.assertIn('target_os = "android"', tool_cursor.read_text())
             self.assertIn("ctx.request_repaint()", last_brush.read_text())
             self.assertIn("fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context)", tool_memory.read_text())

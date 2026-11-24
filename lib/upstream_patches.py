@@ -58,10 +58,10 @@ if app == "photocraft":
         '            export_presets: take(&mut m, "export_presets"),\n',
     ):
         fixed.append("crates/engine/src/presets/mod.rs")
-    if fix("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+    if fix_all("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
     # Android's winit backend stubs out custom cursor bitmaps (`create_custom_cursor` and
     # `set_cursor` are no-ops), so uploading a native cursor image leaves only the system stylus dot
     # and skips painting the brush tip outline on the canvas. Paint tool cursors on canvas instead.
