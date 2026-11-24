@@ -179,7 +179,7 @@ flowchart LR
 
 #### 1. Checking & Auto-Fixing Environment (`cargo craft android doctor`)
 
-Before building, developers can run `doctor` to inspect their local toolchains. It validates the Android SDK, NDK, JDK, Rust targets, and ADB connections.
+Before building, developers can run `doctor` to inspect their local toolchains. It validates the Android SDK, NDK, JDK, Rust targets, and ADB connections:
 
 ```bash
 # Standard diagnostic check
@@ -376,7 +376,7 @@ cargo craft android devices
 
 # Deploy to specific device ID or emulator:
 cargo craft android run --device emulator-5554
-cargo craft android run --device RFCX101XYZ (Galaxy Tab S9)
+cargo craft android run --device RFCX101XYZ # (Galaxy Tab S9)
 
 # -------------------------------------------------------------------------
 # C. Clear App Data Before Running (Clean State Testing)
