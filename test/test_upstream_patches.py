@@ -166,7 +166,13 @@ class TestUpstreamPatches(unittest.TestCase):
                 '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))] fn b() {}\n'
                 '#[cfg(target_os = "linux")] fn c() {}\n'
                 '#[cfg(not(target_os = "linux"))] fn d() {}\n'
-                '#[cfg(target_os = "linux")] mod linux {}\n'
+                '#[cfg(target_os = "linux")] mod linux {\n'
+                '        let (cgroup_ram, cgroup_swap) = match cgroup_limits(proc_root, sys_root) {\n'
+                '            CgroupLimits::NotConstrained => (None, None),\n'
+                '            CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+                '            CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+                '        };\n'
+                '}\n'
             )
 
             tool_cursor.write_text(
@@ -235,6 +241,7 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertNotIn('#[cfg(target_os = "linux")]', mem_patched)
             self.assertNotIn('#[cfg(not(target_os = "linux"))]', mem_patched)
             self.assertEqual(mem_patched.count('#[cfg(any(target_os = "linux", target_os = "android"))]'), 3)
+            self.assertIn('if cfg!(target_os = "android")', mem_patched)
             self.assertIn('target_os = "android"', tool_cursor.read_text())
             self.assertIn("ctx.request_repaint()", last_brush.read_text())
             self.assertIn("fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context)", tool_memory.read_text())

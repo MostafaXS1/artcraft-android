@@ -62,6 +62,29 @@ if app == "photocraft":
         fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
     fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
     fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
+    # Android's untrusted_app SELinux sandbox blocks reading /proc/self/cgroup and /sys/fs/cgroup,
+    # causing `cgroup_limits` to return `CgroupLimits::Unreadable` (`available_ram = Some(0)`) and
+    # hard-refuse opening files. Skip cgroup probing on Android so `/proc/meminfo` (or `UNKNOWN` if
+    # unreadable) drives the budget instead of `Some(0)`.
+    if fix(
+        "crates/raster/src/memory/system.rs",
+        '        let (cgroup_ram, cgroup_swap) = match cgroup_limits(proc_root, sys_root) {\n'
+        '            CgroupLimits::NotConstrained => (None, None),\n'
+        '            CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '            CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '        };',
+        '        let (cgroup_ram, cgroup_swap) = if cfg!(target_os = "android") {\n'
+        '            let _ = sys_root;\n'
+        '            (None, None)\n'
+        '        } else {\n'
+        '            match cgroup_limits(proc_root, sys_root) {\n'
+        '                CgroupLimits::NotConstrained => (None, None),\n'
+        '                CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '                CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '            }\n'
+        '        };',
+    ):
+        fixed.append("crates/raster/src/memory/system.rs (skip cgroup on Android)")
     # Android's winit backend stubs out custom cursor bitmaps (`create_custom_cursor` and
     # `set_cursor` are no-ops), so uploading a native cursor image leaves only the system stylus dot
     # and skips painting the brush tip outline on the canvas. Paint tool cursors on canvas instead.
