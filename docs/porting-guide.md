@@ -7,6 +7,7 @@ This comprehensive guide details the technical architecture, runtime bridges, an
 > - If you are **new to Android platform concepts** (Manifest, Scoped Storage/SAF, NDK, JNI, Vulkan, IME), read [**Section 10: Core Android Concepts & Learning Guide**](#10-core-android-concepts--learning-guide-for-rust-developers) or the dedicated [**`docs/android-fundamentals.md`**](android-fundamentals.md).
 > - If you want to **port a desktop Rust/egui application to Android**, jump straight to [**Section 7: In-Tree Porting of Rust/egui Applications**](#7-step-by-step-guide-in-tree-porting-of-rustegui-applications).
 > - If you maintain an **externally built Android app and want it listed in the Launcher**, jump straight to [**Section 8: Adding Community-Distributed Applications to the Launcher**](#8-adding-community-distributed-applications-to-the-launcher).
+> - For our architectural roadmap to turn this porting system into a generalized framework (`cargo-craft-android` & GitHub Action), see [**`docs/framework-proposal.md`**](framework-proposal.md).
 
 ---
 
