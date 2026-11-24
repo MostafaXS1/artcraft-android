@@ -150,6 +150,89 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertIn('rayon = { workspace = true }', patched_content)
             self.assertIn('ndk = { version = "0.9"', patched_content)
 
+    def test_photocraft_cursor_and_persistence_patches(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            tool_cursor = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "tool_cursor.rs"
+            last_brush = tmp_src / "crates" / "ui-egui" / "src" / "last_brush.rs"
+            tool_memory = tmp_src / "crates" / "ui-egui" / "src" / "tool_memory.rs"
+            app_rs = tmp_src / "crates" / "ui-egui" / "src" / "app.rs"
+            for f in (tool_cursor, last_brush, tool_memory, app_rs):
+                f.parent.mkdir(parents=True, exist_ok=True)
+
+            tool_cursor.write_text(
+                'fn native(ctx: &egui::Context) -> bool {\n'
+                '    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)\n'
+                '}\n'
+            )
+            last_brush.write_text(
+                'pub fn persist(app: &mut PhotocraftApp, ctx: &egui::Context) {\n'
+                '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+                '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+                '    }\n'
+                '}\n'
+            )
+            tool_memory.write_text(
+                '    persist_brushes(app);\n'
+                '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+                '        return;\n'
+                '    }\n'
+                '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+                '    let now = changed(&app.ui.tool_options);\n'
+                '    if app.session.prefs().tool_options != now {\n'
+                '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+                '    }\n'
+                '}\n'
+                'fn persist_brushes(app: &mut PhotocraftApp) {\n'
+                '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+                '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+                '        return;\n'
+                '    }\n'
+                '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+                '    let mut saved = Map::new();\n'
+                '    for (tool, brush) in brushes {\n'
+                '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+                '        if *tool == owner {\n'
+                '            continue;\n'
+                '        }\n'
+                '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+                '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+                '            saved.insert(key, v);\n'
+                '        }\n'
+                '    }\n'
+                '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+                '    let now = match serde_json::to_value(owner) {\n'
+                '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+                '        _ => Value::Null,\n'
+                '    };\n'
+                '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+                '    if app.session.prefs().tool_brushes != now {\n'
+                '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+                '    }\n'
+                '}\n'
+            )
+            app_rs.write_text(
+                'impl eframe::App for PhotocraftApp {\n'
+                '    fn on_exit(&mut self) {\n'
+                '        let _ = tool_memory::save_on_exit(self);\n'
+                '    }\n'
+                '}\n'
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "photocraft", "PhotoCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn('target_os = "android"', tool_cursor.read_text())
+            self.assertIn("ctx.request_repaint()", last_brush.read_text())
+            self.assertIn("fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context)", tool_memory.read_text())
+            self.assertEqual(tool_memory.read_text().count("ctx.request_repaint()"), 2)
+            self.assertIn("pub fn flush_persistence(&mut self)", app_rs.read_text())
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -441,7 +441,9 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
     let prefs_bridge = bridge.clone_for_services();
     let load_prefs_path = prefs_path.clone();
 
-    let recovery_dir = prefs_path.parent().map(|p| p.join("recovery"));
+    let app_dir = prefs_path.parent().map(Path::to_path_buf);
+    let recovery_dir = app_dir.as_ref().map(|p| p.join("recovery"));
+    let presets_dir = app_dir.map(|p| p.join("Presets"));
     let recover_dir = recovery_dir.clone();
     let store: SharedRecovery = Rc::new(RefCell::new(recovery_dir.map(RecoveryStore::new)));
     let (s1, s2, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone());
@@ -568,6 +570,7 @@ fn services(bridge: AndroidFileBridge, picker: Arc<PickerState>, prefs_path: Pat
         adopt_autosave: Some(Box::new(move |id: u64, key: &str| {
             let _ = with_store(&store, |s| s.adopt(id, key));
         })),
+        preset_store: presets_dir.map(photocraft_engine::preset_store::open_dir_async),
         ..Services::default()
     }
 }
@@ -850,6 +853,7 @@ struct PhotoCraftAndroidApp {
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
     persist_last: Option<std::time::Instant>,
+    focus_lost_flush: bool,
     _mcp: Option<mcp_http::Endpoint>,
 }
 
@@ -1003,10 +1007,14 @@ impl PhotoCraftAndroidApp {
             return;
         }
         self.persist_last = Some(now);
-        self.persist_now();
+        self.inner.session.sync_preset_store();
+        if let Some(flush) = self.inner.services.flush_autosaves.as_mut() {
+            let _ = flush();
+        }
     }
 
     fn persist_now(&mut self) {
+        self.inner.flush_persistence();
         if let Some(flush) = self.inner.services.flush_autosaves.as_mut() {
             let _ = flush();
         }
@@ -1108,6 +1116,10 @@ impl eframe::App for PhotoCraftAndroidApp {
         let is_phone = ctx.content_rect().width() < 600.0;
         self.inner.compact_layout = is_phone;
         self.inner.logic(ctx, frame);
+        if self.focus_lost_flush {
+            self.focus_lost_flush = false;
+            self.persist_now();
+        }
         if self.inner.session.has_jobs() || !self.inner.jobs.opens.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
@@ -1130,6 +1142,8 @@ impl eframe::App for PhotoCraftAndroidApp {
             android_activity::hardware_keyboard_connected(),
         );
         if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false))) {
+            photocraft_ui_egui::prefs_ui::autosave_now(&mut self.inner);
+            self.focus_lost_flush = true;
             self.persist_now();
         }
         self.inner.raw_input_hook(ctx, raw);
@@ -1137,6 +1151,7 @@ impl eframe::App for PhotoCraftAndroidApp {
 
     fn on_exit(&mut self) {
         self.persist_now();
+        self.inner.on_exit();
     }
 }
 
@@ -1242,6 +1257,7 @@ fn android_main(android_app: AndroidApp) {
             .with_drag_and_drop(true),
         renderer: eframe::Renderer::Wgpu,
         android_app: Some(android_app),
+        persistence_path: prefs_path.parent().map(|dir| dir.join("ui.ron")),
         ..Default::default()
     };
     // The adapter's real texture and buffer limits, so large documents stay on the GPU canvas;
@@ -1354,6 +1370,7 @@ fn android_main(android_app: AndroidApp) {
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
                 persist_last: None,
+                focus_lost_flush: false,
                 _mcp,
             }))
         }),

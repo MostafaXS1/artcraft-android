@@ -1118,7 +1118,9 @@ public final class PhotoCraftActivity extends NativeActivity {
             try {
                 String name = displayName(uri);
                 if (name == null || name.trim().isEmpty()) name = suggestedNames.getOrDefault(id, "Untitled.pcraft");
+                name = extensionLast(name);
                 name = keepSuggestedExtension(name, suggestedNames.get(id));
+                uri = renameDocument(uri, name);
                 File stage = newStageFile(name, uri);
                 rememberUri(stage, uri);
                 enqueueSave(id, stage.getAbsolutePath());
@@ -1204,11 +1206,20 @@ public final class PhotoCraftActivity extends NativeActivity {
 
     private String uriForSibling(String path) {
         String stem = stagedStem(path);
+        File targetFile = new File(path);
+        String targetName = targetFile.getName();
+        File targetParent = targetFile.getParentFile();
         try {
             for (Map.Entry<String, ?> entry : getSharedPreferences(PREFS, MODE_PRIVATE).getAll().entrySet()) {
                 if (!entry.getKey().startsWith("uri:") || !(entry.getValue() instanceof String uriText)) continue;
                 String staged = entry.getKey().substring("uri:".length());
                 if (stagedStem(staged).equals(stem)) return uriText;
+                File stagedFile = new File(staged);
+                File stagedParent = stagedFile.getParentFile();
+                boolean sameParent = targetParent == null ? stagedParent == null : targetParent.equals(stagedParent);
+                if (sameParent && targetName.startsWith(stagedFile.getName() + ".")) {
+                    return uriText;
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not look up a staged document", e);
@@ -1224,6 +1235,43 @@ public final class PhotoCraftActivity extends NativeActivity {
         int suggestedDot = suggested.lastIndexOf('.');
         if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
         return name + suggested.substring(suggestedDot);
+    }
+
+    /**
+     * Move a duplicate-file counter added by the Android picker after the extension (e.g.
+     * {@code Presets.pcpresets (1)}) ahead of the extension ({@code Presets (1).pcpresets}) so
+     * the app keeps the real extension and maps back to the SAF document.
+     */
+    private static String extensionLast(String name) {
+        if (name == null) return name;
+        int close = name.lastIndexOf(')');
+        if (close != name.length() - 1) return name;
+        int open = name.lastIndexOf('(', close);
+        if (open <= 0) return name;
+        String counter = name.substring(open);
+        String head = name.substring(0, open).trim();
+        int dot = head.lastIndexOf('.');
+        if (dot <= 0) return name;
+        return head.substring(0, dot) + " " + counter + head.substring(dot);
+    }
+
+    private Uri renameDocument(Uri uri, String name) {
+        try {
+            String current = displayName(uri);
+            if (current == null || current.equals(name)) return uri;
+            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, name);
+            if (renamed == null) return uri;
+            try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(renamed, "rw")) {
+                return renamed;
+            } catch (Exception e) {
+                try {
+                    DocumentsContract.renameDocument(getContentResolver(), renamed, current);
+                } catch (Exception ignored) { }
+                return uri;
+            }
+        } catch (Exception e) {
+            return uri;
+        }
     }
 
     /**

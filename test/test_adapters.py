@@ -143,6 +143,34 @@ class TestAdapters(unittest.TestCase):
         self.assertNotIn("source: egui::MouseWheelSource::", regex_applied)
         self.assertIn("phase: TouchPhase::Move,", regex_applied)
 
+    def test_photocraft_preset_store_and_persistence_wiring(self):
+        """Verify PhotoCraft wires preset_store, persistence flushing, ui.ron, and SAF save naming."""
+        pc_lib = (ADAPTERS_DIR / "photocraft" / "src" / "lib.rs").read_text()
+        pc_java = (
+            ADAPTERS_DIR
+            / "photocraft"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "photocraft"
+            / "PhotoCraftActivity.java"
+        ).read_text()
+
+        self.assertIn("photocraft_engine::preset_store::open_dir_async", pc_lib)
+        self.assertIn("preset_store:", pc_lib)
+        self.assertIn("self.inner.flush_persistence()", pc_lib)
+        self.assertIn("self.inner.on_exit()", pc_lib)
+        self.assertIn("autosave_now(&mut self.inner)", pc_lib)
+        self.assertIn("self.inner.session.sync_preset_store()", pc_lib)
+        self.assertIn('dir.join("ui.ron")', pc_lib)
+
+        for symbol in (
+            "extensionLast",
+            "renameDocument",
+            'startsWith(stagedFile.getName() + ".")',
+        ):
+            self.assertIn(symbol, pc_java, f"Missing {symbol} in PhotoCraftActivity.java")
+
 
 if __name__ == "__main__":
     unittest.main()
