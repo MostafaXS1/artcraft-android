@@ -802,7 +802,11 @@ impl<T: 'static> EventLoop<T> {
                             self.gesture = Gesture::Pinch;
                         }
                     }
-                    Gesture::Pinch => {}
+                    Gesture::Pinch => {
+                        if angle_change > 2.0 * ROTATION_DEADZONE_RAD {
+                            self.gesture = Gesture::Rotate;
+                        }
+                    }
                 }
 
                 match self.gesture {
@@ -813,10 +817,10 @@ impl<T: 'static> EventLoop<T> {
                         // The zoom is relative to the last step, so a pinch that starts at the
                         // deadzone's edge does not jump: the spread change that got us here is
                         // the deadzone's, and the zoom starts from where the fingers are now.
-                        let last = self.gesture_spread.replace(new_spread).unwrap_or(new_spread);
+                        let last = self.gesture_spread.replace(new_spread).unwrap_or(origin_spread);
                         let factor = if last > 0.0 { new_spread / last } else { 1.0 };
                         if angle_change > ROTATION_DEADZONE_RAD {
-                            let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(new_angle);
+                            let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(origin_angle);
                             let rot_delta = wrap_angle(new_angle - last_angle);
                             let rot_deg = -rot_delta.to_degrees() as f32;
                             GestureStep::PinchAndRotate {
@@ -831,11 +835,11 @@ impl<T: 'static> EventLoop<T> {
                         if let Some(seq) = &mut self.touch_seq {
                             seq.gestured = true;
                         }
-                        let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(new_angle);
+                        let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(origin_angle);
                         let rot_delta = wrap_angle(new_angle - last_angle);
                         let rot_deg = -rot_delta.to_degrees() as f32;
-                        if spread_change > 2.0 * PINCH_DEADZONE_PX {
-                            let last = self.gesture_spread.replace(new_spread).unwrap_or(new_spread);
+                        if spread_change > PINCH_DEADZONE_PX {
+                            let last = self.gesture_spread.replace(new_spread).unwrap_or(origin_spread);
                             let factor = if last > 0.0 { new_spread / last } else { 1.0 };
                             GestureStep::PinchAndRotate {
                                 factor,

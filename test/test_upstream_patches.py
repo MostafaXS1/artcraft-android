@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCHES_SCRIPT = ROOT / "lib" / "upstream_patches.py"
+SCROLLING_SCRIPT = ROOT / "lib" / "scrolling.sh"
 
 
 class TestUpstreamPatches(unittest.TestCase):
@@ -274,6 +275,71 @@ class TestUpstreamPatches(unittest.TestCase):
             patched = modal_rs.read_text()
             self.assertIn("layer.open_popups.iter()", patched)
             self.assertIn("ctx.set_sublayer(dialog_layer, popup_layer);", patched)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
+    def test_vectorcraft_two_finger_rotation_and_scrolling_patches(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            input_rs = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "input.rs"
+            view_rs = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "view.rs"
+            input_rs.parent.mkdir(parents=True, exist_ok=True)
+            input_rs.write_text(
+                "    if resp.hovered() {\n"
+                "        if (factor - 1.0).abs() > 1e-6\n"
+                "            && let (Some(p), Some(vm)) = (hover, app.view_mut())\n"
+                "        {\n"
+                "            zoom_about(vm, rect, p, vm.zoom * factor);\n"
+                "        }\n"
+                "        if scroll != egui::Vec2::ZERO {\n"
+                "            scroll_view(app, ui, scroll);\n"
+                "        }\n"
+                "        if let Some(p) = hover\n"
+                "            && let Some(deg) = trackpad_turn(ui, app.session.prefs.trackpad_rotate_view)\n"
+                "            && let Some(vm) = app.view_mut()\n"
+                "        {\n"
+                "            rotate_about(vm, rect, p, deg);\n"
+                "        }\n"
+                "    }\n"
+            )
+            view_rs.write_text(
+                "    let (deg, now) = ui.input(|i| {\n"
+                "        let rad: f32 =\n"
+                "            if i.multi_touch().is_some() { 0.0 } else { i.events.iter().map(|e| if let egui::Event::Rotate(r) = e { *r } else { 0.0 }).sum() };\n"
+                "        (f64::from(rad).to_degrees(), i.time)\n"
+                "    });\n"
+                "    let turn = if t.turning {\n"
+                "        Some(deg)\n"
+                "    } else if t.total.abs() >= ROTATE_DEAD_ZONE {\n"
+                "        t.turning = true;\n"
+                "        Some(t.total)\n"
+                "    } else {\n"
+                "        None\n"
+                "    };\n"
+                "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
+                "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
+                "                    scroll.x += d.x;\n"
+                "                } else {\n"
+            )
+
+            cmd = ["bash", str(SCROLLING_SCRIPT), str(tmp_src), "vectorcraft", "VectorCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("touch rotation and zoom pivot", result.stdout)
+            self.assertIn("touch rotation recognition", result.stdout)
+            self.assertIn("touch rotation responsiveness", result.stdout)
+            self.assertIn("trackpad/touch 2-finger panning", result.stdout)
+
+            patched_input = input_rs.read_text()
+            self.assertIn("let pivot = hover.or_else(|| pointer.interact_pos())", patched_input)
+            self.assertIn("rotate_about(vm, rect, pivot, deg);", patched_input)
+
+            patched_view = view_rs.read_text()
+            self.assertIn("t.turning || cfg!(target_os = \"android\")", patched_view)
+            self.assertIn("*source == egui::MouseWheelSource::Trackpad || cfg!(target_os = \"android\")", patched_view)
 
             # Idempotent on re-run
             result2 = subprocess.run(cmd, capture_output=True, text=True)

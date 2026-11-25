@@ -722,7 +722,90 @@ elif app == "photocraft":
         fixed.append("crates/ui-egui/src/dialogs/liquify_ui.rs (handle ZoomAndPan)")
 
 elif app == "vectorcraft":
-    # 2. Fluid 2-finger pan on touchscreens/trackpads instead of converting vertical drag to zoom
+    # 1. Two-finger rotation and zoom on touchscreens (input.rs)
+    # On touchscreens, pointer.hover_pos() is None during multi-touch and resp.hovered()
+    # is often false. Use a fallback pivot and allow trackpad_turn to rotate the view.
+    input_wheel_old = (
+        "    if resp.hovered() {\n"
+        "        if (factor - 1.0).abs() > 1e-6\n"
+        "            && let (Some(p), Some(vm)) = (hover, app.view_mut())\n"
+        "        {\n"
+        "            zoom_about(vm, rect, p, vm.zoom * factor);\n"
+        "        }\n"
+        "        if scroll != egui::Vec2::ZERO {\n"
+        "            scroll_view(app, ui, scroll);\n"
+        "        }\n"
+        "        if let Some(p) = hover\n"
+        "            && let Some(deg) = trackpad_turn(ui, app.session.prefs.trackpad_rotate_view)\n"
+        "            && let Some(vm) = app.view_mut()\n"
+        "        {\n"
+        "            rotate_about(vm, rect, p, deg);\n"
+        "        }\n"
+        "    }\n"
+    )
+    input_wheel_new = (
+        "    let pivot = hover.or_else(|| pointer.interact_pos()).filter(|p| rect.contains(*p)).unwrap_or_else(|| rect.center());\n"
+        "    if resp.hovered() || resp.contains_pointer() || (factor - 1.0).abs() > 1e-6 || scroll != egui::Vec2::ZERO {\n"
+        "        if (factor - 1.0).abs() > 1e-6\n"
+        "            && let Some(vm) = app.view_mut()\n"
+        "        {\n"
+        "            zoom_about(vm, rect, pivot, vm.zoom * factor);\n"
+        "        }\n"
+        "        if scroll != egui::Vec2::ZERO {\n"
+        "            scroll_view(app, ui, scroll);\n"
+        "        }\n"
+        "    }\n"
+        "    if let Some(deg) = trackpad_turn(ui, app.session.prefs.trackpad_rotate_view)\n"
+        "        && let Some(vm) = app.view_mut()\n"
+        "    {\n"
+        "        rotate_about(vm, rect, pivot, deg);\n"
+        "    }\n"
+    )
+    if fix("crates/ui-egui/src/canvas/input.rs", input_wheel_old, input_wheel_new):
+        fixed.append("crates/ui-egui/src/canvas/input.rs (touch rotation and zoom pivot)")
+
+    # 2. Touch rotation recognition without touch suppression or deadzone lockout (view.rs)
+    turn_rad_old = (
+        "    let (deg, now) = ui.input(|i| {\n"
+        "        let rad: f32 =\n"
+        "            if i.multi_touch().is_some() { 0.0 } else { i.events.iter().map(|e| if let egui::Event::Rotate(r) = e { *r } else { 0.0 }).sum() };\n"
+        "        (f64::from(rad).to_degrees(), i.time)\n"
+        "    });\n"
+    )
+    turn_rad_new = (
+        "    let (deg, now) = ui.input(|i| {\n"
+        "        let from_events: f32 = i.events.iter().map(|e| if let egui::Event::Rotate(r) = e { *r } else { 0.0 }).sum();\n"
+        "        let rad: f32 = if from_events != 0.0 { from_events } else { i.multi_touch().map_or(0.0, |t| t.rotation_delta) };\n"
+        "        (f64::from(rad).to_degrees(), i.time)\n"
+        "    });\n"
+    )
+    if fix("crates/ui-egui/src/canvas/view.rs", turn_rad_old, turn_rad_new):
+        fixed.append("crates/ui-egui/src/canvas/view.rs (touch rotation recognition)")
+
+    turn_deadzone_old = (
+        "    let turn = if t.turning {\n"
+        "        Some(deg)\n"
+        "    } else if t.total.abs() >= ROTATE_DEAD_ZONE {\n"
+        "        t.turning = true;\n"
+        "        Some(t.total)\n"
+        "    } else {\n"
+        "        None\n"
+        "    };\n"
+    )
+    turn_deadzone_new = (
+        "    let turn = if t.turning || cfg!(target_os = \"android\") {\n"
+        "        Some(deg)\n"
+        "    } else if t.total.abs() >= ROTATE_DEAD_ZONE {\n"
+        "        t.turning = true;\n"
+        "        Some(t.total)\n"
+        "    } else {\n"
+        "        None\n"
+        "    };\n"
+    )
+    if fix("crates/ui-egui/src/canvas/view.rs", turn_deadzone_old, turn_deadzone_new):
+        fixed.append("crates/ui-egui/src/canvas/view.rs (touch rotation responsiveness)")
+
+    # 3. Fluid 2-finger pan on touchscreens/trackpads instead of converting vertical drag to zoom
     view_wheel_old = (
         "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
         "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
@@ -730,7 +813,7 @@ elif app == "vectorcraft":
         "                } else {\n"
     )
     view_wheel_new = (
-        "                } else if *source == egui::MouseWheelSource::Trackpad {\n"
+        "                } else if *source == egui::MouseWheelSource::Trackpad || cfg!(target_os = \"android\") {\n"
         "                    scroll += d;\n"
         "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
         "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
