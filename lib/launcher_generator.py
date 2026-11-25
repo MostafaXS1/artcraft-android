@@ -1605,10 +1605,22 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     let spool_bridge = saf_bridge.clone_ref();
     inner.spooler = Some(std::sync::Arc::new(move |bytes: &[u8], job: &pdfcraft_engine::print::spool::Job| {
         let name = if job.title.is_empty() { "PdfCraft" } else { &job.title };
-        spool_bridge.print_document(name, bytes)
+        spool_bridge.print_document(name, bytes).and_then(|answer| {
+            if answer == "OK" {
+                Ok(String::new())
+            } else {
+                Err(answer)
+            }
+        })
     }));
     inner.print_handler = Some(std::sync::Arc::new(move |title: &str, bytes: &[u8]| {
-        print_bridge.print_document(title, bytes)
+        print_bridge.print_document(title, bytes).and_then(|answer| {
+            if answer == "OK" {
+                Ok(String::new())
+            } else {
+                Err(answer)
+            }
+        })
     }));
 """,
     },

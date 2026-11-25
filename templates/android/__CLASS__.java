@@ -1701,10 +1701,19 @@ public final class __CLASS__ extends NativeActivity {
                 int count;
                 while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
                 out.flush();
-                callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
+                PageRange[] writtenPages = (pages != null && pages.length > 0) ? pages : new PageRange[] { PageRange.ALL_PAGES };
+                callback.onWriteFinished(writtenPages);
             } catch (Throwable error) {
                 callback.onWriteFailed(String.valueOf(error));
             }
+        }
+
+        @Override
+        public void onFinish() {
+            super.onFinish();
+            try {
+                file.delete();
+            } catch (Throwable ignored) {}
         }
     }
 

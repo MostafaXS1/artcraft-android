@@ -1796,25 +1796,35 @@ elif app == "pdfcraft":
             };"""
     if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print_spooler, new_print_spooler):
         fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer spooler)")
-    old_print = """            // The receiver may be gone (the app quit): nothing to report to then.
-            let result = spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
-                let _ = tx.send(JobNews::Sent(sent, sheets));
-                repaint();
-            });
-            let _ = tx.send(JobNews::Done(result.map_err(|e| e.to_string())));"""
-    new_print = """            let result = if let Some(handler) = handler {
-                let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title };
-                handler(&name, &bytes)
-            } else {
-                // The receiver may be gone (the app quit): nothing to report to then.
-                spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
-                    let _ = tx.send(JobNews::Sent(sent, sheets));
-                    repaint();
-                }).map_err(|e| e.to_string())
-            };
-            let _ = tx.send(JobNews::Done(result));"""
-    if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print, new_print):
-        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer)")
+    modern_spooler_target = """                match &spooler {
+                    Some(submit) => submit(&bytes, &job),
+                    None => spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                        progress.set(sent, sheets);
+                        wake.wake();
+                    })
+                    .map_err(|e| e.to_string()),
+                }"""
+    modern_spooler_repl = """                if let Some(handler) = &handler {
+                    let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title.clone() };
+                    handler(&name, &bytes)
+                } else {
+                    match &spooler {
+                        Some(submit) => submit(&bytes, &job),
+                        None => spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                            progress.set(sent, sheets);
+                            wake.wake();
+                        })
+                        .map_err(|e| e.to_string()),
+                    }
+                }"""
+    if fix(
+        "crates/ui-egui/src/workflows/print_ui.rs",
+        "        let spooler = self.spooler.clone();\n        self.print_tasks.jobs.submit(",
+        "        let spooler = self.spooler.clone();\n        let handler = self.print_handler.clone();\n        self.print_tasks.jobs.submit(",
+    ):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (jobs.submit handler closure)")
+    if fix("crates/ui-egui/src/workflows/print_ui.rs", modern_spooler_target, modern_spooler_repl):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (modern send_to_printer spooler)")
 
 
 if fixed:
