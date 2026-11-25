@@ -310,7 +310,7 @@ public final class HumanMotionCraftActivity extends NativeActivity {
 
         @Override
         public boolean onCheckIsTextEditor() {
-            return isFocused() && getVisibility() == View.VISIBLE;
+            return getVisibility() == View.VISIBLE;
         }
 
         @Override
@@ -1084,8 +1084,18 @@ public final class HumanMotionCraftActivity extends NativeActivity {
             refreshWindowInsets();
             applyImmersiveFullscreen();
             suppressSelectionHandles();
-            if (inputView != null && inputView.getVisibility() == View.VISIBLE && !inputView.isFocused()) {
-                inputView.requestFocus();
+            if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
+                if (!inputView.isFocused()) {
+                    inputView.requestFocus();
+                }
+                inputView.post(() -> {
+                    if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
+                        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                        if (imm != null) {
+                            imm.showSoftInput(inputView, 0);
+                        }
+                    }
+                });
             }
             View decor = getWindow() != null ? getWindow().getDecorView() : null;
             if (decor != null) {

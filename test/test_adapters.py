@@ -205,6 +205,74 @@ class TestAdapters(unittest.TestCase):
         ):
             self.assertIn(symbol, vc_java, f"Missing {symbol} in VectorCraftActivity.java")
 
+    def test_on_check_is_text_editor_does_not_require_focus_and_restores_soft_input(self):
+        """Ensure virtual keyboard language/subtype switching works by decoupling onCheckIsTextEditor from isFocused."""
+        java_files = list((ROOT / "adapters").glob("*/java/**/*.java"))
+        java_files.append(ROOT / "templates" / "android" / "SafActivity.java")
+        java_files.append(ROOT / "templates" / "android" / "__CLASS__.java")
+
+        checked_text_editors = 0
+        for f in java_files:
+            text = f.read_text()
+            if "onCheckIsTextEditor" in text:
+                # Must never check isFocused() inside onCheckIsTextEditor(), which terminates InputConnection on dialogs
+                self.assertNotIn(
+                    "isFocused() && getVisibility()",
+                    text,
+                    f"{f.relative_to(ROOT)} onCheckIsTextEditor() must not require isFocused()",
+                )
+                if "class TextInputView" not in text:
+                    self.assertIn(
+                        "return getVisibility() == View.VISIBLE;",
+                        text,
+                        f"{f.relative_to(ROOT)} onCheckIsTextEditor() must return getVisibility() == View.VISIBLE;",
+                    )
+                    # Window focus recovery must re-assert soft keyboard visibility
+                    self.assertIn(
+                        "imm.showSoftInput(inputView, 0);",
+                        text,
+                        f"{f.relative_to(ROOT)} onWindowFocusChanged must restore soft input via imm.showSoftInput",
+                    )
+                    checked_text_editors += 1
+
+        self.assertEqual(checked_text_editors, 25, f"Expected exactly 25 activities checked, got {checked_text_editors}")
+
+        # ArtCraft Launcher input view & activity checks
+        launcher_input = (
+            ROOT
+            / "launcher"
+            / "apps"
+            / "artcraft-launcher-android"
+            / "android"
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "launcher"
+            / "ArtCraftInputView.java"
+        ).read_text()
+        self.assertNotIn("isFocused() && getVisibility()", launcher_input)
+        self.assertIn("return getVisibility() == VISIBLE;", launcher_input)
+
+        launcher_activity = (
+            ROOT
+            / "launcher"
+            / "apps"
+            / "artcraft-launcher-android"
+            / "android"
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "launcher"
+            / "ArtCraftLauncherActivity.java"
+        ).read_text()
+        self.assertIn("imm.showSoftInput(inputView, 0);", launcher_activity)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
@@ -168,6 +169,27 @@ public class ArtCraftLauncherActivity extends GameActivity {
         handler.removeCallbacks(poll);
         handler.post(poll);
         updater.resumePendingInstalls();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemBars();
+            if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
+                if (!inputView.isFocused()) {
+                    inputView.requestFocus();
+                }
+                inputView.post(() -> {
+                    if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
+                        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                        if (imm != null) {
+                            imm.showSoftInput(inputView, 0);
+                        }
+                    }
+                });
+            }
+        }
     }
 
     @Override

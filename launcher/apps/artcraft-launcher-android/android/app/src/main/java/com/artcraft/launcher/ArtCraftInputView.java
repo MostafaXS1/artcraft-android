@@ -69,7 +69,7 @@ final class ArtCraftInputView extends View {
 
     @Override
     public boolean onCheckIsTextEditor() {
-        return isFocused() && getVisibility() == VISIBLE;
+        return getVisibility() == VISIBLE;
     }
 
     @Override
