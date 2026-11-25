@@ -1181,7 +1181,7 @@ impl VectorCraftAndroidApp {
         // A focused egui field, or text the app edits on its canvas: the canvas asks for the
         // keyboard through egui's IME output instead of focusing a field.
         let editing = ctx.egui_wants_keyboard_input() || ctx.output(|o| o.ime.is_some());
-        if editing != self.editing {
+        if editing != self.editing && !(!editing && !ctx.input(|i| i.focused)) {
             self.editing = editing;
             if editing {
                 self.bridge.app.set_ime_editor_info(

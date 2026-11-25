@@ -273,6 +273,28 @@ class TestAdapters(unittest.TestCase):
         ).read_text()
         self.assertIn("imm.showSoftInput(inputView, 0);", launcher_activity)
 
+    def test_ime_not_hidden_when_android_window_unfocused(self):
+        """Ensure egui-winit and poll_ime do not call imeHide/set_ime_allowed(false) while window focus is lost."""
+        for rel in (
+            "vendor/egui-winit/src/lib.rs",
+            "vendor/egui-winit-0.36/src/lib.rs",
+            "vendor/egui-winit-0.34/src/lib.rs",
+            "launcher/vendor-egui-winit-0.37/src/lib.rs",
+        ):
+            text = (ROOT / rel).read_text()
+            self.assertIn(
+                "!self.egui_input.focused",
+                text,
+                f"{rel} must guard set_ime_allowed(false) against unfocused Android windows",
+            )
+        for adapter in ("photocraft", "vectorcraft", "subcraft"):
+            text = (ROOT / "adapters" / adapter / "src" / "lib.rs").read_text()
+            self.assertIn(
+                "!(!editing && !ctx.input(|i| i.focused))",
+                text,
+                f"adapters/{adapter}/src/lib.rs poll_ime must guard hide_soft_input when unfocused",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
