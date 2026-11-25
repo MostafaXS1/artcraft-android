@@ -896,12 +896,11 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             } else {
                 "default"
             };
-            let options = format!(
-                "{{\"duplex\":\"{}\",\"grayscale\":{},\"copies\":{}}}",
-                duplex_str,
-                settings.grayscale,
-                settings.copies
-            );
+            let options = serde_json::json!({
+                "duplex": duplex_str,
+                "grayscale": settings.grayscale,
+                "copies": settings.copies,
+            }).to_string();
             // Java answers inside this call ("OK", or the reason it failed); an empty receipt
             // renders as the clean "Print job submitted." message, as the desktop spooler would.
             let receipt = print_bridge
@@ -1231,12 +1230,11 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             } else {
                 "default"
             };
-            let options = format!(
-                "{{\"duplex\":\"{}\",\"grayscale\":{},\"copies\":{}}}",
-                duplex_str,
-                settings.grayscale,
-                settings.copies
-            );
+            let options = serde_json::json!({
+                "duplex": duplex_str,
+                "grayscale": settings.grayscale,
+                "copies": settings.copies,
+            }).to_string();
             let receipt = print_bridge
                 .print_document_with_options("WordCraft", &bytes, &options)
                 .and_then(|answer| {
@@ -1647,12 +1645,11 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
         } else {
             "default"
         };
-        let options = format!(
-            "{{\"duplex\":\"{}\",\"grayscale\":{},\"copies\":{}}}",
-            duplex_str,
-            job.grayscale,
-            job.copies
-        );
+        let options = serde_json::json!({
+            "duplex": duplex_str,
+            "grayscale": job.grayscale,
+            "copies": job.copies,
+        }).to_string();
         spool_bridge.print_document_with_options(name, bytes, &options).and_then(|answer| {
             if answer == "OK" {
                 Ok(String::new())
