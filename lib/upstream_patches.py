@@ -1922,6 +1922,24 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
+
+    # Smooth playback: on Android cpal/AAudio rejects the 512-frame buffer FilmCraft asks for
+    # (it reports AudioTrack.getMinBufferSize, a byte count, as the minimum frame count), so the
+    # output runs on the large power-saving buffer and the audio clock only advances in
+    # ~85-110 ms steps. The Program monitor picked its frame from that raw clock and so showed
+    # ~12 pictures a second, skipping 2-3 frames each time (yellow drop dot), while the UI and the
+    # Timeline playhead (already smoothed) ran at 60 fps. Show the frame on the same smoothed
+    # clock: wall time since the last drawn position, eased 10% per UI frame toward the audio
+    # clock, never stepping back, and jumping at once past 0.25 s (seeks, loops).
+    if fix(
+        "crates/ui-egui/src/app/playback.rs",
+        '            self.session.set_playhead(t);\n'
+        '            self.playback.smooth_playhead = Some((self.smooth_playhead(t, now), now));\n',
+        '            let shown = self.smooth_playhead(t, now);\n'
+        '            self.session.set_playhead(shown);\n'
+        '            self.playback.smooth_playhead = Some((shown, now));\n',
+    ):
+        fixed.append("crates/ui-egui/src/app/playback.rs (Program frame follows the smoothed playback clock)")
 elif app == "vectorcraft":
     if fix("crates/render/src/images.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/render/src/images.rs (Android meminfo)")
