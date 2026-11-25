@@ -171,6 +171,40 @@ class TestAdapters(unittest.TestCase):
         ):
             self.assertIn(symbol, pc_java, f"Missing {symbol} in PhotoCraftActivity.java")
 
+    def test_vectorcraft_saf_folder_picker_and_save_export(self):
+        """Verify VectorCraft wires PickRequest::Folder and handles SAF save filename suffixes."""
+        vc_lib = (ADAPTERS_DIR / "vectorcraft" / "src" / "lib.rs").read_text()
+        vc_java = (
+            ADAPTERS_DIR
+            / "vectorcraft"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "vectorcraft"
+            / "VectorCraftActivity.java"
+        ).read_text()
+
+        # Folder picker must be wired to vcRequestFolder instead of returning None
+        self.assertIn("fn request_folder(", vc_lib)
+        self.assertIn('jni_str!("vcRequestFolder")', vc_lib)
+        self.assertIn("bridge.request_folder(id)", vc_lib)
+        self.assertNotIn("PickRequest::Folder => return None", vc_lib)
+
+        # Save requests must never pass wildcard */* to ACTION_CREATE_DOCUMENT
+        self.assertIn("fn save_mime_for_name(", vc_lib)
+        self.assertIn('"*/*".equals(mime)', vc_java)
+
+        # Java Activity must implement folder picking and duplicate-suffix normalization for Export As
+        for symbol in (
+            "REQ_FOLDER",
+            "vcRequestFolder",
+            "treeToPath",
+            "extensionLast",
+            "renameDocument",
+            'startsWith(stagedFile.getName() + ".")',
+        ):
+            self.assertIn(symbol, vc_java, f"Missing {symbol} in VectorCraftActivity.java")
+
 
 if __name__ == "__main__":
     unittest.main()
