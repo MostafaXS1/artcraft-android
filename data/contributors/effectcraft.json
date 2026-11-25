@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "86af5cba7f6976fe2b4561df4e8021ba807591f5",
-  "head_date": "2026-11-23T19:45:01Z",
-  "commits": 5452,
+  "head": "59aed45057561ff2ca0e3c27ab849eebbfaf71dc",
+  "head_date": "2026-11-25T01:38:19Z",
+  "commits": 5457,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -50,27 +50,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 162,
-      "commits": 322,
-      "lines_added": 31878,
-      "lines_deleted": 52799,
-      "binary_added": 1,
+      "prs": 163,
+      "commits": 323,
+      "lines_added": 37347,
+      "lines_deleted": 52886,
+      "binary_added": 6,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:14Z",
-      "last_commit": "2026-11-23T19:45:01Z"
+      "last_commit": "2026-11-25T01:38:19Z"
     },
     {
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
       "prs": 72,
-      "commits": 283,
+      "commits": 285,
       "lines_added": 57559,
       "lines_deleted": 28730,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T20:25:40Z",
-      "last_commit": "2026-11-23T19:12:36Z"
+      "last_commit": "2026-11-24T18:22:31Z"
     },
     {
       "login": "arnav-hiwarkar",
@@ -1592,6 +1592,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-07T21:46:11Z",
       "last_commit": "2026-10-10T12:57:01Z"
+    },
+    {
+      "login": "S-3-J",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 2,
+      "lines_added": 1346,
+      "lines_deleted": 189,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-21T07:49:34Z",
+      "last_commit": "2026-11-21T13:10:51Z"
     },
     {
       "login": "WillPastor",

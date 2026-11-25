@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "94219de04c01396922eb3f56c37a21529bcf187c",
-  "head_date": "2026-11-23T19:45:22Z",
-  "commits": 5665,
+  "head": "ddc0eef377a771a51f3574f8c26ef75be12c7aab",
+  "head_date": "2026-11-24T20:22:16Z",
+  "commits": 5708,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -50,14 +50,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 133,
-      "commits": 425,
-      "lines_added": 25846,
-      "lines_deleted": 70882,
+      "prs": 134,
+      "commits": 432,
+      "lines_added": 26655,
+      "lines_deleted": 71074,
       "binary_added": 2,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:24Z",
       "last_commit": "2026-11-23T19:45:22Z"
+    },
+    {
+      "login": "FredApps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 33,
+      "commits": 267,
+      "lines_added": 39256,
+      "lines_deleted": 4340,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-10T22:53:36Z",
+      "last_commit": "2026-11-24T20:22:16Z"
     },
     {
       "login": "bflatastic",
@@ -71,19 +84,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T06:30:19Z",
       "last_commit": "2026-10-22T11:02:01Z"
-    },
-    {
-      "login": "FredApps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 32,
-      "commits": 257,
-      "lines_added": 38418,
-      "lines_deleted": 4218,
-      "binary_added": 1,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-23T19:39:04Z"
     },
     {
       "login": "radialmonster",
@@ -272,13 +272,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 32,
-      "commits": 48,
-      "lines_added": 20581,
-      "lines_deleted": 1666,
+      "commits": 50,
+      "lines_added": 21418,
+      "lines_deleted": 1757,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-09T13:59:07Z",
-      "last_commit": "2026-11-05T19:50:13Z"
+      "last_commit": "2026-11-24T13:35:13Z"
     },
     {
       "login": "THEtheChad",
@@ -357,6 +357,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-07T17:06:00Z",
       "last_commit": "2026-10-17T15:44:43Z"
+    },
+    {
+      "login": "P2Hdontusegithub",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 2,
+      "commits": 27,
+      "lines_added": 1657,
+      "lines_deleted": 415,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-08T16:14:01Z",
+      "last_commit": "2026-11-24T04:47:24Z"
     },
     {
       "login": "voshart",
@@ -1048,19 +1061,6 @@
       "last_commit": "2026-10-30T06:52:49Z"
     },
     {
-      "login": "arata-1972",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 5,
-      "lines_added": 2892,
-      "lines_deleted": 726,
-      "binary_added": 2,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-05T20:14:35Z",
-      "last_commit": "2026-10-05T22:16:15Z"
-    },
-    {
       "login": "clydecbrown",
       "people_entry": false,
       "github_name": null,
@@ -1202,6 +1202,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-09T10:15:52Z",
       "last_commit": "2026-10-09T15:00:07Z"
+    },
+    {
+      "login": "sato-shogo1",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 2,
+      "commits": 5,
+      "lines_added": 2892,
+      "lines_deleted": 726,
+      "binary_added": 2,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-05T20:14:35Z",
+      "last_commit": "2026-10-05T22:16:15Z"
     },
     {
       "login": "snofla",
@@ -3329,9 +3342,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 1774,
-      "lines_added": 333287,
-      "lines_deleted": 30397
+      "commits": 1785,
+      "lines_added": 333567,
+      "lines_deleted": 30497
     },
     {
       "id": "anthropic/claude",

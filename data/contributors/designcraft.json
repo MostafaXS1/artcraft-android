@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/designcraft",
   "branch": "main",
-  "head": "39651f6603ee2aec709c676e4a7b76e350ea1dcc",
-  "head_date": "2026-11-23T19:44:55Z",
-  "commits": 5628,
+  "head": "cdd650ccddcd945bc3bd050f40299955a7dd1c4b",
+  "head_date": "2026-11-25T01:16:55Z",
+  "commits": 5629,
   "unattributed_commits": 28,
   "contributors": [
     {
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 132,
-      "commits": 382,
-      "lines_added": 24844,
-      "lines_deleted": 21996,
-      "binary_added": 0,
+      "prs": 133,
+      "commits": 383,
+      "lines_added": 30212,
+      "lines_deleted": 22082,
+      "binary_added": 4,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T05:51:30Z",
-      "last_commit": "2026-11-23T19:44:55Z"
+      "last_commit": "2026-11-25T01:16:55Z"
     },
     {
       "login": "dotCooCoo",

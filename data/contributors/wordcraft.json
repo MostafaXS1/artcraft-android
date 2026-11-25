@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/wordcraft",
   "branch": "main",
-  "head": "bf2be3cad86d6c6a72d604676ab6ff3f0aa9478d",
-  "head_date": "2026-11-24T01:50:21Z",
-  "commits": 3630,
+  "head": "c179a31619632d96728653f00c56246ba374e928",
+  "head_date": "2026-11-25T01:00:35Z",
+  "commits": 3642,
   "unattributed_commits": 14,
   "contributors": [
     {
@@ -63,14 +63,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 79,
-      "commits": 203,
-      "lines_added": 24014,
-      "lines_deleted": 104956,
-      "binary_added": 0,
+      "prs": 80,
+      "commits": 204,
+      "lines_added": 29884,
+      "lines_deleted": 105046,
+      "binary_added": 4,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T15:50:38Z",
-      "last_commit": "2026-11-23T19:45:53Z"
+      "last_commit": "2026-11-25T01:00:35Z"
     },
     {
       "login": "dkhlapov",
@@ -112,6 +112,19 @@
       "last_commit": "2026-11-21T22:34:10Z"
     },
     {
+      "login": "batistalucasv",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 63,
+      "commits": 110,
+      "lines_added": 53284,
+      "lines_deleted": 37268,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-08T03:56:55Z",
+      "last_commit": "2026-11-24T21:51:04Z"
+    },
+    {
       "login": "Silvertree2010",
       "people_entry": true,
       "github_name": null,
@@ -123,19 +136,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-12T16:08:57Z",
       "last_commit": "2026-11-18T09:30:16Z"
-    },
-    {
-      "login": "batistalucasv",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 52,
-      "commits": 99,
-      "lines_added": 52140,
-      "lines_deleted": 37140,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-08T03:56:55Z",
-      "last_commit": "2026-11-24T01:50:21Z"
     },
     {
       "login": "divyanshu2074",
