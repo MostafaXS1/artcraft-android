@@ -2059,7 +2059,6 @@ PERSIST_RECIPES = {
     if let Err(error) = inner.session.set_prefs(prefs) {
         log::warn!("saving preferences: {error}");
     }
-    let _ = inner.session.execute("file.autoSaveNow", serde_json::json!({}));
     inner.session.sync_persistence();
     if let Some(p) = inner.session.persistence.as_ref() {
         p.flush();

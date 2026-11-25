@@ -2102,6 +2102,7 @@ impl HardwareSurfaceScaler {
             let update_res = (self.fn_ASurfaceTexture_updateTexImage)(self.asurface_texture);
             if update_res != 0 {
                 log::warn!("HardwareSurfaceScaler: ASurfaceTexture_updateTexImage failed: {update_res}");
+                (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
                 return false;
             }
 
@@ -2148,6 +2149,8 @@ impl HardwareSurfaceScaler {
             (self.fn_glDrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
 
             let swap_res = (self.fn_eglSwapBuffers)(self.display, self.surface);
+            // Unbind context after blit so any other thread can reset or drop the scaler without EGL deadlock.
+            (self.fn_eglMakeCurrent)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             swap_res != 0
         }
     }

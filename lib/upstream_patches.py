@@ -818,6 +818,14 @@ elif app == "filmcraft":
     ):
         fixed.append("crates/codecs/src/gop.rs (bound GOP frame cache ceiling on Android)")
 
+    # Keep GOP decoders warm slightly longer on Android (5s vs 3s) to reduce re-decode thrashing.
+    if fix(
+        "crates/codecs/src/gop.rs",
+        'const IDLE: Duration = Duration::from_secs(3);\n',
+        'const IDLE: Duration = if cfg!(target_os = "android") { Duration::from_secs(5) } else { Duration::from_secs(3) };\n',
+    ):
+        fixed.append("crates/codecs/src/gop.rs (extend GOP IDLE duration on Android)")
+
     # 12. Fast contiguous luma and ARM64 NEON SIMD chroma de-interleave in biplanar::to_frame.
     if fix(
         "crates/platform/src/biplanar.rs",
