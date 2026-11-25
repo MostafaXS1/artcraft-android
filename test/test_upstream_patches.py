@@ -80,6 +80,33 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.stdout.strip(), "")
             self.assertEqual(target_file.read_text(), patched_content)
 
+    def test_wordcraft_autosave_save_in_place_patch(self):
+        for rel_path, indent in (
+            ("crates/ui-egui/src/chrome/title_bar.rs", "            "),
+            ("crates/ui-egui/src/chrome.rs", "                            "),
+        ):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_src = Path(tmp_dir)
+                target_file = tmp_src / rel_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                target_file.write_text(
+                    f"{indent}// AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n"
+                    f"{indent}Some(b) if b.save_as_helps() => {{\n"
+                )
+                cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "wordcraft", "WordCraft"]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("AutoSave toggle saves opened file in place", result.stdout)
+                patched = target_file.read_text()
+                self.assertIn("Some(crate::AutoSaveBlock::NotSavedHere) => {", patched)
+                self.assertIn('app.run("file.save", json!({}))', patched)
+
+                # Idempotent on second run
+                result2 = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(result2.returncode, 0)
+                self.assertEqual(result2.stdout.strip(), "")
+                self.assertEqual(target_file.read_text(), patched)
+
     def test_diagramcraft_spellcheck_patch(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_src = Path(tmp_dir)

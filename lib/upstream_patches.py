@@ -290,6 +290,35 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/fonts/src/fontdb/names.rs (system and user font directories)")
 
+    # Clicking the AutoSave switch on an opened document (NotSavedHere) should save in place
+    # and enable AutoSave rather than opening Save As (#143).
+    if fix(
+        "crates/ui-egui/src/chrome/title_bar.rs",
+        '            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '            Some(b) if b.save_as_helps() => {',
+        '            Some(crate::AutoSaveBlock::NotSavedHere) => {\n'
+        '                if app.run("file.save", json!({})).is_ok() && app.saved_here() {\n'
+        '                    let _ = app.run("file.autosave", json!({"value": true}));\n'
+        '                }\n'
+        '            }\n'
+        '            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '            Some(b) if b.save_as_helps() => {',
+    ):
+        fixed.append("crates/ui-egui/src/chrome/title_bar.rs (AutoSave toggle saves opened file in place)")
+    if fix(
+        "crates/ui-egui/src/chrome.rs",
+        '                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '                            Some(b) if b.save_as_helps() => {',
+        '                            Some(crate::AutoSaveBlock::NotSavedHere) => {\n'
+        '                                if app.run("file.save", json!({})).is_ok() && app.saved_here() {\n'
+        '                                    let _ = app.run("file.autosave", json!({"value": true}));\n'
+        '                                }\n'
+        '                            }\n'
+        '                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '                            Some(b) if b.save_as_helps() => {',
+    ):
+        fixed.append("crates/ui-egui/src/chrome.rs (AutoSave toggle saves opened file in place)")
+
 elif app == "lightcraft":
     # Interactive slider / curve performance on Android:
     # 1. Whole-frame drafts on high-DPI Android screens rendered at full 2560px canvas resolution,
