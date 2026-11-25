@@ -176,6 +176,12 @@ mod saf {
         /// `"ERROR: …"` when no print service exists — so the caller gets its receipt (or failure)
         /// inside the same frame while the dialog itself opens asynchronously.
         pub fn print_document(&self, title: &str, pdf: &[u8]) -> Result<String, String> {
+            self.print_document_with_options(title, pdf, "")
+        }
+
+        /// Hand a generated PDF with explicit job settings (duplex, grayscale, copies JSON) to
+        /// Android's print system.
+        pub fn print_document_with_options(&self, title: &str, pdf: &[u8], options_json: &str) -> Result<String, String> {
             self.vm
                 .attach_current_thread(|env| -> jni::errors::Result<String> {
                     let activity_raw = self.app.activity_as_ptr() as jni::sys::jobject;
@@ -183,14 +189,24 @@ mod saf {
                     let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
                     let title_obj = JObject::from(env.new_string(title)?);
                     let bytes_obj = JObject::from(env.byte_array_from_slice(pdf)?);
-                    let value = env
-                        .call_method(
-                            &*activity,
-                            jni_str!("printDocument"),
-                            jni_sig!("(Ljava/lang/String;[B)Ljava/lang/String;"),
-                            &[JValue::Object(&title_obj), JValue::Object(&bytes_obj)],
-                        )?
-                        .l()?;
+                    let options_obj = JObject::from(env.new_string(options_json)?);
+                    let value = match env.call_method(
+                        &*activity,
+                        jni_str!("printDocument"),
+                        jni_sig!("(Ljava/lang/String;[BLjava/lang/String;)Ljava/lang/String;"),
+                        &[JValue::Object(&title_obj), JValue::Object(&bytes_obj), JValue::Object(&options_obj)],
+                    ) {
+                        Ok(val) => val.l()?,
+                        Err(_) => {
+                            env.exception_clear();
+                            env.call_method(
+                                &*activity,
+                                jni_str!("printDocument"),
+                                jni_sig!("(Ljava/lang/String;[B)Ljava/lang/String;"),
+                                &[JValue::Object(&title_obj), JValue::Object(&bytes_obj)],
+                            )?.l()?
+                        }
+                    };
                     if value.is_null() {
                         return Ok(String::new());
                     }

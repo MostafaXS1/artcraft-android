@@ -12,6 +12,8 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.pdf.PdfRenderer;
+import java.util.Locale;
+import org.json.JSONObject;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -1674,6 +1676,10 @@ public final class __CLASS__ extends NativeActivity {
      * system knows (Wi-Fi, network, cloud), unlike a CUPS-only desktop spooler.
      */
     public String printDocument(String title, byte[] pdf) {
+        return printDocument(title, pdf, null);
+    }
+
+    public String printDocument(String title, byte[] pdf, String optionsJson) {
         if (pdf == null || pdf.length == 0) return "ERROR: there is no document to print";
         PrintManager manager = (PrintManager) getSystemService(PRINT_SERVICE);
         if (manager == null) return "ERROR: this device has no Android print service";
@@ -1685,17 +1691,10 @@ public final class __CLASS__ extends NativeActivity {
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     out.write(pdf);
                 }
-                int count;
-                try {
-                    count = countPdfPages(file);
-                } catch (Throwable t) {
-                    Log.w(TAG, "Could not count PDF pages with PdfRenderer; falling back to PAGE_COUNT_UNKNOWN", t);
-                    count = PrintDocumentInfo.PAGE_COUNT_UNKNOWN;
-                }
-                final int pageCount = count;
+                PdfDetails details = inspectPdf(file, optionsJson);
                 runOnUiThread(() -> {
                     try {
-                        manager.print(jobName, new PdfPrintAdapter(file, jobName, pageCount), null);
+                        manager.print(jobName, new PdfPrintAdapter(file, jobName, details.pageCount), details.attributes);
                     } catch (Throwable error) {
                         Log.e(TAG, "Could not open the Android print dialog", error);
                     }
@@ -1707,16 +1706,121 @@ public final class __CLASS__ extends NativeActivity {
         return "OK";
     }
 
-    /** Page count from the system's own PDF parser; feeds PrintDocumentInfo below. */
-    private static int countPdfPages(File file) throws Exception {
+    private static final class PdfDetails {
+        final int pageCount;
+        final PrintAttributes attributes;
+
+        PdfDetails(int pageCount, PrintAttributes attributes) {
+            this.pageCount = pageCount;
+            this.attributes = attributes;
+        }
+    }
+
+    /**
+     * Inspects the generated PDF for page count, media dimensions and orientation, merging any
+     * explicit settings (duplex, grayscale) into initial PrintAttributes for the system print dialog.
+     */
+    private static PdfDetails inspectPdf(File file, String optionsJson) {
+        int pageCount = PrintDocumentInfo.PAGE_COUNT_UNKNOWN;
+        PrintAttributes.Builder builder = new PrintAttributes.Builder();
+        builder.setMinMargins(PrintAttributes.Margins.NO_MARGINS);
+
+        PrintAttributes.MediaSize detectedSize = null;
         try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) {
             PdfRenderer renderer = new PdfRenderer(fd);
             try {
-                return renderer.getPageCount();
+                pageCount = renderer.getPageCount();
+                if (pageCount > 0) {
+                    PdfRenderer.Page page = renderer.openPage(0);
+                    try {
+                        detectedSize = matchMediaSize(page.getWidth(), page.getHeight());
+                    } finally {
+                        page.close();
+                    }
+                }
             } finally {
                 renderer.close();
             }
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not inspect PDF with PdfRenderer; falling back to default media size", t);
         }
+
+        if (detectedSize == null) {
+            Locale locale = Locale.getDefault();
+            String country = locale != null ? locale.getCountry() : "";
+            boolean isLetterRegion = "US".equalsIgnoreCase(country) || "CA".equalsIgnoreCase(country) || "MX".equalsIgnoreCase(country);
+            detectedSize = isLetterRegion ? PrintAttributes.MediaSize.NA_LETTER : PrintAttributes.MediaSize.ISO_A4;
+        }
+        builder.setMediaSize(detectedSize);
+
+        boolean hasColorMode = false;
+        if (optionsJson != null && !optionsJson.trim().isEmpty()) {
+            try {
+                JSONObject json = new JSONObject(optionsJson);
+                if (json.has("grayscale")) {
+                    boolean grayscale = json.optBoolean("grayscale", false);
+                    builder.setColorMode(grayscale ? PrintAttributes.COLOR_MODE_MONOCHROME : PrintAttributes.COLOR_MODE_COLOR);
+                    hasColorMode = true;
+                }
+                if (json.has("duplex")) {
+                    String duplex = json.optString("duplex", "default");
+                    if ("long_edge".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_LONG_EDGE);
+                    } else if ("short_edge".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_SHORT_EDGE);
+                    } else if ("off".equalsIgnoreCase(duplex) || "none".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_NONE);
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Could not parse print options JSON: " + optionsJson, t);
+            }
+        }
+        if (!hasColorMode) {
+            builder.setColorMode(PrintAttributes.COLOR_MODE_COLOR);
+        }
+
+        PrintAttributes attributes = null;
+        try {
+            attributes = builder.build();
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not build initial PrintAttributes", t);
+        }
+        return new PdfDetails(pageCount, attributes);
+    }
+
+    /** Match physical page dimensions in points (1/72 inch) to standard Android media sizes and orientation. */
+    private static PrintAttributes.MediaSize matchMediaSize(int widthPts, int heightPts) {
+        if (widthPts <= 0 || heightPts <= 0) return null;
+        boolean isLandscape = widthPts > heightPts;
+        int shortPts = Math.min(widthPts, heightPts);
+        int longPts = Math.max(widthPts, heightPts);
+
+        PrintAttributes.MediaSize base;
+        // A4: 595.28 x 841.89 pt (tolerance ±8 pt)
+        if (Math.abs(shortPts - 595) <= 8 && Math.abs(longPts - 842) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A4;
+        // Letter: 612 x 792 pt
+        } else if (Math.abs(shortPts - 612) <= 8 && Math.abs(longPts - 792) <= 8) {
+            base = PrintAttributes.MediaSize.NA_LETTER;
+        // Legal: 612 x 1008 pt
+        } else if (Math.abs(shortPts - 612) <= 8 && Math.abs(longPts - 1008) <= 8) {
+            base = PrintAttributes.MediaSize.NA_LEGAL;
+        // A3: 842 x 1191 pt
+        } else if (Math.abs(shortPts - 842) <= 8 && Math.abs(longPts - 1191) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A3;
+        // A5: 420 x 595 pt
+        } else if (Math.abs(shortPts - 420) <= 8 && Math.abs(longPts - 595) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A5;
+        // Tabloid: 792 x 1224 pt
+        } else if (Math.abs(shortPts - 792) <= 8 && Math.abs(longPts - 1224) <= 8) {
+            base = PrintAttributes.MediaSize.NA_TABLOID;
+        } else {
+            int widthMils = Math.round((float) widthPts * 1000f / 72f);
+            int heightMils = Math.round((float) heightPts * 1000f / 72f);
+            return new PrintAttributes.MediaSize("CUSTOM", "Custom", widthMils, heightMils);
+        }
+        return isLandscape ? base.asLandscape() : base.asPortrait();
     }
 
     /**
