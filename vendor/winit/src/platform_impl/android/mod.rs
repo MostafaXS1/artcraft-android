@@ -72,6 +72,20 @@ const PINCH_SPREAD_RATIO: f64 = 1.5;
 /// How much faster a two-finger pan scrolls than the fingers move.
 const PAN_SPEED: f64 = 1.5;
 
+/// How far the two fingers' rotation angle must change (radians, ~5 degrees) before a two-finger gesture can
+/// be a rotation rather than a pan.
+const ROTATION_DEADZONE_RAD: f64 = 0.087;
+
+fn wrap_angle(a: f64) -> f64 {
+    let mut x = a % (2.0 * std::f64::consts::PI);
+    if x > std::f64::consts::PI {
+        x -= 2.0 * std::f64::consts::PI;
+    } else if x <= -std::f64::consts::PI {
+        x += 2.0 * std::f64::consts::PI;
+    }
+    x
+}
+
 fn pointer_position(pointer: &android_activity::input::Pointer<'_>) -> PhysicalPosition<f64> {
     PhysicalPosition {
         x: pointer.x() as f64,
@@ -244,11 +258,13 @@ pub struct EventLoop<T: 'static> {
     touch_points: Vec<(i32, PhysicalPosition<f64>)>,
     /// What the current multi-finger gesture has been recognised as.
     gesture: Gesture,
-    /// The fingers' spread and midpoint where the gesture started: the deadzone is measured
+    /// The fingers' spread, midpoint, and angle where the gesture started: the deadzone is measured
     /// against them.
-    gesture_origin: Option<(f64, PhysicalPosition<f64>)>,
+    gesture_origin: Option<(f64, PhysicalPosition<f64>, f64)>,
     /// The spread at the last reported pinch step, so each zoom is relative to the last one.
     gesture_spread: Option<f64>,
+    /// The angle at the last reported rotate step, so each rotation is relative to the last one.
+    gesture_angle: Option<f64>,
     /// The finger that was already on the glass when a second one joined it: the one whose
     /// touch has to be cancelled when the gesture takes over.
     gesture_pointer: Option<(i32, PhysicalPosition<f64>)>,
@@ -289,6 +305,8 @@ enum Gesture {
     Pan,
     /// A pinch: reported as a zoom.
     Pinch,
+    /// A two-finger rotation: reported as camera rotation.
+    Rotate,
 }
 
 /// What a hardware touchpad is doing.
@@ -311,6 +329,13 @@ enum GestureStep {
     Pan(PhysicalPosition<f64>),
     /// A pinch: the fingers spread (or closed) by this factor since the last step.
     Pinch(f64),
+    /// A rotation: the fingers turned by this delta in degrees (counterclockwise positive).
+    Rotate(f32),
+    /// Both pinch and rotation in the same frame.
+    PinchAndRotate {
+        factor: f64,
+        rotation: f32,
+    },
     /// A quick tap with 2 or 3 fingers: 2 fingers = Undo (Ctrl+Z), 3 fingers = Redo (Ctrl+Shift+Z).
     Tap(usize),
 }
@@ -374,6 +399,7 @@ impl<T: 'static> EventLoop<T> {
             gesture: Gesture::Undecided,
             gesture_origin: None,
             gesture_spread: None,
+            gesture_angle: None,
             gesture_pointer: None,
             pad_position: None,
             pad_spread: None,
@@ -614,6 +640,7 @@ impl<T: 'static> EventLoop<T> {
                 self.gesture = Gesture::Undecided;
                 self.gesture_origin = None;
                 self.gesture_spread = None;
+                self.gesture_angle = None;
                 self.gesture_pointer = previous.first().copied();
                 GestureStep::None
             }
@@ -638,6 +665,7 @@ impl<T: 'static> EventLoop<T> {
                 self.gesture = Gesture::Undecided;
                 self.gesture_origin = None;
                 self.gesture_spread = None;
+                self.gesture_angle = None;
                 self.gesture_pointer = previous.first().copied();
                 GestureStep::None
             }
@@ -670,6 +698,7 @@ impl<T: 'static> EventLoop<T> {
                 self.gesture = Gesture::Undecided;
                 self.gesture_origin = None;
                 self.gesture_spread = None;
+                self.gesture_angle = None;
                 self.gesture_pointer = previous.first().copied();
                 tap_step.unwrap_or(GestureStep::None)
             }
@@ -682,6 +711,7 @@ impl<T: 'static> EventLoop<T> {
                 self.gesture = Gesture::Undecided;
                 self.gesture_origin = None;
                 self.gesture_spread = None;
+                self.gesture_angle = None;
                 self.gesture_pointer = previous.first().copied();
                 GestureStep::None
             }
@@ -706,12 +736,16 @@ impl<T: 'static> EventLoop<T> {
                     self.gesture = Gesture::Undecided;
                     self.gesture_origin = None;
                     self.gesture_spread = None;
+                    self.gesture_angle = None;
                     return GestureStep::None;
                 }
                 let Some(midpoint) = self.touch_midpoint() else {
                     return GestureStep::None;
                 };
                 let Some(spread) = self.touch_spread() else {
+                    return GestureStep::None;
+                };
+                let Some(angle) = self.touch_angle() else {
                     return GestureStep::None;
                 };
                 // Update the tracked positions first, so the next event measures against these.
@@ -722,11 +756,15 @@ impl<T: 'static> EventLoop<T> {
                 let Some(new_spread) = self.touch_spread() else {
                     return GestureStep::None;
                 };
+                let Some(new_angle) = self.touch_angle() else {
+                    return GestureStep::None;
+                };
 
                 // The deadzone is measured from where the gesture started.
-                let (origin_spread, origin_midpoint) =
-                    *self.gesture_origin.get_or_insert((spread, midpoint));
+                let (origin_spread, origin_midpoint, origin_angle) =
+                    *self.gesture_origin.get_or_insert((spread, midpoint, angle));
                 let spread_change = (new_spread - origin_spread).abs();
+                let angle_change = wrap_angle(new_angle - origin_angle).abs();
                 let moved = ((new_midpoint.x - origin_midpoint.x).powi(2)
                     + (new_midpoint.y - origin_midpoint.y).powi(2))
                 .sqrt();
@@ -734,13 +772,15 @@ impl<T: 'static> EventLoop<T> {
                 match self.gesture {
                     Gesture::Undecided => {
                         // A pinch changes the spread much more than the midpoint moves; that is a
-                        // zoom, not a scroll. Until one of the two is clearly bigger, the
+                        // zoom, not a scroll. Until one of the gestures is clearly bigger, the
                         // gesture stays undecided and nothing is reported: that is the
-                        // deadzone between scrolling and zooming.
+                        // deadzone between scrolling, zooming, and rotating.
                         if spread_change > PINCH_DEADZONE_PX
                             && spread_change > PINCH_SPREAD_RATIO * moved
                         {
                             self.gesture = Gesture::Pinch;
+                        } else if angle_change > ROTATION_DEADZONE_RAD {
+                            self.gesture = Gesture::Rotate;
                         } else if moved > PAN_DEADZONE_PX {
                             self.gesture = Gesture::Pan;
                         } else {
@@ -748,14 +788,25 @@ impl<T: 'static> EventLoop<T> {
                         }
                     }
                     Gesture::Pan => {
-                        // A pan that turns into a clear pinch hands over to the zoom, but only
-                        // once the spread has changed twice as much as the deadzone: a gesture
+                        // A pan that turns into a clear pinch or rotation hands over, but only
+                        // once the change is twice as much as the deadzone: a gesture
                         // that has already started scrolling does not flip on a twitch.
+                        if spread_change > 2.0 * PINCH_DEADZONE_PX {
+                            self.gesture = Gesture::Pinch;
+                        } else if angle_change > 2.0 * ROTATION_DEADZONE_RAD {
+                            self.gesture = Gesture::Rotate;
+                        }
+                    }
+                    Gesture::Rotate => {
                         if spread_change > 2.0 * PINCH_DEADZONE_PX {
                             self.gesture = Gesture::Pinch;
                         }
                     }
-                    Gesture::Pinch => {}
+                    Gesture::Pinch => {
+                        if angle_change > 2.0 * ROTATION_DEADZONE_RAD {
+                            self.gesture = Gesture::Rotate;
+                        }
+                    }
                 }
 
                 match self.gesture {
@@ -766,9 +817,37 @@ impl<T: 'static> EventLoop<T> {
                         // The zoom is relative to the last step, so a pinch that starts at the
                         // deadzone's edge does not jump: the spread change that got us here is
                         // the deadzone's, and the zoom starts from where the fingers are now.
-                        let last = self.gesture_spread.replace(new_spread).unwrap_or(new_spread);
+                        let last = self.gesture_spread.replace(new_spread).unwrap_or(origin_spread);
                         let factor = if last > 0.0 { new_spread / last } else { 1.0 };
-                        GestureStep::Pinch(factor)
+                        if angle_change > ROTATION_DEADZONE_RAD {
+                            let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(origin_angle);
+                            let rot_delta = wrap_angle(new_angle - last_angle);
+                            let rot_deg = -rot_delta.to_degrees() as f32;
+                            GestureStep::PinchAndRotate {
+                                factor,
+                                rotation: rot_deg,
+                            }
+                        } else {
+                            GestureStep::Pinch(factor)
+                        }
+                    }
+                    Gesture::Rotate => {
+                        if let Some(seq) = &mut self.touch_seq {
+                            seq.gestured = true;
+                        }
+                        let last_angle = self.gesture_angle.replace(new_angle).unwrap_or(origin_angle);
+                        let rot_delta = wrap_angle(new_angle - last_angle);
+                        let rot_deg = -rot_delta.to_degrees() as f32;
+                        if spread_change > PINCH_DEADZONE_PX {
+                            let last = self.gesture_spread.replace(new_spread).unwrap_or(origin_spread);
+                            let factor = if last > 0.0 { new_spread / last } else { 1.0 };
+                            GestureStep::PinchAndRotate {
+                                factor,
+                                rotation: rot_deg,
+                            }
+                        } else {
+                            GestureStep::Rotate(rot_deg)
+                        }
                     }
                     Gesture::Pan => {
                         if let Some(seq) = &mut self.touch_seq {
@@ -836,6 +915,16 @@ impl<T: 'static> EventLoop<T> {
             return None;
         };
         Some(((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt())
+    }
+
+    /// The angle of the vector between exactly two tracked fingers, if both are known.
+    /// Uses the vector from the lower pointer_id to higher pointer_id for stable direction.
+    fn touch_angle(&self) -> Option<f64> {
+        let [a, b] = self.touch_points.as_slice() else {
+            return None;
+        };
+        let (first, second) = if a.0 < b.0 { (&a.1, &b.1) } else { (&b.1, &a.1) };
+        Some((second.y - first.y).atan2(second.x - first.x))
     }
 
     fn update_modifiers<F>(
@@ -1492,6 +1581,71 @@ impl<T: 'static> EventLoop<T> {
                                                 // The log of the factor: `egui` turns it back into
                                                 // the factor itself.
                                                 delta: factor.ln(),
+                                                phase: event::TouchPhase::Moved,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                    return input_status;
+                                }
+                                GestureStep::Rotate(delta) => {
+                                    trace!("Two-finger rotate {device_id:?} {delta:?}");
+                                    if let Some(midpoint) = self.touch_midpoint() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::CursorMoved {
+                                                    device_id,
+                                                    position: midpoint,
+                                                },
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::RotationGesture {
+                                                device_id,
+                                                delta,
+                                                phase: event::TouchPhase::Moved,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                    return input_status;
+                                }
+                                GestureStep::PinchAndRotate { factor, rotation } => {
+                                    trace!("Two-finger pinch & rotate {device_id:?} {factor:?} {rotation:?}");
+                                    if let Some(midpoint) = self.touch_midpoint() {
+                                        callback(
+                                            event::Event::WindowEvent {
+                                                window_id,
+                                                event: event::WindowEvent::CursorMoved {
+                                                    device_id,
+                                                    position: midpoint,
+                                                },
+                                            },
+                                            self.window_target(),
+                                        );
+                                    }
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::PinchGesture {
+                                                device_id,
+                                                delta: factor.ln(),
+                                                phase: event::TouchPhase::Moved,
+                                            },
+                                        },
+                                        self.window_target(),
+                                    );
+                                    callback(
+                                        event::Event::WindowEvent {
+                                            window_id,
+                                            event: event::WindowEvent::RotationGesture {
+                                                device_id,
+                                                delta: rotation,
                                                 phase: event::TouchPhase::Moved,
                                             },
                                         },

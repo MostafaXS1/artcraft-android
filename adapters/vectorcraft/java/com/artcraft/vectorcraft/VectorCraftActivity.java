@@ -11,7 +11,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
@@ -80,6 +82,7 @@ public final class VectorCraftActivity extends NativeActivity {
     private static final int REQ_OPEN = 0x5643;
     private static final int REQ_SAVE = 0x5644;
     private static final int REQ_PERMISSIONS = 0x5645;
+    private static final int REQ_FOLDER = 0x5646;
     private static final String PREFS = "vectorcraft_saf_uri_map";
 
     private final ConcurrentLinkedQueue<String> results = new ConcurrentLinkedQueue<>();
@@ -1053,7 +1056,8 @@ public final class VectorCraftActivity extends NativeActivity {
                 String name = safeName(suggestedName == null ? "Untitled.svg" : suggestedName);
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType(mime == null || mime.isEmpty() ? mimeFor(name) : mime);
+                String resolvedMime = (mime == null || mime.isEmpty() || "*/*".equals(mime)) ? mimeFor(name) : mime;
+                intent.setType(resolvedMime);
                 intent.putExtra(Intent.EXTRA_TITLE, name);
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -1067,10 +1071,75 @@ public final class VectorCraftActivity extends NativeActivity {
         });
     }
 
+    /**
+     * Launch the SAF folder picker. Only folders on device storage ({@code primary:...} or mounted
+     * storage volumes) map to a real filesystem path; other providers answer with an error.
+     */
+    public void vcRequestFolder(long id) {
+        runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                        if (!docsDir.exists()) docsDir.mkdirs();
+                        Uri docsTreeUri = DocumentsContract.buildTreeDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Documents"
+                        );
+                        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, docsTreeUri);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not set initial tree URI for folder picker", e);
+                    }
+                }
+                requestIds.put(REQ_FOLDER, id);
+                startActivityForResult(intent, REQ_FOLDER);
+            } catch (Exception e) {
+                enqueueError(id, "folder", e.toString());
+            }
+        });
+    }
+
+    private String treeToPath(Uri tree) {
+        try {
+            String documentId = DocumentsContract.getTreeDocumentId(tree);
+            if (documentId == null) return null;
+            int colon = documentId.indexOf(':');
+            if (colon < 0) return null;
+            String volume = documentId.substring(0, colon);
+            String relative = documentId.substring(colon + 1);
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                base = new File("/storage/" + volume);
+                if (!base.exists()) {
+                    File[] externalDirs = getExternalFilesDirs(null);
+                    if (externalDirs != null) {
+                        for (File f : externalDirs) {
+                            if (f != null && f.getAbsolutePath().contains(volume)) {
+                                int idx = f.getAbsolutePath().indexOf(volume);
+                                base = new File(f.getAbsolutePath().substring(0, idx + volume.length()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return relative.isEmpty() ? base.getAbsolutePath() : new File(base, relative).getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_OPEN && requestCode != REQ_SAVE) {
+        if (requestCode != REQ_OPEN && requestCode != REQ_SAVE && requestCode != REQ_FOLDER) {
             return;
         }
         Long boxedId = requestIds.remove(requestCode);
@@ -1078,10 +1147,21 @@ public final class VectorCraftActivity extends NativeActivity {
             return;
         }
         final long id = boxedId;
-        final String kind = requestCode == REQ_OPEN ? "open" : "save";
+        final String kind = requestCode == REQ_OPEN ? "open" : requestCode == REQ_SAVE ? "save" : "folder";
         if (resultCode != RESULT_OK || data == null) {
             suggestedNames.remove(id);
             enqueueCancel(id, kind);
+            return;
+        }
+        if (requestCode == REQ_FOLDER) {
+            Uri tree = data.getData();
+            String path = tree == null ? null : treeToPath(tree);
+            if (path == null) {
+                enqueueError(id, kind, "Only folders on device storage can be opened");
+                return;
+            }
+            persistPermission(tree, data);
+            enqueuePaths(id, "folder", new String[] { path });
             return;
         }
         if (requestCode == REQ_SAVE) {
@@ -1097,8 +1177,13 @@ public final class VectorCraftActivity extends NativeActivity {
                     name = suggestedNames.getOrDefault(id, "Untitled.svg");
                 }
                 name = keepSuggestedExtension(name, suggestedNames.get(id));
-                File stage = newStageFile(name, uri);
-                rememberUri(stage, uri);
+                name = extensionLast(name);
+                Uri target = renameDocument(uri, name);
+                if (!target.equals(uri)) {
+                    persistPermission(target, data);
+                }
+                File stage = newStageFile(name, target);
+                rememberUri(stage, target);
                 enqueuePaths(id, "save", new String[] { stage.getAbsolutePath() });
             } catch (Exception e) {
                 enqueueError(id, kind, e.toString());
@@ -1158,6 +1243,10 @@ public final class VectorCraftActivity extends NativeActivity {
                 return "NONE";
             }
             Uri uri = Uri.parse(uriText);
+            if (!"content".equalsIgnoreCase(uri.getScheme())) {
+                Log.e(TAG, "vcCommitIfMapped refusing non-content URI: " + uri);
+                return "ERROR: Only content:// URIs are supported for SAF commit";
+            }
             File srcFile = new File(path);
             if (!srcFile.exists()) {
                 return "ERROR: Staged file does not exist: " + path;
@@ -1198,11 +1287,20 @@ public final class VectorCraftActivity extends NativeActivity {
 
     private String uriForSibling(String path) {
         String stem = stagedStem(path);
+        File target = new File(path);
+        File targetParent = target.getParentFile();
+        String targetName = target.getName();
         try {
             for (Map.Entry<String, ?> entry : getSharedPreferences(PREFS, MODE_PRIVATE).getAll().entrySet()) {
                 if (!entry.getKey().startsWith("uri:") || !(entry.getValue() instanceof String uriText)) continue;
                 String staged = entry.getKey().substring("uri:".length());
                 if (stagedStem(staged).equals(stem)) return uriText;
+                File stagedFile = new File(staged);
+                File stagedParent = stagedFile.getParentFile();
+                boolean sameParent = targetParent == null ? stagedParent == null : targetParent.equals(stagedParent);
+                if (sameParent && targetName.startsWith(stagedFile.getName() + ".")) {
+                    return uriText;
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not look up a staged document", e);
@@ -1218,6 +1316,47 @@ public final class VectorCraftActivity extends NativeActivity {
         int suggestedDot = suggested.lastIndexOf('.');
         if (suggestedDot <= 0 || suggestedDot >= suggested.length() - 1) return name;
         return name + suggested.substring(suggestedDot);
+    }
+
+    /**
+     * Move a duplicate-file counter added by the Android picker after the extension (e.g.
+     * {@code drawing.png (1)}) ahead of the extension ({@code drawing (1).png}) so the app keeps
+     * the real extension and writes to the same staged path that maps back to the SAF document.
+     */
+    private static String extensionLast(String name) {
+        if (name == null) return name;
+        int close = name.lastIndexOf(')');
+        if (close != name.length() - 1) return name;
+        int open = name.lastIndexOf('(', close);
+        if (open <= 0) return name;
+        String counter = name.substring(open);
+        String head = name.substring(0, open).trim();
+        int dot = head.lastIndexOf('.');
+        if (dot <= 0) return name;
+        return head.substring(0, dot) + " " + counter + head.substring(dot);
+    }
+
+    /**
+     * Rename the SAF document when {@link #extensionLast(String)} moved its duplicate counter,
+     * falling back to the original URI if the provider refuses renaming or revokes the write grant.
+     */
+    private Uri renameDocument(Uri uri, String name) {
+        try {
+            String current = displayName(uri);
+            if (current == null || current.equals(name)) return uri;
+            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, name);
+            if (renamed == null) return uri;
+            try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(renamed, "rw")) {
+                return renamed;
+            } catch (Exception e) {
+                try {
+                    DocumentsContract.renameDocument(getContentResolver(), renamed, current);
+                } catch (Exception ignored) { }
+                return uri;
+            }
+        } catch (Exception e) {
+            return uri;
+        }
     }
 
     /**
@@ -1275,7 +1414,10 @@ public final class VectorCraftActivity extends NativeActivity {
             if (cursor != null && cursor.moveToFirst()) {
                 int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 if (index >= 0) {
-                    return safeName(cursor.getString(index));
+                    String value = cursor.getString(index);
+                    if (value != null && !value.trim().isEmpty()) {
+                        return safeName(value);
+                    }
                 }
             }
         } catch (Exception ignored) {
@@ -1452,6 +1594,11 @@ public final class VectorCraftActivity extends NativeActivity {
         if (lower.endsWith(".gif")) return "image/gif";
         if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
         if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".tga")) return "image/x-tga";
+        if (lower.endsWith(".psd")) return "image/vnd.adobe.photoshop";
+        if (lower.endsWith(".eps") || lower.endsWith(".ai") || lower.endsWith(".ait")) return "application/postscript";
+        if (lower.endsWith(".dxf")) return "application/dxf";
+        if (lower.endsWith(".txt")) return "text/plain";
         return "application/octet-stream";
     }
 

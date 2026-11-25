@@ -58,6 +58,161 @@ if app == "photocraft":
         '            export_presets: take(&mut m, "export_presets"),\n',
     ):
         fixed.append("crates/engine/src/presets/mod.rs")
+    if fix_all("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+        fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
+    # Android's untrusted_app SELinux sandbox blocks reading /proc/self/cgroup and /sys/fs/cgroup,
+    # causing `cgroup_limits` to return `CgroupLimits::Unreadable` (`available_ram = Some(0)`) and
+    # hard-refuse opening files. Skip cgroup probing on Android so `/proc/meminfo` (or `UNKNOWN` if
+    # unreadable) drives the budget instead of `Some(0)`.
+    if fix(
+        "crates/raster/src/memory/system.rs",
+        '        let (cgroup_ram, cgroup_swap) = match cgroup_limits(proc_root, sys_root) {\n'
+        '            CgroupLimits::NotConstrained => (None, None),\n'
+        '            CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '            CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '        };',
+        '        let (cgroup_ram, cgroup_swap) = if cfg!(target_os = "android") {\n'
+        '            let _ = sys_root;\n'
+        '            (None, None)\n'
+        '        } else {\n'
+        '            match cgroup_limits(proc_root, sys_root) {\n'
+        '                CgroupLimits::NotConstrained => (None, None),\n'
+        '                CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '                CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '            }\n'
+        '        };',
+    ):
+        fixed.append("crates/raster/src/memory/system.rs (skip cgroup on Android)")
+    # Android's winit backend stubs out custom cursor bitmaps (`create_custom_cursor` and
+    # `set_cursor` are no-ops), so uploading a native cursor image leaves only the system stylus dot
+    # and skips painting the brush tip outline on the canvas. Paint tool cursors on canvas instead.
+    if fix(
+        "crates/ui-egui/src/canvas/tool_cursor.rs",
+        '    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)',
+        '    cfg!(not(any(target_arch = "wasm32", target_os = "android"))) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)',
+    ):
+        fixed.append("crates/ui-egui/src/canvas/tool_cursor.rs (paint tool cursors on Android)")
+    # `last_brush::persist` and `tool_memory::persist` run at the end of `ui_frame` after
+    # `prefs_ui::tick` already ran in `logic_frame`. Request a repaint when they edit preferences
+    # so the updated brush settings / tool options flush on the very next frame rather than waiting
+    # for unrelated input.
+    if fix(
+        "crates/ui-egui/src/last_brush.rs",
+        '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+        '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+        '    }',
+        '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+        '        let before = app.session.tools.brush_saved_rev;\n'
+        '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+        '        if app.session.tools.brush_saved_rev != before {\n'
+        '            ctx.request_repaint();\n'
+        '        }\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/last_brush.rs (repaint after remember_brush)")
+    if fix(
+        "crates/ui-egui/src/tool_memory.rs",
+        '    persist_brushes(app);\n'
+        '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+        '        return;\n'
+        '    }\n'
+        '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+        '    let now = changed(&app.ui.tool_options);\n'
+        '    if app.session.prefs().tool_options != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+        '    }',
+        '    persist_brushes(app, ctx);\n'
+        '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+        '        return;\n'
+        '    }\n'
+        '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+        '    let now = changed(&app.ui.tool_options);\n'
+        '    if app.session.prefs().tool_options != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+        '        ctx.request_repaint();\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/tool_memory.rs (repaint after tool_options edit)")
+    if fix(
+        "crates/ui-egui/src/tool_memory.rs",
+        'fn persist_brushes(app: &mut PhotocraftApp) {\n'
+        '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+        '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+        '        return;\n'
+        '    }\n'
+        '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+        '    let mut saved = Map::new();\n'
+        '    for (tool, brush) in brushes {\n'
+        '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+        '        if *tool == owner {\n'
+        '            continue;\n'
+        '        }\n'
+        '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+        '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+        '            saved.insert(key, v);\n'
+        '        }\n'
+        '    }\n'
+        '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+        '    let now = match serde_json::to_value(owner) {\n'
+        '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+        '        _ => Value::Null,\n'
+        '    };\n'
+        '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+        '    if app.session.prefs().tool_brushes != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+        '    }',
+        'fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context) {\n'
+        '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+        '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+        '        return;\n'
+        '    }\n'
+        '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+        '    let mut saved = Map::new();\n'
+        '    for (tool, brush) in brushes {\n'
+        '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+        '        if *tool == owner {\n'
+        '            continue;\n'
+        '        }\n'
+        '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+        '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+        '            saved.insert(key, v);\n'
+        '        }\n'
+        '    }\n'
+        '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+        '    let now = match serde_json::to_value(owner) {\n'
+        '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+        '        _ => Value::Null,\n'
+        '    };\n'
+        '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+        '    if app.session.prefs().tool_brushes != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+        '        ctx.request_repaint();\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/tool_memory.rs (repaint after tool_brushes edit)")
+    # Expose immediate state flushing so the Android shell can persist brush presets and
+    # preferences on focus loss / pause before Android terminates the process.
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        'impl eframe::App for PhotocraftApp {\n'
+        '    fn on_exit(&mut self) {\n',
+        'impl PhotocraftApp {\n'
+        '    /// Flush pending brush-preset store writes and tool/brush/preference state immediately.\n'
+        '    pub fn flush_persistence(&mut self) {\n'
+        '        self.session.sync_preset_store();\n'
+        '        if let Err(err) = tool_memory::save_on_exit(self) {\n'
+        '            log::warn!("Preferences: could not save the tool state: {err}");\n'
+        '        }\n'
+        '    }\n'
+        '}\n'
+        '\n'
+        'impl eframe::App for PhotocraftApp {\n'
+        '    fn on_exit(&mut self) {\n'
+        '        self.session.sync_preset_store();\n',
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (flush_persistence)")
 elif app == "cadcraft":
     # cadcraft's own crates/fonts/src/complex.rs was written against harfrust 0.14
     # (FontRef::from_index, ShaperData, UnicodeBuffer::push(u32, u32), shape()), but the
@@ -1738,16 +1893,32 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
-elif app == "photocraft":
-    if fix("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
-        fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
 elif app == "vectorcraft":
     if fix("crates/render/src/images.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/render/src/images.rs (Android meminfo)")
     fix_all("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
     fix("crates/render/src/images.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos", target_os = "freebsd")))]')
+    if fix(
+        "crates/ui-egui/src/dialogs/modal.rs",
+        "        .show(ctx, add)?;\n    keep_rest(ctx, id, shown.response.rect.height());\n    shown.inner",
+        "        .show(ctx, add)?;\n"
+        "    let dialog_layer = shown.response.layer_id;\n"
+        "    let popups: Vec<Id> = ctx.viewport(|vp| {\n"
+        "        vp.this_pass\n"
+        "            .layers\n"
+        "            .get(&dialog_layer)\n"
+        "            .map_or_else(Vec::new, |layer| layer.open_popups.iter().copied().collect())\n"
+        "    });\n"
+        "    for popup_id in popups {\n"
+        "        let popup_layer = egui::LayerId::new(egui::Order::Foreground, popup_id);\n"
+        "        if dialog_layer.order == popup_layer.order && dialog_layer != popup_layer {\n"
+        "            ctx.set_sublayer(dialog_layer, popup_layer);\n"
+        "        }\n"
+        "    }\n"
+        "    keep_rest(ctx, id, shown.response.rect.height());\n"
+        "    shown.inner",
+    ):
+        fixed.append("crates/ui-egui/src/dialogs/modal.rs (keep modal popups above modal dialog)")
 elif app == "lightcraft":
     if fix("crates/engine/src/memory.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/engine/src/memory.rs (Android meminfo)")
