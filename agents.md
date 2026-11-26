@@ -164,7 +164,7 @@ The system uses a decentralized modular approach:
 BUILDER_VERSION="0.7.1"  # Set in lib/build-common.sh
 UPDATE_API_URL="https://api.github.com/repos/MostafaXS1/artcraft-android/releases/latest"
 UPDATE_PAGE_URL="https://github.com/MostafaXS1/artcraft-android/releases/latest"
-GENERATOR_VERSION="83"   # Set in lib/launcher_generator.py
+GENERATOR_VERSION="84"   # Set in lib/launcher_generator.py
 ```
 
 **Repository mappings (`lib/catalog.sh`):**
@@ -312,7 +312,7 @@ All other apps use the standalone Python generator in `lib/launcher_generator.py
 
 ### 10.1 Generator Constants and Flow
 ```python
-GENERATOR_VERSION = "83"
+GENERATOR_VERSION = "84"
 # Marker file: .artcraft-android-builder-generated contains version
 ```
 
@@ -1942,7 +1942,7 @@ bash build.sh -app
 ## 51. Version History & Changelog Notes
 
 ### 51.1 Generator Version
-`GENERATOR_VERSION = "83"` in `lib/launcher_generator.py`
+`GENERATOR_VERSION = "84"` in `lib/launcher_generator.py`
 Bump when launcher template changes significantly.
 
 ### 51.2 Builder Version

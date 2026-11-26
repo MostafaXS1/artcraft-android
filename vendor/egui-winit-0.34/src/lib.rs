@@ -1180,7 +1180,9 @@ impl State {
         self.set_cursor_icon(window, cursor_icon);
 
         let allow_ime = ime.is_some();
-        if self.allow_ime != allow_ime {
+        if self.allow_ime != allow_ime
+            && !(cfg!(target_os = "android") && !allow_ime && !self.egui_input.focused)
+        {
             self.allow_ime = allow_ime;
             #[cfg(target_os = "windows")]
             if !self.allow_ime {

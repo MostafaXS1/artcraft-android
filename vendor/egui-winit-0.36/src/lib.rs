@@ -1562,7 +1562,8 @@ impl State {
         self.apply_cursor(window, event_loop, cursor_icon, cursor_image.as_ref());
 
         let allow_ime = ime.is_some();
-        let is_toggling_ime = self.allow_ime != allow_ime;
+        let is_toggling_ime = self.allow_ime != allow_ime
+            && !(cfg!(target_os = "android") && !allow_ime && !self.egui_input.focused);
         if is_toggling_ime {
             self.allow_ime = allow_ime;
             #[cfg(target_os = "windows")]

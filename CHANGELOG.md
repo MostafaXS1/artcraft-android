@@ -19,6 +19,11 @@
 - **Suite-wide Dynamic Compiler Jobs**: Configured memory-aware `CARGO_BUILD_JOBS` based on available RAM to prevent compiler OOM across the entire suite.
 
 ### Fixed
+- **Virtual Keyboard Language Switch Dismissal (Globe Icon Fix)**:
+  - Fixed virtual keyboard (Gboard, SwiftKey, AOSP) instantly closing when long-pressing the globe icon to switch languages. `ArtCraftInputView.onCheckIsTextEditor()` previously required `isFocused() && getVisibility() == View.VISIBLE`, which returned `false` the moment focus transitioned to the system Input Method Subtype Picker dialog, causing Android's `InputMethodManager` to terminate the input connection and abort the dialog. `onCheckIsTextEditor()` now returns `getVisibility() == View.VISIBLE` across all templates, adapters, and the launcher.
+  - Guarded `set_ime_allowed(false)` / `hide_soft_input(false)` in `egui-winit*` and `poll_ime()` (`photocraft`, `vectorcraft`, `subcraft`) when the Android window has lost focus (`!focused`). Previously, custom canvas text editors (WordCraft, PhotoCraft Type Tool, VectorCraft, DeckCraft) stopped emitting `PlatformOutput::ime` when `WindowEvent::Focused(false)` fired on dialog open, which triggered `imeHide()` and closed the language selection window.
+  - Re-asserted soft keyboard restoration in `onWindowFocusChanged(true)` via `InputMethodManager.showSoftInput` when returning from system dialogs and pickers while `inputView` is visible.
+  - Bumped `GENERATOR_VERSION` to `84` to force regeneration of all launcher activities and manifests.
 - **Coiman IDE**:
   - Fixed `opencode run` erroring on unrecognized `--standalone` flag.
   - Fixed terminal PTY window reseeding/resizing so the shell prompt correctly expands to fit the full terminal window on mobile.

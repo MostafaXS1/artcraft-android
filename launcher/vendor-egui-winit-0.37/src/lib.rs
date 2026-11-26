@@ -3483,7 +3483,11 @@ impl State {
             not(target_os = "emscripten"),
             not(target_os = "redox"),
         )))]
-        let (allow_ime, is_toggling_ime) = (ime_requested, self.allow_ime != ime_requested);
+        let (allow_ime, is_toggling_ime) = (
+            ime_requested,
+            self.allow_ime != ime_requested
+                && !(cfg!(target_os = "android") && !ime_requested && !self.egui_input.focused),
+        );
         #[cfg(all(
             feature = "wayland",
             unix,

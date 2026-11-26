@@ -45,7 +45,7 @@ This document describes the end-to-end architecture of the ArtCraft Android Buil
 
 The ArtCraft Android Builder produces locally-signed, 64-bit ARM (`arm64-v8a`) Android APKs from official upstream repositories of the ArtCraft suite and community creative tools. It uses a hybrid approach:
 - Directly builds 38 applications and the standalone ArtCraft Launcher APK.
-- For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="83"`).
+- For standard apps, it generates a thin GameActivity-based Rust launcher that wires up platform services (file dialogs, persistence, printing, etc.) into the app's APIs (`GENERATOR_VERSION="84"`).
 - For apps needing specialized JNI, C libraries, Termux IPC, or custom lifecycles, it uses custom adapters across 25 per-app adapter directories in `adapters/` (including PhotoCraft, VectorCraft, Coiman IDE, SubCraft, SolidCraft, PicassoSuite, AniCraft, ClothCraft, etc.).
 - It vendors and patches dependencies (`winit`, `egui-winit`, `rfd`, `arboard`, `egui-wgpu`, `android-activity`, `krilla`, `ffmpeg-sys-next`, `midir`, etc.) to add Android-specific desktop input (mouse/trackpad hover, wheel, gestures), system clipboard via JNI, SAF integration, ANR-safe non-blocking lifecycles, and surface recovery fixes.
 - It shares runtime modules (SAF bridge, system fonts, update checker, hardware-accelerated video rendering) across generated launchers and adapters; soft-keyboard input uses `android-activity`'s native GameActivity IME.
@@ -184,7 +184,7 @@ Modular coordinator script (~245 lines). It coordinates the 8 build stages by so
 - **`lib/catalog.sh`**: Central registry for supported apps (`resolve_app_catalog`), mapping app identifiers to `TITLE`, upstream `REPO`, and custom `APP_ORIGIN` routing (e.g. SubCraft, SolidCraft, Coiman IDE, PicassoSuite, ProWave, Transit, ClothCraft).
 - **`lib/source.sh`**: Handles upstream git cloning (`--depth 1`), release tag resolution (`-stable`), branch checkout (`-main`), source reuse verification (`source_tree_is_complete`), and craft fonts checkout.
 - **`lib/upstream_patches.py`**: Standalone script applying upstream compilation fixes (PhotoCraft export presets, CADCraft egui downgrade, Coiman IDE, DiagramCraft).
-- **`lib/launcher_generator.py`**: Generates thin GameActivity launchers (`apps/$APP-android/`), SAF recipe glue, and manifest configurations (`GENERATOR_VERSION="83"`).
+- **`lib/launcher_generator.py`**: Generates thin GameActivity launchers (`apps/$APP-android/`), SAF recipe glue, and manifest configurations (`GENERATOR_VERSION="84"`).
 - **`lib/vendoring.sh`**: Handles crate vendoring from `vendor/` to `source/$APP/vendor/` and workspace configuration.
 - **`lib/cargo_patches.py`**: Applies `[patch.crates-io]` workspace overrides to `Cargo.toml`, strips Wayland/X11 from winit, updates crates, and installs the update checker bridge.
 - **`lib/signing.sh`**: Manages the local keystore, certificate generation, and signing keys.
@@ -254,7 +254,7 @@ All patches are guarded/idempotent.
 
 ### Generator behavior (summary)
 - Creates Android crate dir `apps/$APP-android/`
-- Uses `GENERATOR_VERSION="83"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
+- Uses `GENERATOR_VERSION="84"`. Marker file `.artcraft-android-builder-generated` contains version; if present and matches, may skip full regen in some cases, but generator runs each build and writes files.
 - Inspects upstream workspace: reads `Cargo.toml` to find crates, detects UI crate type (eframe/App, Services/Hooks patterns), determines app type/constructors
 - Copies shared modules: `templates/android/system_fonts.rs`, and conditionally `templates/android/saf_bridge.rs` (if SAF needed)
 - Generates `src/lib.rs` with `android_main` wiring eframe/GameActivity, immersive fullscreen, modifier key handling, clipboard shortcuts (Ctrl/Cmd+C/X/V), native IME polling, system fonts, bar appearance, back button mapping to Escape, close-guard integration, input probe, persistence/UI scale/staged pruning logic as applicable

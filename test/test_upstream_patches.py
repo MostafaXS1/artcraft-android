@@ -372,6 +372,86 @@ class TestUpstreamPatches(unittest.TestCase):
             result2 = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
+    def test_materialcraft_two_finger_pan_scrolling_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            cam_rs = tmp_src / "crates" / "ui-egui" / "src" / "graph" / "graph_camera.rs"
+            cam_rs.parent.mkdir(parents=True, exist_ok=True)
+            cam_rs.write_text(
+                "    /// Zoom around the pointer by the wheel or a pinch. `zoom_direction` is -1 for inverted zoom.\n"
+                "    pub(crate) fn zoom_from_input(&mut self, ui: &Ui, view: Rect, zoom_direction: f32) {\n"
+                "        const PINCH_TO_SCROLL_POINTS: f32 = 200.0;\n"
+                "        const ZOOM_PER_SCROLL_POINT: f32 = 0.0025;\n"
+                "\n"
+                "        self.zoom = self.zoom.clamp(crate::state::GraphCamera::ZOOM.0, crate::state::GraphCamera::ZOOM.1);\n"
+                "        if !ui.rect_contains_pointer(view) {\n"
+                "            return;\n"
+                "        }\n"
+                "\n"
+                "        let Some(pointer) = ui.input(|input| input.pointer.hover_pos()).filter(|pointer| view.contains(*pointer)) else { return };\n"
+                "\n"
+                "        let scroll = zoom_direction * ui.input(|input| input.smooth_scroll_delta.y + input.zoom_delta().ln() * PINCH_TO_SCROLL_POINTS);\n"
+                "        if scroll.is_finite() && scroll != 0.0 {\n"
+                "            let before = self.to_graph(pointer);\n"
+                "            self.zoom = (self.zoom * (scroll * ZOOM_PER_SCROLL_POINT).exp()).clamp(crate::state::GraphCamera::ZOOM.0, crate::state::GraphCamera::ZOOM.1);\n"
+                "            self.pan = before.to_vec2() - (pointer - self.origin) / self.zoom;\n"
+                "        }\n"
+                "    }\n"
+            )
+
+            cmd = ["bash", str(SCROLLING_SCRIPT), str(tmp_src), "materialcraft", "MaterialCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("two-finger pan and touch zoom pivot", result.stdout)
+            patched = cam_rs.read_text()
+            self.assertIn("egui::MouseWheelSource::Trackpad", patched)
+            self.assertIn("self.pan -= pan_delta / self.zoom;", patched)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
+        # Also verify the release-commit (65f7bfd3) 2-argument zoom_from_input + gesture.rs
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            cam_rs = tmp_src / "crates" / "ui-egui" / "src" / "graph" / "graph_camera.rs"
+            gesture_rs = tmp_src / "crates" / "ui-egui" / "src" / "graph" / "gesture.rs"
+            cam_rs.parent.mkdir(parents=True, exist_ok=True)
+            cam_rs.write_text(
+                "    pub(crate) fn zoom_from_input(&mut self, ui: &Ui, view: Rect) {\n"
+                "        self.zoom = self.zoom.clamp(crate::state::GraphCamera::ZOOM.0, crate::state::GraphCamera::ZOOM.1);\n"
+                "        if !ui.rect_contains_pointer(view) {\n"
+                "            return;\n"
+                "        }\n"
+                "\n"
+                "        let Some(pointer) = ui.input(|input| input.pointer.hover_pos()).filter(|pointer| view.contains(*pointer)) else { return };\n"
+                "\n"
+                "        let scroll = ui.input(|input| input.smooth_scroll_delta.y + input.zoom_delta().ln() * 200.0);\n"
+                "        if scroll.is_finite() && scroll != 0.0 {\n"
+                "            let before = self.to_graph(pointer);\n"
+                "            self.zoom = (self.zoom * (scroll * 0.0025).exp()).clamp(crate::state::GraphCamera::ZOOM.0, crate::state::GraphCamera::ZOOM.1);\n"
+                "            self.pan = before.to_vec2() - (pointer - self.origin) / self.zoom;\n"
+                "        }\n"
+                "    }\n"
+            )
+            gesture_rs.write_text(
+                "pub(crate) fn cancelled(ui: &Ui) -> bool {\n"
+                "    ui.input(|input| !input.focused || input.key_pressed(egui::Key::Escape))\n"
+                "}\n"
+            )
+
+            cmd = ["bash", str(SCROLLING_SCRIPT), str(tmp_src), "materialcraft", "MaterialCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("two-finger pan and touch zoom pivot, v1", result.stdout)
+            self.assertIn("cancel drag on multi-touch/PointerGone", result.stdout)
+            self.assertIn("self.pan -= pan_delta / self.zoom;", cam_rs.read_text())
+            self.assertIn("egui::Event::PointerGone", gesture_rs.read_text())
+
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
 
 if __name__ == "__main__":
     unittest.main()
