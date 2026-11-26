@@ -325,6 +325,124 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/chrome.rs (AutoSave toggle saves opened file in place)")
 
+    # Add a Browse… folder picker button beside Clear in Options › Language › Dictionaries (#142).
+    if fix(
+        "crates/ui-egui/src/file_dialogs.rs",
+        '    Save { name: String, dir: Option<String> },\n}',
+        '    Save { name: String, dir: Option<String> },\n    /// Pick a folder (Options › Language › Dictionaries folder).\n    Folder { purpose: String },\n}',
+    ):
+        fixed.append("crates/ui-egui/src/file_dialogs.rs (FileDialogRequest::Folder)")
+    if fix(
+        "crates/ui-egui/src/file_dialogs.rs",
+        '            FileDialogRequest::Save { name, .. } => self.services.pick_save.as_ref().and_then(|f| f(name)),',
+        '            FileDialogRequest::Save { name, .. } => self.services.pick_save.as_ref().and_then(|f| f(name)),\n'
+        '            FileDialogRequest::Folder { .. } => None,',
+    ):
+        fixed.append("crates/ui-egui/src/file_dialogs.rs (ask_file Folder arm)")
+    if fix(
+        "crates/ui-egui/src/file_dialogs.rs",
+        '    /// Import the picked Word bibliography file (`b:Sources`: Word\'s `Sources.xml`) into the\n'
+        '    /// document through Manage Sources (#2640).\n'
+        '    #[cfg(not(target_arch = "wasm32"))]\n'
+        '    Sources,',
+        '    /// Import the picked Word bibliography file (`b:Sources`: Word\'s `Sources.xml`) into the\n'
+        '    /// document through Manage Sources (#2640).\n'
+        '    #[cfg(not(target_arch = "wasm32"))]\n'
+        '    Sources,\n'
+        '    /// Set Options › Language › Dictionaries folder.\n'
+        '    DictionariesFolder,',
+    ):
+        fixed.append("crates/ui-egui/src/file_dialogs.rs (AfterPick::DictionariesFolder)")
+    if fix(
+        "crates/ui-egui/src/file_dialogs.rs",
+        '            AfterPick::ForDialog => {',
+        '            AfterPick::DictionariesFolder => {\n'
+        '                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };\n'
+        '                self.run("file.options", json!({"dictionariesFolder": path}))\n'
+        '            }\n'
+        '            AfterPick::ForDialog => {',
+    ):
+        fixed.append("crates/ui-egui/src/file_dialogs.rs (finish_pick DictionariesFolder)")
+    if fix(
+        "crates/ui-egui/src/file_browser.rs",
+        '            FileDialogRequest::Save { name, .. } => {\n'
+        '                let ext = Path::new(name).extension().and_then(std::ffi::OsStr::to_str).filter(|e| !e.is_empty());\n'
+        '                let mut f: Vec<(String, Vec<String>)> = ext.map(|e| (format!("*.{e}"), vec![e.to_string()])).into_iter().collect();\n'
+        '                f.push(("All files".into(), vec!["*".into()]));\n'
+        '                (name.clone(), f)\n'
+        '            }',
+        '            FileDialogRequest::Save { name, .. } => {\n'
+        '                let ext = Path::new(name).extension().and_then(std::ffi::OsStr::to_str).filter(|e| !e.is_empty());\n'
+        '                let mut f: Vec<(String, Vec<String>)> = ext.map(|e| (format!("*.{e}"), vec![e.to_string()])).into_iter().collect();\n'
+        '                f.push(("All files".into(), vec!["*".into()]));\n'
+        '                (name.clone(), f)\n'
+        '            }\n'
+        '            FileDialogRequest::Folder { .. } => (String::new(), Vec::new()),',
+    ):
+        fixed.append("crates/ui-egui/src/file_browser.rs (new Folder arm)")
+    if fix(
+        "crates/ui-egui/src/file_browser.rs",
+        '                Step::Pick(path)\n'
+        '            }\n'
+        '        }\n'
+        '    }',
+        '                Step::Pick(path)\n'
+        '            }\n'
+        '            FileDialogRequest::Folder { .. } => Step::Pick(self.dir.clone()),\n'
+        '        }\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/file_browser.rs (confirm Folder arm)")
+    if fix(
+        "crates/ui-egui/src/file_browser.rs",
+        '            FileDialogRequest::Save { .. } => "Save As",\n        }',
+        '            FileDialogRequest::Save { .. } => "Save As",\n            FileDialogRequest::Folder { .. } => "Choose Folder",\n        }',
+    ):
+        fixed.append("crates/ui-egui/src/file_browser.rs (title Folder arm)")
+    if fix(
+        "crates/ui-egui/src/file_browser.rs",
+        '            FileDialogRequest::Save { .. } => "Save",\n        }',
+        '            FileDialogRequest::Save { .. } => "Save",\n            FileDialogRequest::Folder { .. } => "Select",\n        }',
+    ):
+        fixed.append("crates/ui-egui/src/file_browser.rs (ok_label Folder arm)")
+    if fix(
+        "crates/ui-egui/src/options.rs",
+        '    let id = egui::Id::unique("options_dictionaries_folder");\n'
+        '    let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());',
+        '    let id = egui::Id::unique("options_dictionaries_folder");\n'
+        '    let saved_id = egui::Id::unique("options_dictionaries_folder_saved");\n'
+        '    let prev_saved = ui.data(|d| d.get_temp::<String>(saved_id));\n'
+        '    let mut folder = if prev_saved.as_ref() != Some(&saved) {\n'
+        '        ui.data_mut(|d| d.insert_temp(saved_id, saved.clone()));\n'
+        '        saved.clone()\n'
+        '    } else {\n'
+        '        ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone())\n'
+        '    };',
+    ):
+        fixed.append("crates/ui-egui/src/options.rs (sync dictionaries folder draft)")
+    if fix(
+        "crates/ui-egui/src/options.rs",
+        '        if ui.add_enabled(!saved.is_empty(), egui::Button::new(tl!("Clear"))).clicked()\n'
+        '            && app.run("file.options", json!({"dictionariesFolder": "auto"})).is_ok()\n'
+        '        {\n'
+        '            folder.clear();\n'
+        '        }\n'
+        '    });',
+        '        if ui.add_enabled(!saved.is_empty(), egui::Button::new(tl!("Clear"))).clicked()\n'
+        '            && app.run("file.options", json!({"dictionariesFolder": "auto"})).is_ok()\n'
+        '        {\n'
+        '            folder.clear();\n'
+        '        }\n'
+        '        if ui.add(egui::Button::new(tl!("Browse…"))).clicked() {\n'
+        '            let _ = app.ask_file(\n'
+        '                crate::file_dialogs::FileDialogRequest::Folder { purpose: "dictionaries".into() },\n'
+        '                crate::file_dialogs::AfterPick::DictionariesFolder,\n'
+        '            );\n'
+        '        }\n'
+        '    });',
+    ):
+        fixed.append("crates/ui-egui/src/options.rs (Dictionaries folder Browse button)")
+
 elif app == "lightcraft":
     # Interactive slider / curve performance on Android:
     # 1. Whole-frame drafts on high-DPI Android screens rendered at full 2560px canvas resolution,

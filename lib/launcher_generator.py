@@ -1137,21 +1137,29 @@ fn saf_file_dialog(
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let id = saf_next_id(&state);
-        let (save_name, timeout) = match &request {
-            // `..` and not a field list: the request has gained fields over time (the
-            // folder the picker starts in, `dir`), and the launcher only cares about the
-            // name, so it must not break when the source adds another one.
-            wordcraft_ui_egui::FileDialogRequest::Save { name, .. } => (Some(name.as_str()), saf::PICK_TIMEOUT),
-            // Every other request is an open; the catch-all keeps this working whether the
-            // source has one open variant or several (`Open`, `OpenMany`).
-            _ => (None, saf::PICK_TIMEOUT),
+        let is_folder = matches!(&request, wordcraft_ui_egui::FileDialogRequest::Folder { .. });
+        let answer = if is_folder {
+            bridge.pick_folder_blocking_worker(id, saf::PICK_TIMEOUT)
+        } else {
+            let save_name = match &request {
+                // `..` and not a field list: the request has gained fields over time (the
+                // folder the picker starts in, `dir`), and the launcher only cares about the
+                // name, so it must not break when the source adds another one.
+                wordcraft_ui_egui::FileDialogRequest::Save { name, .. } => Some(name.as_str()),
+                // Every other request is an open; the catch-all keeps this working whether the
+                // source has one open variant or several (`Open`, `OpenMany`).
+                _ => None,
+            };
+            bridge.pick_blocking_worker(id, save_name, saf::PICK_TIMEOUT)
         };
-        let answer = match bridge.pick_blocking_worker(id, save_name, timeout) {
+        let answer = match answer {
             Ok(saf::PickAnswer::Paths(paths)) => {
                 // WordCraft's file API is path-based: it writes the document itself, so watch the
                 // staged destination and mirror any writes to the chosen SAF document later.
-                for path in &paths {
-                    state.mirror.track(id, path);
+                if !is_folder {
+                    for path in &paths {
+                        state.mirror.track(id, path);
+                    }
                 }
                 PICKED_PATHS
             }
