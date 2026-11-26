@@ -280,6 +280,12 @@ elif app == "wordcraft":
         '        let WindowUi { $($(#[$attr])* $field: _),*, .. } = &*$w;',
     ):
         fixed.append("crates/ui-egui/src/window_ui.rs (swap_fields pattern)")
+    if fix(
+        "crates/ui-egui/src/window_ui.rs",
+        "            clipboard_published: _,\n        } = self;",
+        "            clipboard_published: _,\n            ..\n        } = self;",
+    ):
+        fixed.append("crates/ui-egui/src/window_ui.rs (WordApp destructure ..)")
 
     # Ensure system_font_dirs discovers Android system fonts, shared storage Fonts folder,
     # and app-private fonts folders.
