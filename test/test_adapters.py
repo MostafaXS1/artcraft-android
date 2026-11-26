@@ -229,9 +229,19 @@ class TestAdapters(unittest.TestCase):
                     )
                     # Window focus recovery must re-assert soft keyboard visibility
                     self.assertIn(
-                        "imm.showSoftInput(inputView, 0);",
+                        "imm.showSoftInput(inputView,",
                         text,
                         f"{f.relative_to(ROOT)} onWindowFocusChanged must restore soft input via imm.showSoftInput",
+                    )
+                    self.assertIn(
+                        "public void imeShowImplicit()",
+                        text,
+                        f"{f.relative_to(ROOT)} must expose imeShowImplicit() for hardware-keyboard IME binding",
+                    )
+                    self.assertIn(
+                        "InputMethodManager.SHOW_IMPLICIT",
+                        text,
+                        f"{f.relative_to(ROOT)} must pass SHOW_IMPLICIT when showing IME implicitly",
                     )
                     checked_text_editors += 1
 
@@ -294,6 +304,18 @@ class TestAdapters(unittest.TestCase):
                 text,
                 f"adapters/{adapter}/src/lib.rs poll_ime must guard hide_soft_input when unfocused",
             )
+
+    def test_hardware_keyboard_binds_ime_implicitly(self):
+        """Ensure show_soft_input binds IME via imeShowImplicit instead of returning early on hardware keyboards."""
+        native_act = (
+            ROOT / "vendor" / "android-activity" / "src" / "native_activity" / "mod.rs"
+        ).read_text()
+        self.assertIn("imeShowImplicit", native_act)
+        self.assertIn("hardware_keyboard_pointing", native_act)
+        # Must not early-return before attaching to JVM and binding InputConnection
+        fn_start = native_act.index("pub fn show_soft_input(")
+        fn_body = native_act[fn_start : fn_start + 700]
+        self.assertNotIn("return;", fn_body)
 
 
 if __name__ == "__main__":

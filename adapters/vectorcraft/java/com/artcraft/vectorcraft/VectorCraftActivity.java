@@ -142,7 +142,18 @@ public final class VectorCraftActivity extends NativeActivity {
         return imeQueue.poll();
     }
 
+    private volatile boolean imeShowImplicitFlag = false;
+
     public void imeShow() {
+        imeShowWithFlags(false);
+    }
+
+    public void imeShowImplicit() {
+        imeShowWithFlags(true);
+    }
+
+    private void imeShowWithFlags(boolean implicit) {
+        imeShowImplicitFlag = implicit;
         runOnUiThread(() -> {
             try {
                 if (inputView != null) {
@@ -158,7 +169,7 @@ public final class VectorCraftActivity extends NativeActivity {
                     }
                     InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                     if (imm != null) {
-                        imm.showSoftInput(inputView, 0);
+                        imm.showSoftInput(inputView, implicit ? InputMethodManager.SHOW_IMPLICIT : 0);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -896,7 +907,7 @@ public final class VectorCraftActivity extends NativeActivity {
                     if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
                         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                         if (imm != null) {
-                            imm.showSoftInput(inputView, 0);
+                            imm.showSoftInput(inputView, imeShowImplicitFlag ? InputMethodManager.SHOW_IMPLICIT : 0);
                         }
                     }
                 });
