@@ -202,6 +202,7 @@ bash "$ROOT/lib/scrolling.sh" "$ROOT/$SRC" "$APP" "$TITLE"
 bash "$ROOT/lib/subcraft.sh" "$ROOT/$SRC" "$APP" "$TITLE"
 bash "$ROOT/lib/topbar_modifiers.sh" "$ROOT/$SRC" "$APP" "$TITLE" "$NO_BUTTONS"
 bash "$ROOT/lib/about_dialog.sh" "$ROOT/$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/fullscreen_toggle.sh" --patch-src "$ROOT/$SRC" "$APP" "$TITLE"
 
 # 5. Generate or prepare NativeActivity launcher
 ANDROID_DIR="$ROOT/$SRC/apps/$APP-android"
@@ -216,7 +217,7 @@ if [[ -x "$ROOT/adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$ROOT/$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs"
-        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
+        if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
             sed -i '/source: egui::MouseWheelSource::/d' "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
         fi
     fi
@@ -241,6 +242,7 @@ fi
 
 [[ -f "$ANDROID_DIR/Cargo.toml" && -f "$ANDROID_DIR/src/lib.rs" ]] || fail "Android wrapper is incomplete at $ANDROID_DIR. See the build log and adapters/README.md."
 bash "$ROOT/lib/ime.sh" "$SRC" "$APP" "$TITLE"
+bash "$ROOT/lib/fullscreen_toggle.sh" --wire-launcher "$ROOT/$SRC" "$APP" "$ANDROID_DIR"
 
 # 6. Vendor dependencies and apply workspace patches
 vendor_dependencies

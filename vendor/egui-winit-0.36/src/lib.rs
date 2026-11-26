@@ -439,34 +439,34 @@ impl State {
             screen_size_in_pixels / pixels_per_point;
 
         #[cfg(target_os = "android")]
-        let top_inset_points = {
-            let top_pixels = crate::safe_area::top_inset_pixels();
-            if top_pixels > 0.0 && pixels_per_point > 0.0 {
-                top_pixels / pixels_per_point
-            } else {
-                0.0
+        let safe_insets_points = if pixels_per_point > 0.0 {
+            let px = crate::safe_area::inset_pixels();
+            egui::epaint::MarginF32 {
+                left: px.left.max(0.0) / pixels_per_point,
+                top: px.top.max(0.0) / pixels_per_point,
+                right: px.right.max(0.0) / pixels_per_point,
+                bottom: px.bottom.max(0.0) / pixels_per_point,
             }
+        } else {
+            egui::epaint::MarginF32::default()
         };
         #[cfg(not(target_os = "android"))]
-        let top_inset_points = 0.0;
+        let safe_insets_points = egui::epaint::MarginF32::default();
 
-        self.egui_input.screen_rect = (screen_size_in_points.x > 0.0
-            && screen_size_in_points.y > top_inset_points)
-            .then(|| Rect::from_min_max(
-                Pos2::new(0.0, top_inset_points),
-                Pos2::new(screen_size_in_points.x, screen_size_in_points.y),
-            ));
+        let max_x = screen_size_in_points.x - safe_insets_points.right;
+        let max_y = screen_size_in_points.y - safe_insets_points.bottom;
+        self.egui_input.screen_rect = (max_x > safe_insets_points.left
+            && max_y > safe_insets_points.top)
+            .then(|| {
+                Rect::from_min_max(
+                    Pos2::new(safe_insets_points.left, safe_insets_points.top),
+                    Pos2::new(max_x, max_y),
+                )
+            });
 
         #[cfg(target_os = "android")]
         {
-            if top_inset_points > 0.0 {
-                self.egui_input.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 {
-                    top: top_inset_points,
-                    left: 0.0,
-                    right: 0.0,
-                    bottom: 0.0,
-                }));
-            }
+            self.egui_input.safe_area_insets = Some(egui::SafeAreaInsets(safe_insets_points));
         }
 
         // Tell egui which viewport is now active:

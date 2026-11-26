@@ -59,6 +59,161 @@ if app == "photocraft":
         '            export_presets: take(&mut m, "export_presets"),\n',
     ):
         fixed.append("crates/engine/src/presets/mod.rs")
+    if fix_all("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
+        fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
+    fix_all("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
+    # Android's untrusted_app SELinux sandbox blocks reading /proc/self/cgroup and /sys/fs/cgroup,
+    # causing `cgroup_limits` to return `CgroupLimits::Unreadable` (`available_ram = Some(0)`) and
+    # hard-refuse opening files. Skip cgroup probing on Android so `/proc/meminfo` (or `UNKNOWN` if
+    # unreadable) drives the budget instead of `Some(0)`.
+    if fix(
+        "crates/raster/src/memory/system.rs",
+        '        let (cgroup_ram, cgroup_swap) = match cgroup_limits(proc_root, sys_root) {\n'
+        '            CgroupLimits::NotConstrained => (None, None),\n'
+        '            CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '            CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '        };',
+        '        let (cgroup_ram, cgroup_swap) = if cfg!(target_os = "android") {\n'
+        '            let _ = sys_root;\n'
+        '            (None, None)\n'
+        '        } else {\n'
+        '            match cgroup_limits(proc_root, sys_root) {\n'
+        '                CgroupLimits::NotConstrained => (None, None),\n'
+        '                CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+        '                CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+        '            }\n'
+        '        };',
+    ):
+        fixed.append("crates/raster/src/memory/system.rs (skip cgroup on Android)")
+    # Android's winit backend stubs out custom cursor bitmaps (`create_custom_cursor` and
+    # `set_cursor` are no-ops), so uploading a native cursor image leaves only the system stylus dot
+    # and skips painting the brush tip outline on the canvas. Paint tool cursors on canvas instead.
+    if fix(
+        "crates/ui-egui/src/canvas/tool_cursor.rs",
+        '    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)',
+        '    cfg!(not(any(target_arch = "wasm32", target_os = "android"))) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)',
+    ):
+        fixed.append("crates/ui-egui/src/canvas/tool_cursor.rs (paint tool cursors on Android)")
+    # `last_brush::persist` and `tool_memory::persist` run at the end of `ui_frame` after
+    # `prefs_ui::tick` already ran in `logic_frame`. Request a repaint when they edit preferences
+    # so the updated brush settings / tool options flush on the very next frame rather than waiting
+    # for unrelated input.
+    if fix(
+        "crates/ui-egui/src/last_brush.rs",
+        '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+        '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+        '    }',
+        '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+        '        let before = app.session.tools.brush_saved_rev;\n'
+        '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+        '        if app.session.tools.brush_saved_rev != before {\n'
+        '            ctx.request_repaint();\n'
+        '        }\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/last_brush.rs (repaint after remember_brush)")
+    if fix(
+        "crates/ui-egui/src/tool_memory.rs",
+        '    persist_brushes(app);\n'
+        '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+        '        return;\n'
+        '    }\n'
+        '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+        '    let now = changed(&app.ui.tool_options);\n'
+        '    if app.session.prefs().tool_options != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+        '    }',
+        '    persist_brushes(app, ctx);\n'
+        '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+        '        return;\n'
+        '    }\n'
+        '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+        '    let now = changed(&app.ui.tool_options);\n'
+        '    if app.session.prefs().tool_options != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+        '        ctx.request_repaint();\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/tool_memory.rs (repaint after tool_options edit)")
+    if fix(
+        "crates/ui-egui/src/tool_memory.rs",
+        'fn persist_brushes(app: &mut PhotocraftApp) {\n'
+        '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+        '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+        '        return;\n'
+        '    }\n'
+        '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+        '    let mut saved = Map::new();\n'
+        '    for (tool, brush) in brushes {\n'
+        '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+        '        if *tool == owner {\n'
+        '            continue;\n'
+        '        }\n'
+        '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+        '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+        '            saved.insert(key, v);\n'
+        '        }\n'
+        '    }\n'
+        '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+        '    let now = match serde_json::to_value(owner) {\n'
+        '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+        '        _ => Value::Null,\n'
+        '    };\n'
+        '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+        '    if app.session.prefs().tool_brushes != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+        '    }',
+        'fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context) {\n'
+        '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+        '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+        '        return;\n'
+        '    }\n'
+        '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+        '    let mut saved = Map::new();\n'
+        '    for (tool, brush) in brushes {\n'
+        '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+        '        if *tool == owner {\n'
+        '            continue;\n'
+        '        }\n'
+        '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+        '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+        '            saved.insert(key, v);\n'
+        '        }\n'
+        '    }\n'
+        '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+        '    let now = match serde_json::to_value(owner) {\n'
+        '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+        '        _ => Value::Null,\n'
+        '    };\n'
+        '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+        '    if app.session.prefs().tool_brushes != now {\n'
+        '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+        '        ctx.request_repaint();\n'
+        '    }',
+    ):
+        fixed.append("crates/ui-egui/src/tool_memory.rs (repaint after tool_brushes edit)")
+    # Expose immediate state flushing so the Android shell can persist brush presets and
+    # preferences on focus loss / pause before Android terminates the process.
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        'impl eframe::App for PhotocraftApp {\n'
+        '    fn on_exit(&mut self) {\n',
+        'impl PhotocraftApp {\n'
+        '    /// Flush pending brush-preset store writes and tool/brush/preference state immediately.\n'
+        '    pub fn flush_persistence(&mut self) {\n'
+        '        self.session.sync_preset_store();\n'
+        '        if let Err(err) = tool_memory::save_on_exit(self) {\n'
+        '            log::warn!("Preferences: could not save the tool state: {err}");\n'
+        '        }\n'
+        '    }\n'
+        '}\n'
+        '\n'
+        'impl eframe::App for PhotocraftApp {\n'
+        '    fn on_exit(&mut self) {\n'
+        '        self.session.sync_preset_store();\n',
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (flush_persistence)")
 elif app == "cadcraft":
     # cadcraft's own crates/fonts/src/complex.rs was written against harfrust 0.14
     # (FontRef::from_index, ShaperData, UnicodeBuffer::push(u32, u32), shape()), but the
@@ -127,6 +282,13 @@ elif app == "wordcraft":
     ):
         fixed.append("crates/ui-egui/src/window_ui.rs (swap_fields pattern)")
 
+    if fix(
+        "crates/ui-egui/src/window_ui.rs",
+        "            shown_document,\n            clipboard_published: _,\n        } = self;\n",
+        "            shown_document,\n            clipboard_published: _,\n            ..\n        } = self;\n",
+    ):
+        fixed.append("crates/ui-egui/src/window_ui.rs (WordApp pattern ..)")
+
     # Ensure system_font_dirs discovers Android system fonts, shared storage Fonts folder,
     # and app-private fonts folders.
     if fix(
@@ -135,6 +297,35 @@ elif app == "wordcraft":
         '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy", "/system/fonts", "/product/fonts", "/storage/emulated/0/Fonts", "/sdcard/Fonts"].map(Into::into));\n        if let Some(base) = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from) {\n            dirs.push(base.join("fonts"));\n        }\n        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from) {\n            dirs.push(cfg.join("wordcraft/fonts"));\n            dirs.push(cfg.join("fonts"));\n        }',
     ):
         fixed.append("crates/fonts/src/fontdb/names.rs (system and user font directories)")
+
+    # Clicking the AutoSave switch on an opened document (NotSavedHere) should save in place
+    # and enable AutoSave rather than opening Save As (#143).
+    if fix(
+        "crates/ui-egui/src/chrome/title_bar.rs",
+        '            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '            Some(b) if b.save_as_helps() => {',
+        '            Some(crate::AutoSaveBlock::NotSavedHere) => {\n'
+        '                if app.run("file.save", json!({})).is_ok() && app.saved_here() {\n'
+        '                    let _ = app.run("file.autosave", json!({"value": true}));\n'
+        '                }\n'
+        '            }\n'
+        '            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '            Some(b) if b.save_as_helps() => {',
+    ):
+        fixed.append("crates/ui-egui/src/chrome/title_bar.rs (AutoSave toggle saves opened file in place)")
+    if fix(
+        "crates/ui-egui/src/chrome.rs",
+        '                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '                            Some(b) if b.save_as_helps() => {',
+        '                            Some(crate::AutoSaveBlock::NotSavedHere) => {\n'
+        '                                if app.run("file.save", json!({})).is_ok() && app.saved_here() {\n'
+        '                                    let _ = app.run("file.autosave", json!({"value": true}));\n'
+        '                                }\n'
+        '                            }\n'
+        '                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n'
+        '                            Some(b) if b.save_as_helps() => {',
+    ):
+        fixed.append("crates/ui-egui/src/chrome.rs (AutoSave toggle saves opened file in place)")
 
 elif app == "lightcraft":
     # Interactive slider / curve performance on Android:
@@ -281,6 +472,22 @@ elif app == "effectcraft":
     ):
         fixed.append("crates/media/Cargo.toml (ndk dependency)")
 
+    # 1b. Add filmcraft-isobmff to crates/media/Cargo.toml for android_mediacodec.rs SampleEntry.
+    root_cargo = src / "Cargo.toml"
+    fc_rev = "e7345f6e04a9bb921c2613a6aa92d162edf39b3b"
+    if root_cargo.is_file():
+        m = re.search(r'filmcraft-codecs\s*=\s*\{[^}]*rev\s*=\s*"([^"]+)"', root_cargo.read_text())
+        if m:
+            fc_rev = m.group(1)
+    media_cargo = src / "crates/media/Cargo.toml"
+    if media_cargo.is_file() and "filmcraft-isobmff" not in media_cargo.read_text():
+        if fix(
+            "crates/media/Cargo.toml",
+            'ndk-sys = "0.6"\n',
+            f'ndk-sys = "0.6"\nfilmcraft-isobmff = {{ git = "https://github.com/storytold/filmcraft", rev = "{fc_rev}" }}\n',
+        ):
+            fixed.append("crates/media/Cargo.toml (filmcraft-isobmff dependency)")
+
     # 2. Copy android_decoder.rs to crates/media/src/android_mediacodec.rs.
     dec_target = src / "crates/media/src/android_mediacodec.rs"
     dec_tmpl = ROOT / "templates/effectcraft/android_decoder.rs"
@@ -328,6 +535,15 @@ elif app == "effectcraft":
         'ndk-sys = "0.6"\n',
     ):
         fixed.append("crates/export/Cargo.toml (ndk dependency)")
+
+    export_cargo = src / "crates/export/Cargo.toml"
+    if export_cargo.is_file() and "filmcraft-isobmff" not in export_cargo.read_text():
+        if fix(
+            "crates/export/Cargo.toml",
+            'ndk-sys = "0.6"\n',
+            f'ndk-sys = "0.6"\nfilmcraft-isobmff = {{ git = "https://github.com/storytold/filmcraft", rev = "{fc_rev}" }}\n',
+        ):
+            fixed.append("crates/export/Cargo.toml (filmcraft-isobmff dependency)")
 
     # 6. Copy android_encoder.rs to crates/export/src/android_mediacodec.rs.
     enc_target = src / "crates/export/src/android_mediacodec.rs"
@@ -1875,16 +2091,32 @@ elif app == "filmcraft":
         'impl Exporter {\n',
     ):
         fixed.append("crates/export/src/job.rs (Exporter Drop cleanup)")
-elif app == "photocraft":
-    if fix("crates/raster/src/memory/system.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
-        fixed.append("crates/raster/src/memory/system.rs (Android meminfo)")
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(target_os = "linux"))]', '#[cfg(not(any(target_os = "linux", target_os = "android")))]')
-    fix("crates/raster/src/memory/system.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos")))]')
 elif app == "vectorcraft":
     if fix("crates/render/src/images.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/render/src/images.rs (Android meminfo)")
     fix_all("crates/render/src/images.rs", '#[cfg(any(target_os = "linux", test))]', '#[cfg(any(target_os = "linux", target_os = "android", test))]')
     fix("crates/render/src/images.rs", '#[cfg(not(any(target_os = "linux", windows, target_os = "macos", target_os = "freebsd")))]', '#[cfg(not(any(target_os = "linux", target_os = "android", windows, target_os = "macos", target_os = "freebsd")))]')
+    if fix(
+        "crates/ui-egui/src/dialogs/modal.rs",
+        "        .show(ctx, add)?;\n    keep_rest(ctx, id, shown.response.rect.height());\n    shown.inner",
+        "        .show(ctx, add)?;\n"
+        "    let dialog_layer = shown.response.layer_id;\n"
+        "    let popups: Vec<Id> = ctx.viewport(|vp| {\n"
+        "        vp.this_pass\n"
+        "            .layers\n"
+        "            .get(&dialog_layer)\n"
+        "            .map_or_else(Vec::new, |layer| layer.open_popups.iter().copied().collect())\n"
+        "    });\n"
+        "    for popup_id in popups {\n"
+        "        let popup_layer = egui::LayerId::new(egui::Order::Foreground, popup_id);\n"
+        "        if dialog_layer.order == popup_layer.order && dialog_layer != popup_layer {\n"
+        "            ctx.set_sublayer(dialog_layer, popup_layer);\n"
+        "        }\n"
+        "    }\n"
+        "    keep_rest(ctx, id, shown.response.rect.height());\n"
+        "    shown.inner",
+    ):
+        fixed.append("crates/ui-egui/src/dialogs/modal.rs (keep modal popups above modal dialog)")
 elif app == "lightcraft":
     if fix("crates/engine/src/memory.rs", '#[cfg(target_os = "linux")]', '#[cfg(any(target_os = "linux", target_os = "android"))]'):
         fixed.append("crates/engine/src/memory.rs (Android meminfo)")
@@ -1933,25 +2165,109 @@ elif app == "pdfcraft":
             };"""
     if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print_spooler, new_print_spooler):
         fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer spooler)")
-    old_print = """            // The receiver may be gone (the app quit): nothing to report to then.
-            let result = spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
-                let _ = tx.send(JobNews::Sent(sent, sheets));
-                repaint();
-            });
-            let _ = tx.send(JobNews::Done(result.map_err(|e| e.to_string())));"""
-    new_print = """            let result = if let Some(handler) = handler {
-                let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title };
-                handler(&name, &bytes)
-            } else {
-                // The receiver may be gone (the app quit): nothing to report to then.
-                spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
-                    let _ = tx.send(JobNews::Sent(sent, sheets));
-                    repaint();
-                }).map_err(|e| e.to_string())
-            };
-            let _ = tx.send(JobNews::Done(result));"""
-    if fix("crates/ui-egui/src/workflows/print_ui.rs", old_print, new_print):
-        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (send_to_printer)")
+    modern_spooler_target = """                match &spooler {
+                    Some(submit) => submit(&bytes, &job),
+                    None => spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                        progress.set(sent, sheets);
+                        wake.wake();
+                    })
+                    .map_err(|e| e.to_string()),
+                }"""
+    modern_spooler_repl = """                if let Some(handler) = &handler {
+                    let name = if job.title.is_empty() { "PdfCraft".to_string() } else { job.title.clone() };
+                    handler(&name, &bytes)
+                } else {
+                    match &spooler {
+                        Some(submit) => submit(&bytes, &job),
+                        None => spool::submit_with_progress(&bytes, &job, &mut |sent, sheets| {
+                            progress.set(sent, sheets);
+                            wake.wake();
+                        })
+                        .map_err(|e| e.to_string()),
+                    }
+                }"""
+    if fix(
+        "crates/ui-egui/src/workflows/print_ui.rs",
+        "        let spooler = self.spooler.clone();\n        self.print_tasks.jobs.submit(",
+        "        let spooler = self.spooler.clone();\n        let handler = self.print_handler.clone();\n        self.print_tasks.jobs.submit(",
+    ):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (jobs.submit handler closure)")
+    if fix("crates/ui-egui/src/workflows/print_ui.rs", modern_spooler_target, modern_spooler_repl):
+        fixed.append("crates/ui-egui/src/workflows/print_ui.rs (modern send_to_printer spooler)")
+
+elif app == "solidcraft":
+    # Bypass wasmtime JIT runtime on Android (prevents multi-gigabyte memory consumption and OOM crashes)
+    if fix(
+        "crates/craft-plugin-wasm/Cargo.toml",
+        '[target.\'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))\'.dependencies]',
+        '[target.\'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(target_os = "android")))\'.dependencies]',
+    ):
+        fixed.append("crates/craft-plugin-wasm/Cargo.toml (bypass wasmtime on Android)")
+
+    if fix_all(
+        "crates/craft-plugin-wasm/src/lib.rs",
+        '#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]',
+        '#[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(target_os = "android")))]',
+    ):
+        fixed.append("crates/craft-plugin-wasm/src/lib.rs (cfg not android for native)")
+
+    if fix_all(
+        "crates/craft-plugin-wasm/src/lib.rs",
+        '#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]',
+        '#[cfg(not(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(target_os = "android"))))]',
+    ):
+        fixed.append("crates/craft-plugin-wasm/src/lib.rs (cfg android fallback)")
+
+elif app == "notecraft":
+    if fix(
+        "crates/ui-egui/src/app.rs",
+        "    pub fn open_path(&mut self, path: &str) {\n"
+        "        // An explicit command-line/control request wins over the page saved by the\n",
+        "    pub fn open_path(&mut self, path: &str) {\n"
+        "        let p = Path::new(path);\n"
+        "        if p.extension().and_then(|e| e.to_str()).is_some_and(|e| {\n"
+        "            e.eq_ignore_ascii_case(\"one\")\n"
+        "                || e.eq_ignore_ascii_case(\"onetoc2\")\n"
+        "                || e.eq_ignore_ascii_case(\"onepkg\")\n"
+        "        }) {\n"
+        "            self.import_onenote_source(p.to_path_buf());\n"
+        "            return;\n"
+        "        }\n"
+        "        // An explicit command-line/control request wins over the page saved by the\n",
+    ):
+        fixed.append("crates/ui-egui/src/app.rs (import .one/.onetoc2/.onepkg in open_path)")
+
+elif app == "coimanide":
+    if fix(
+        "crates/coiman-ide/src/app/shell/window.rs",
+        "            match hovered {\n"
+        "                Some(ZoomPart::Code) => self.change_font_zoom(ctx, ZoomPart::Code, self.font_size * delta),\n"
+        "                Some(ZoomPart::Terminal) => {\n"
+        "                    self.change_font_zoom(ctx, ZoomPart::Terminal, self.terminal_font() * delta);\n"
+        "                }\n"
+        "                None => self.change_zoom(ctx, self.zoom * delta),\n"
+        "            }\n",
+        "            match hovered {\n"
+        "                Some(ZoomPart::Terminal) => {\n"
+        "                    self.change_font_zoom(ctx, ZoomPart::Terminal, self.terminal_font() * delta);\n"
+        "                }\n"
+        "                #[cfg(not(target_os = \"android\"))]\n"
+        "                Some(ZoomPart::Code) => self.change_font_zoom(ctx, ZoomPart::Code, self.font_size * delta),\n"
+        "                #[cfg(not(target_os = \"android\"))]\n"
+        "                None => self.change_zoom(ctx, self.zoom * delta),\n"
+        "                #[cfg(target_os = \"android\")]\n"
+        "                _ => {}\n"
+        "            }\n",
+    ):
+        fixed.append("crates/coiman-ide/src/app/shell/window.rs (disable pinch UI zoom on Android, keep terminal zoom)")
+
+elif app == "anicraft":
+    if fix(
+        "src/test_movie.rs",
+        "egui::output::IMEOutput { purpose, rect: r, cursor_rect: egui::Rect::from_min_size(r.left_bottom(), egui::vec2(1.0, 1.0)), should_interrupt_composition: false }",
+        "egui::output::IMEOutput { owner: egui::Id::NULL, context_generation: 0, purpose, rect: r, cursor_rect: egui::Rect::from_min_size(r.left_bottom(), egui::vec2(1.0, 1.0)), should_interrupt_composition: false, reset_request: None, change_cause: egui::output::ImeChangeCause::Other, surrounding_text: egui::output::IMESurroundingText::Unavailable }",
+    ):
+        fixed.append("src/test_movie.rs (IMEOutput storytold fields)")
 
 
 if fixed:

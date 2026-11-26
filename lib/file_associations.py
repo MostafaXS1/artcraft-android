@@ -185,8 +185,8 @@ EXT_MIME = {
     # NoteCraft
     "notecraft": ("application/x-notecraft",),
     "note": ("application/x-notecraft",),
-    "onetoc2": ("application/onenote",),
-    "one": ("application/onenote",),
+    "onetoc2": ("application/onenote", "application/octet-stream"),
+    "one": ("application/onenote", "application/msonenote", "application/x-onenote", "application/octet-stream"),
     # DiagramCraft (Visio)
     "vsdx": ("application/vnd.ms-visio.drawing.main+xml", "application/vnd.visio"),
     "vssx": ("application/vnd.ms-visio.stencil.main+xml",),

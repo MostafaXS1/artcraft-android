@@ -30,6 +30,8 @@ p.write_text(s)
 '
 fi
 
+python3 "$ROOT/lib/patch_egui_winit_safe_area.py" "$SRC_ABS/vendor/egui/crates/egui-winit" "$ROOT"
+
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
 import sys, re, tomllib

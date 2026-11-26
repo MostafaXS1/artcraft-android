@@ -202,6 +202,7 @@ if lib_rs.is_file():
 
     lib_rs.write_text(txt)
 PY
+python3 "$ROOT/lib/patch_egui_winit_safe_area.py" "$SRC_ABS/vendor/egui-winit" "$ROOT"
 
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"

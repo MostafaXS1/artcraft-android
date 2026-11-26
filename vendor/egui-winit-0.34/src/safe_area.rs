@@ -1,6 +1,70 @@
 #[cfg(target_os = "ios")]
 pub use ios::get_safe_area_insets;
 
+#[cfg(target_os = "android")]
+#[allow(unused_imports)]
+pub use android::{get_safe_area_insets, inset_pixels, top_inset_pixels};
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn get_safe_area_insets() -> egui::SafeAreaInsets {
+    egui::SafeAreaInsets::default()
+}
+
+#[cfg(target_os = "android")]
+mod android {
+    use egui::{epaint::MarginF32, SafeAreaInsets};
+    use jni::{jni_sig, jni_str, objects::JObject, JavaVM};
+
+    #[expect(unsafe_code)]
+    pub fn inset_pixels() -> MarginF32 {
+        let activity_raw = crate::android_activity::activity_raw();
+        let vm_ptr: Option<*mut jni::sys::JavaVM> = crate::android_activity::vm_raw().or_else(|| {
+            let ctx = ndk_context::android_context();
+            let p: *mut jni::sys::JavaVM = ctx.vm().cast();
+            if p.is_null() { None } else { Some(p) }
+        });
+        let Some(vm_ptr) = vm_ptr else {
+            return MarginF32::default();
+        };
+        let Some(activity_raw) = activity_raw else {
+            return MarginF32::default();
+        };
+        if activity_raw.is_null() {
+            return MarginF32::default();
+        }
+        let vm = unsafe { JavaVM::from_raw(vm_ptr) };
+        let res = vm.attach_current_thread(|env| -> jni::errors::Result<MarginF32> {
+            let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&activity_raw)? };
+            macro_rules! read_inset {
+                ($method:literal) => {
+                    match env.call_method(&*activity, jni_str!($method), jni_sig!("()I"), &[]) {
+                        Ok(val) => val.i().map(|v| v.max(0) as f32).unwrap_or(0.0),
+                        Err(_) => {
+                            let _ = env.exception_clear();
+                            0.0
+                        }
+                    }
+                };
+            }
+            Ok(MarginF32 {
+                left: read_inset!("getSafeInsetLeft"),
+                right: read_inset!("getSafeInsetRight"),
+                top: read_inset!("getSafeInsetTop"),
+                bottom: read_inset!("getSafeInsetBottom"),
+            })
+        });
+        res.unwrap_or_default()
+    }
+
+    pub fn top_inset_pixels() -> f32 {
+        inset_pixels().top
+    }
+
+    pub fn get_safe_area_insets() -> SafeAreaInsets {
+        SafeAreaInsets(inset_pixels())
+    }
+}
+
 #[cfg(target_os = "ios")]
 mod ios {
     use egui::{SafeAreaInsets, epaint::MarginF32};

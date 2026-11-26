@@ -81,6 +81,9 @@ class TestLauncherGenerator(unittest.TestCase):
                 (android_app_dir / "src" / "mobile_text_bar.rs").is_file(),
                 "src/mobile_text_bar.rs missing",
             )
+            lib_rs = (android_app_dir / "src" / "lib.rs").read_text()
+            self.assertIn("if inner.autosaves() && inner.session.dirty", lib_rs)
+            self.assertNotIn("if inner.session.dirty && inner.session.path.is_some()", lib_rs)
 
 
 if __name__ == "__main__":

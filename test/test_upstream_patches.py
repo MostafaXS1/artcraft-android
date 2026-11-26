@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCHES_SCRIPT = ROOT / "lib" / "upstream_patches.py"
+SCROLLING_SCRIPT = ROOT / "lib" / "scrolling.sh"
 
 
 class TestUpstreamPatches(unittest.TestCase):
@@ -78,6 +79,33 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
             self.assertEqual(target_file.read_text(), patched_content)
+
+    def test_wordcraft_autosave_save_in_place_patch(self):
+        for rel_path, indent in (
+            ("crates/ui-egui/src/chrome/title_bar.rs", "            "),
+            ("crates/ui-egui/src/chrome.rs", "                            "),
+        ):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_src = Path(tmp_dir)
+                target_file = tmp_src / rel_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                target_file.write_text(
+                    f"{indent}// AutoSave comes on once Save As has saved (maybe on a later frame, #94).\n"
+                    f"{indent}Some(b) if b.save_as_helps() => {{\n"
+                )
+                cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "wordcraft", "WordCraft"]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("AutoSave toggle saves opened file in place", result.stdout)
+                patched = target_file.read_text()
+                self.assertIn("Some(crate::AutoSaveBlock::NotSavedHere) => {", patched)
+                self.assertIn('app.run("file.save", json!({}))', patched)
+
+                # Idempotent on second run
+                result2 = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(result2.returncode, 0)
+                self.assertEqual(result2.stdout.strip(), "")
+                self.assertEqual(target_file.read_text(), patched)
 
     def test_diagramcraft_spellcheck_patch(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -150,31 +178,200 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertIn('rayon = { workspace = true }', patched_content)
             self.assertIn('ndk = { version = "0.9"', patched_content)
 
-    def test_effectcraft_mediacodec_patch(self):
+    def test_photocraft_cursor_and_persistence_patches(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_src = Path(tmp_dir)
-            target_cargo = tmp_src / "crates" / "media" / "Cargo.toml"
-            target_cargo.parent.mkdir(parents=True, exist_ok=True)
-            original_content = (
-                '[package]\nname = "effectcraft-media"\n\n'
-                '[dependencies]\n'
-                'log = { workspace = true }\n'
-            )
-            target_cargo.write_text(original_content)
+            mem_system = tmp_src / "crates" / "raster" / "src" / "memory" / "system.rs"
+            tool_cursor = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "tool_cursor.rs"
+            last_brush = tmp_src / "crates" / "ui-egui" / "src" / "last_brush.rs"
+            tool_memory = tmp_src / "crates" / "ui-egui" / "src" / "tool_memory.rs"
+            app_rs = tmp_src / "crates" / "ui-egui" / "src" / "app.rs"
+            for f in (mem_system, tool_cursor, last_brush, tool_memory, app_rs):
+                f.parent.mkdir(parents=True, exist_ok=True)
 
-            cmd = [
-                sys.executable,
-                str(PATCHES_SCRIPT),
-                str(tmp_src),
-                "effectcraft",
-                "EffectCraft",
-            ]
+            mem_system.write_text(
+                '#[cfg(target_os = "linux")]\nmod a {}\n'
+                '#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))] fn b() {}\n'
+                '#[cfg(target_os = "linux")] fn c() {}\n'
+                '#[cfg(not(target_os = "linux"))] fn d() {}\n'
+                '#[cfg(target_os = "linux")] mod linux {\n'
+                '        let (cgroup_ram, cgroup_swap) = match cgroup_limits(proc_root, sys_root) {\n'
+                '            CgroupLimits::NotConstrained => (None, None),\n'
+                '            CgroupLimits::Limited { ram, swap } => (ram, swap),\n'
+                '            CgroupLimits::Unreadable => return SystemMemory { available_ram: Some(0), swap_free: Some(0), commit_headroom: None, constraint_unreadable: true },\n'
+                '        };\n'
+                '}\n'
+            )
+
+            tool_cursor.write_text(
+                'fn native(ctx: &egui::Context) -> bool {\n'
+                '    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)\n'
+                '}\n'
+            )
+            last_brush.write_text(
+                'pub fn persist(app: &mut PhotocraftApp, ctx: &egui::Context) {\n'
+                '    if !ctx.input(|i| i.pointer.any_down()) {\n'
+                '        photocraft_engine::brush_cmds::remember_brush(&mut app.session);\n'
+                '    }\n'
+                '}\n'
+            )
+            tool_memory.write_text(
+                '    persist_brushes(app);\n'
+                '    if app.prefs_rt.tool_options.as_ref() == Some(&app.ui.tool_options) {\n'
+                '        return;\n'
+                '    }\n'
+                '    app.prefs_rt.tool_options = Some(app.ui.tool_options.clone());\n'
+                '    let now = changed(&app.ui.tool_options);\n'
+                '    if app.session.prefs().tool_options != now {\n'
+                '        app.session.prefs.edit(|p| p.tool_options = now);\n'
+                '    }\n'
+                '}\n'
+                'fn persist_brushes(app: &mut PhotocraftApp) {\n'
+                '    let (owner, brushes) = (saved_owner(app), &app.ui.tool_brushes);\n'
+                '    if app.prefs_rt.tool_brushes.as_ref().is_some_and(|(o, b)| *o == owner && b == brushes) {\n'
+                '        return;\n'
+                '    }\n'
+                '    let old = app.session.prefs().tool_brushes.get("brushes").and_then(Value::as_object).cloned().unwrap_or_default();\n'
+                '    let mut saved = Map::new();\n'
+                '    for (tool, brush) in brushes {\n'
+                '        // The owner\'s brush is the session brush, remembered as `last_brush`.\n'
+                '        if *tool == owner {\n'
+                '            continue;\n'
+                '        }\n'
+                '        let Ok(Value::String(key)) = serde_json::to_value(tool) else { continue };\n'
+                '        if let Some(v) = photocraft_engine::brush_cmds::remembered_settings(brush).or_else(|| old.get(&key).cloned()) {\n'
+                '            saved.insert(key, v);\n'
+                '        }\n'
+                '    }\n'
+                '    // Nothing to remember while the Brush owns the session brush and no other tool has its own.\n'
+                '    let now = match serde_json::to_value(owner) {\n'
+                '        Ok(o) if !saved.is_empty() || owner != Tool::Brush => json!({"owner": o, "brushes": saved}),\n'
+                '        _ => Value::Null,\n'
+                '    };\n'
+                '    app.prefs_rt.tool_brushes = Some((owner, brushes.clone()));\n'
+                '    if app.session.prefs().tool_brushes != now {\n'
+                '        app.session.prefs.edit(|p| p.tool_brushes = now);\n'
+                '    }\n'
+                '}\n'
+            )
+            app_rs.write_text(
+                'impl eframe::App for PhotocraftApp {\n'
+                '    fn on_exit(&mut self) {\n'
+                '        let _ = tool_memory::save_on_exit(self);\n'
+                '    }\n'
+                '}\n'
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "photocraft", "PhotoCraft"]
             result = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
-            patched_content = target_cargo.read_text()
-            self.assertIn('ndk = { version = "0.9"', patched_content)
-            self.assertIn('ndk-sys = "0.6"', patched_content)
+            mem_patched = mem_system.read_text()
+            self.assertNotIn('#[cfg(target_os = "linux")]', mem_patched)
+            self.assertNotIn('#[cfg(not(target_os = "linux"))]', mem_patched)
+            self.assertEqual(mem_patched.count('#[cfg(any(target_os = "linux", target_os = "android"))]'), 3)
+            self.assertIn('if cfg!(target_os = "android")', mem_patched)
+            self.assertIn('target_os = "android"', tool_cursor.read_text())
+            self.assertIn("ctx.request_repaint()", last_brush.read_text())
+            self.assertIn("fn persist_brushes(app: &mut PhotocraftApp, ctx: &egui::Context)", tool_memory.read_text())
+            self.assertEqual(tool_memory.read_text().count("ctx.request_repaint()"), 2)
+            self.assertIn("pub fn flush_persistence(&mut self)", app_rs.read_text())
 
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
+    def test_vectorcraft_modal_popup_sublayer_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            modal_rs = tmp_src / "crates" / "ui-egui" / "src" / "dialogs" / "modal.rs"
+            modal_rs.parent.mkdir(parents=True, exist_ok=True)
+            modal_rs.write_text(
+                "    let shown = egui::Window::new(title)\n"
+                "        .id(id)\n"
+                "        .order(egui::Order::Foreground)\n"
+                "        .show(ctx, add)?;\n"
+                "    keep_rest(ctx, id, shown.response.rect.height());\n"
+                "    shown.inner\n"
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "vectorcraft", "VectorCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("keep modal popups above modal dialog", result.stdout)
+            patched = modal_rs.read_text()
+            self.assertIn("layer.open_popups.iter()", patched)
+            self.assertIn("ctx.set_sublayer(dialog_layer, popup_layer);", patched)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
+    def test_vectorcraft_two_finger_rotation_and_scrolling_patches(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            input_rs = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "input.rs"
+            view_rs = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "view.rs"
+            input_rs.parent.mkdir(parents=True, exist_ok=True)
+            input_rs.write_text(
+                "    if resp.hovered() {\n"
+                "        if (factor - 1.0).abs() > 1e-6\n"
+                "            && let (Some(p), Some(vm)) = (hover, app.view_mut())\n"
+                "        {\n"
+                "            zoom_about(vm, rect, p, vm.zoom * factor);\n"
+                "        }\n"
+                "        if scroll != egui::Vec2::ZERO {\n"
+                "            scroll_view(app, ui, scroll);\n"
+                "        }\n"
+                "        if let Some(p) = hover\n"
+                "            && let Some(deg) = trackpad_turn(ui, app.session.prefs.trackpad_rotate_view)\n"
+                "            && let Some(vm) = app.view_mut()\n"
+                "        {\n"
+                "            rotate_about(vm, rect, p, deg);\n"
+                "        }\n"
+                "    }\n"
+            )
+            view_rs.write_text(
+                "    let (deg, now) = ui.input(|i| {\n"
+                "        let rad: f32 =\n"
+                "            if i.multi_touch().is_some() { 0.0 } else { i.events.iter().map(|e| if let egui::Event::Rotate(r) = e { *r } else { 0.0 }).sum() };\n"
+                "        (f64::from(rad).to_degrees(), i.time)\n"
+                "    });\n"
+                "    let turn = if t.turning {\n"
+                "        Some(deg)\n"
+                "    } else if t.total.abs() >= ROTATE_DEAD_ZONE {\n"
+                "        t.turning = true;\n"
+                "        Some(t.total)\n"
+                "    } else {\n"
+                "        None\n"
+                "    };\n"
+                "                } else if *unit == egui::MouseWheelUnit::Point || !animate {\n"
+                "                    zoom *= (f64::from(d.y) * WHEEL_ZOOM).exp();\n"
+                "                    scroll.x += d.x;\n"
+                "                } else {\n"
+            )
+
+            cmd = ["bash", str(SCROLLING_SCRIPT), str(tmp_src), "vectorcraft", "VectorCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("touch rotation and zoom pivot", result.stdout)
+            self.assertIn("touch rotation recognition", result.stdout)
+            self.assertIn("touch rotation responsiveness", result.stdout)
+            self.assertIn("trackpad/touch 2-finger panning", result.stdout)
+
+            patched_input = input_rs.read_text()
+            self.assertIn("let pivot = hover.or_else(|| pointer.interact_pos())", patched_input)
+            self.assertIn("rotate_about(vm, rect, pivot, deg);", patched_input)
+
+            patched_view = view_rs.read_text()
+            self.assertIn("t.turning || cfg!(target_os = \"android\")", patched_view)
+            self.assertIn("*source == egui::MouseWheelSource::Trackpad || cfg!(target_os = \"android\")", patched_view)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,10 +11,10 @@ DEST="$SRC_ABS/apps/$APP-android"
 # Remove accesskit from eframe in Cargo.toml for Android native-activity compatibility
 sed -i 's/"accesskit",\?//g' "$SRC_ABS/Cargo.toml" || true
 
-# Add apps/anicraft-android to workspace members
+# Add apps/anicraft-android to workspace members and patch egui stack to Storytold fork
 python3 - "$SRC_ABS/Cargo.toml" <<'PY'
 from pathlib import Path
-import re, sys
+import re, sys, tomllib
 p = Path(sys.argv[1])
 s = p.read_text()
 m = re.search(r'(?ms)^members\s*=\s*\[(.*?)\]', s)
@@ -26,7 +26,25 @@ if m:
             new_inner += ','
         new_inner += ' "apps/anicraft-android"'
         s = s[:m.start(1)] + new_inner + s[m.end(1):]
-        p.write_text(s)
+
+entries = '''
+ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_kittest = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+'''
+if "https://github.com/storytold/egui.git" not in s:
+    header = "[patch.crates-io]"
+    s = (s.replace(header, header + "\n" + entries.strip(), 1) if header in s
+         else s.rstrip() + "\n\n" + header + "\n" + entries.strip() + "\n")
+    tomllib.loads(s)
+p.write_text(s)
 PY
 
 # Ensure source/anicraft has a [lib] entry

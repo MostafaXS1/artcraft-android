@@ -8,7 +8,7 @@ vendor_dependencies() {
     # egui-winit
     echo "Vendoring the Android-compatible egui-winit for $TITLE (system clipboard via JNI)..."
     mkdir -p "$src_dir/vendor"
-    if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
+    if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
         rm -rf "$src_dir/vendor/egui-winit"
         cp -a "$ROOT/vendor/egui-winit-0.36" "$src_dir/vendor/egui-winit"
     elif [[ "$APP" == "ferrite" ]]; then
@@ -65,7 +65,7 @@ vendor_dependencies() {
     # winit
     echo "Vendoring the mouse/scroll-aware winit for $TITLE..."
     mkdir -p "$src_dir/vendor"
-    if [[ -d "$src_dir/vendor/winit" ]]; then
+    if [[ -d "$src_dir/vendor/winit/src/platform_impl" ]]; then
         rm -rf "$src_dir/vendor/winit/src/platform_impl/android"
         cp -a "$ROOT/vendor/winit/src/platform_impl/android" "$src_dir/vendor/winit/src/platform_impl/android"
     else
@@ -96,7 +96,7 @@ vendor_dependencies() {
         python3 "$ROOT/lib/cargo_patches.py" patch-egui-wgpu-surface "$wgpu_target"
     elif [[ "$APP" == "solidcraft" || "$APP" == "fieldcraft" || "$APP" == "pcbcraft" || "$APP" == "ferrite" ]]; then
         echo "Skipping builder egui-wgpu copy for $APP (handled by prepare.sh)"
-    elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "anicraft" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
+    elif [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "papercraft" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
         rm -rf "$src_dir/vendor/egui-wgpu"
         cp -a "$ROOT/vendor/egui-wgpu-0.36" "$src_dir/vendor/egui-wgpu"
     else

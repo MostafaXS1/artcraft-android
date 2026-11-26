@@ -325,6 +325,7 @@ if lib_rs.is_file():
         txt = txt.replace(time_stmt, time_stmt + "\n" + ime_poll, 1)
     lib_rs.write_text(txt)
 PY
+python3 "$ROOT/lib/patch_egui_winit_safe_area.py" "$SRC_ABS/vendor/egui/crates/egui-winit" "$ROOT"
 
 # Ensure native has a [lib] entry with rlib support
 if ! grep -q '^\[lib\]' "$SRC_ABS/native/Cargo.toml"; then

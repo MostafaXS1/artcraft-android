@@ -12,9 +12,9 @@ anicraft = { path = "../.." }
 anicraft-cli = { path = "../../crates/cli" }
 anicraft-engine = { workspace = true }
 anicraft-doc = { workspace = true }
-eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "persistence", "android-native-activity"] }
-egui = "0.36"
-egui-winit = { version = "0.36", default-features = false, features = ["android-native-activity", "clipboard", "links"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "persistence", "android-native-activity"] }
+egui = "0.37"
+egui-winit = { version = "0.37", default-features = false, features = ["android-native-activity", "clipboard", "links"] }
 rfd = "0.17"
 log = "0.4"
 serde_json = { workspace = true }

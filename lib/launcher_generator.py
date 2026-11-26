@@ -36,7 +36,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "83"
+GENERATOR_VERSION = "84"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -884,12 +884,27 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
             }]);
             rx
         })),
-        print_native: Some(Box::new(move |bytes: Vec<u8>, _settings: gridcraft_ui_egui::printing::Settings| {
+        print_native: Some(Box::new(move |bytes: Vec<u8>, settings: gridcraft_ui_egui::printing::Settings| {
             let (tx, rx) = std::sync::mpsc::channel();
+            let duplex_debug = format!("{:?}", settings.duplex).to_lowercase();
+            let duplex_str = if duplex_debug.contains("long") {
+                "long_edge"
+            } else if duplex_debug.contains("short") {
+                "short_edge"
+            } else if duplex_debug.contains("off") {
+                "off"
+            } else {
+                "default"
+            };
+            let options = serde_json::json!({
+                "duplex": duplex_str,
+                "grayscale": settings.grayscale,
+                "copies": settings.copies,
+            }).to_string();
             // Java answers inside this call ("OK", or the reason it failed); an empty receipt
             // renders as the clean "Print job submitted." message, as the desktop spooler would.
             let receipt = print_bridge
-                .print_document("GridCraft", &bytes)
+                .print_document_with_options("GridCraft", &bytes, &options)
                 .and_then(|answer| {
                     if answer == "OK" {
                         Ok(String::new())
@@ -1203,10 +1218,25 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, inbox: SafInbox) -> S
         // in), so handing it straight to the system spooler is the whole job; Java answers
         // inside the same call, letting us report success or the reason for failure right
         // where the desktop spooler would have.
-        print_native: Some(Box::new(move |bytes: Vec<u8>, _settings: wordcraft_ui_egui::printing::Settings, _collate: bool, _options: Vec<(String, String)>| {
+        print_native: Some(Box::new(move |bytes: Vec<u8>, settings: wordcraft_ui_egui::printing::Settings, _collate: bool, _options: Vec<(String, String)>| {
             let (tx, rx) = std::sync::mpsc::channel();
+            let duplex_debug = format!("{:?}", settings.duplex).to_lowercase();
+            let duplex_str = if duplex_debug.contains("long") {
+                "long_edge"
+            } else if duplex_debug.contains("short") {
+                "short_edge"
+            } else if duplex_debug.contains("off") {
+                "off"
+            } else {
+                "default"
+            };
+            let options = serde_json::json!({
+                "duplex": duplex_str,
+                "grayscale": settings.grayscale,
+                "copies": settings.copies,
+            }).to_string();
             let receipt = print_bridge
-                .print_document("WordCraft", &bytes)
+                .print_document_with_options("WordCraft", &bytes, &options)
                 .and_then(|answer| {
                     if answer == "OK" {
                         // Empty receipt renders as the clean "Print job submitted." message.
@@ -1262,14 +1292,14 @@ fn saf_dialog_async(bridge: saf::Bridge, state: Arc<SafState>, dialog: effectcra
     std::thread::spawn(move || {
         use effectcraft_ui_egui::FileDialog;
         let paths = match dialog {
-            FileDialog::Open { many: true, .. } => saf_open_paths_many(&bridge, &state),
-            FileDialog::Open { .. } | FileDialog::OpenProject => {
+            FileDialog::Open { many: true, .. } | FileDialog::Script { many: true, .. } => saf_open_paths_many(&bridge, &state),
+            FileDialog::Open { .. } | FileDialog::OpenProject | FileDialog::Script { .. } => {
                 saf_open_paths(&bridge, &state).into_iter().take(1).collect()
             }
-            FileDialog::Folder => saf_folder_path(&bridge, &state).into_iter().collect(),
-            FileDialog::Save { default, .. } => saf_save_path(&bridge, &state, &default).into_iter().collect(),
+            FileDialog::Folder | FileDialog::ScriptFolder { .. } => saf_folder_path(&bridge, &state).into_iter().collect(),
+            FileDialog::Save { default, .. } | FileDialog::ScriptSave { default, .. } => saf_save_path(&bridge, &state, &default).into_iter().collect(),
         };
-        done(paths);
+        done(Ok(paths));
     });
 }
 
@@ -1605,10 +1635,37 @@ fn saf_services(bridge: saf::Bridge, state: Arc<SafState>, _inbox: SafInbox) -> 
     let spool_bridge = saf_bridge.clone_ref();
     inner.spooler = Some(std::sync::Arc::new(move |bytes: &[u8], job: &pdfcraft_engine::print::spool::Job| {
         let name = if job.title.is_empty() { "PdfCraft" } else { &job.title };
-        spool_bridge.print_document(name, bytes)
+        let duplex_debug = format!("{:?}", job.duplex).to_lowercase();
+        let duplex_str = if duplex_debug.contains("long") {
+            "long_edge"
+        } else if duplex_debug.contains("short") {
+            "short_edge"
+        } else if duplex_debug.contains("off") {
+            "off"
+        } else {
+            "default"
+        };
+        let options = serde_json::json!({
+            "duplex": duplex_str,
+            "grayscale": job.grayscale,
+            "copies": job.copies,
+        }).to_string();
+        spool_bridge.print_document_with_options(name, bytes, &options).and_then(|answer| {
+            if answer == "OK" {
+                Ok(String::new())
+            } else {
+                Err(answer)
+            }
+        })
     }));
     inner.print_handler = Some(std::sync::Arc::new(move |title: &str, bytes: &[u8]| {
-        print_bridge.print_document(title, bytes)
+        print_bridge.print_document(title, bytes).and_then(|answer| {
+            if answer == "OK" {
+                Ok(String::new())
+            } else {
+                Err(answer)
+            }
+        })
     }));
 """,
     },
@@ -1861,7 +1918,7 @@ PERSIST_RECIPES = {
         Ok(bytes) => persist_write(dir, "ui.json", &bytes),
         Err(error) => log::warn!("saving settings: {error}"),
     }
-    if inner.session.dirty && inner.session.path.is_some() {
+    if inner.autosaves() && inner.session.dirty {
         let _ = inner.run("file.save", serde_json::json!({}));
     }''',
     },

@@ -12,6 +12,8 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.pdf.PdfRenderer;
+import java.util.Locale;
+import org.json.JSONObject;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -102,7 +104,11 @@ public final class __CLASS__ extends NativeActivity {
 
     // The caption-bar (desktop window title bar) height the content view is padded by, so an
     // inset dispatch that finds the same height leaves the view — and its layout — alone.
-    private int captionBarPadding = -1;
+    private int captionBarPadding = 0;
+    private int safeInsetBottom = 0;
+    private int safeInsetLeft = 0;
+    private int safeInsetRight = 0;
+    private int lastInsetsHash = -1;
     // The app's active theme, told to us by the Rust shell through setBarIconAppearance. The
     // padding above the canvas shows this colour, so it has to follow the theme: a light app
     // that reserved the space with the theme's black window background would wear a black bar
@@ -659,10 +665,50 @@ public final class __CLASS__ extends NativeActivity {
     }
 
     public int getSafeInsetTop() {
-        return captionBarPadding;
+        return Math.max(0, captionBarPadding);
     }
 
-    private void applyImmersiveFullscreen() {
+    public int getSafeInsetBottom() {
+        return safeInsetBottom;
+    }
+
+    public int getSafeInsetLeft() {
+        return safeInsetLeft;
+    }
+
+    public int getSafeInsetRight() {
+        return safeInsetRight;
+    }
+
+    public boolean isImmersiveFullscreen() {
+        return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .getBoolean("immersive_fullscreen", true);
+    }
+
+    public void setImmersiveFullscreen(final boolean enabled) {
+        getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .edit()
+                .putBoolean("immersive_fullscreen", enabled)
+                .apply();
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                lastInsetsHash = -1;
+                applyImmersiveFullscreen();
+                applyCaptionBarInsets(null);
+                Window window = getWindow();
+                if (window != null) {
+                    window.getDecorView().requestApplyInsets();
+                }
+                try {
+                    dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+                    dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    public void applyImmersiveFullscreen() {
         Window window = getWindow();
         if (window == null) {
             return;
@@ -670,6 +716,34 @@ public final class __CLASS__ extends NativeActivity {
         if (isDesktopOrFreeform()) {
             return;
         }
+        if (!isImmersiveFullscreen()) {
+            WindowCompat.setDecorFitsSystemWindows(window, false);
+            int barBg = lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E;
+            try {
+                window.setStatusBarColor(barBg);
+                window.setNavigationBarColor(barBg);
+            } catch (Throwable ignored) {}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) {
+                    controller.show(WindowInsets.Type.systemBars());
+                }
+            } else {
+                int visibility = window.getDecorView().getSystemUiVisibility();
+                window.getDecorView().setSystemUiVisibility(
+                        (visibility & (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                                | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR))
+                                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+            }
+            return;
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        try {
+            window.setStatusBarColor(0x00000000);
+            window.setNavigationBarColor(0x00000000);
+        } catch (Throwable ignored) {}
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
@@ -750,35 +824,65 @@ public final class __CLASS__ extends NativeActivity {
                 return;
             }
             int top = 0;
+            int bottom = 0;
+            int left = 0;
+            int right = 0;
+            boolean nonImmersive = !isImmersiveFullscreen() && !isDesktopOrFreeform();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 WindowInsets rootInsets = insets != null ? insets : decor.getRootWindowInsets();
                 if (rootInsets != null) {
-                    top = rootInsets.getInsets(WindowInsets.Type.captionBar()).top;
-                    if (top == 0 && isDesktopOrFreeform()) {
-                        top = rootInsets.getInsetsIgnoringVisibility(
-                                WindowInsets.Type.captionBar() | WindowInsets.Type.statusBars()).top;
+                    if (nonImmersive) {
+                        android.graphics.Insets sys = rootInsets.getInsetsIgnoringVisibility(
+                                WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                        left = sys.left;
+                        top = sys.top;
+                        right = sys.right;
+                        bottom = sys.bottom;
+                    } else {
+                        top = rootInsets.getInsets(WindowInsets.Type.captionBar()).top;
+                        if (top == 0 && isDesktopOrFreeform()) {
+                            top = rootInsets.getInsetsIgnoringVisibility(
+                                    WindowInsets.Type.captionBar() | WindowInsets.Type.statusBars()).top;
+                        }
                     }
                 }
             } else if (insets != null) {
-                top = insets.getSystemWindowInsetTop();
+                if (nonImmersive) {
+                    left = insets.getSystemWindowInsetLeft();
+                    top = insets.getSystemWindowInsetTop();
+                    right = insets.getSystemWindowInsetRight();
+                    bottom = insets.getSystemWindowInsetBottom();
+                } else {
+                    top = insets.getSystemWindowInsetTop();
+                }
             }
-            if (top == captionBarPadding) {
+            int hash = (top & 0xFF) ^ ((bottom & 0xFF) << 8) ^ ((left & 0xFF) << 16) ^ ((right & 0xFF) << 24);
+            if (hash == lastInsetsHash && top == captionBarPadding && bottom == safeInsetBottom && left == safeInsetLeft && right == safeInsetRight) {
                 return;
             }
+            lastInsetsHash = hash;
             captionBarPadding = top;
-            // The reserved strip is part of the window, not the canvas: give it the app's theme
-            // colour so it reads as the interface rather than as a gap. Transparent when there is
-            // nothing to reserve.
-            content.setBackgroundColor(top > 0 ? (lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E) : 0x00000000);
-            content.setPadding(0, top, 0, 0);
+            safeInsetBottom = bottom;
+            safeInsetLeft = left;
+            safeInsetRight = right;
+            decor.setBackgroundColor((nonImmersive || top > 0) ? (lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E) : 0xFF000000);
+            content.setBackgroundColor(0x00000000);
+            content.setPadding(0, 0, 0, 0);
             if (content.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
                 ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) content.getLayoutParams();
-                if (mlp.topMargin != top) {
-                    mlp.topMargin = top;
+                if (mlp.leftMargin != 0 || mlp.topMargin != 0 || mlp.rightMargin != 0 || mlp.bottomMargin != 0) {
+                    mlp.leftMargin = 0;
+                    mlp.topMargin = 0;
+                    mlp.rightMargin = 0;
+                    mlp.bottomMargin = 0;
                     content.setLayoutParams(mlp);
                     content.requestLayout();
                 }
             }
+            try {
+                dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+                dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+            } catch (Throwable ignored) {}
         } catch (Throwable error) {
             Log.i(TAG, "Could not inset the interface below the window's title bar", error);
         }
@@ -863,12 +967,16 @@ public final class __CLASS__ extends NativeActivity {
                 // Remembered for the caption-bar strip: the padding above the canvas is painted in
                 // the app's theme colour, so it has to flip with the theme too.
                 this.lightTheme = lightTheme;
-                if (captionBarPadding > 0) {
-                    View content = getWindow() != null
-                            ? getWindow().getDecorView().findViewById(android.R.id.content) : null;
-                    if (content != null) {
-                        content.setBackgroundColor(lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E);
-                    }
+                int barBg = lightTheme ? 0xFFF5F5F5 : 0xFF1E1E1E;
+                View decor = getWindow() != null ? getWindow().getDecorView() : null;
+                if (decor != null && (!isImmersiveFullscreen() || captionBarPadding > 0)) {
+                    decor.setBackgroundColor(barBg);
+                }
+                if (getWindow() != null && !isImmersiveFullscreen()) {
+                    try {
+                        getWindow().setStatusBarColor(barBg);
+                        getWindow().setNavigationBarColor(barBg);
+                    } catch (Throwable ignored) {}
                 }
                 Window window = getWindow();
                 if (window == null) {
@@ -1674,6 +1782,10 @@ public final class __CLASS__ extends NativeActivity {
      * system knows (Wi-Fi, network, cloud), unlike a CUPS-only desktop spooler.
      */
     public String printDocument(String title, byte[] pdf) {
+        return printDocument(title, pdf, null);
+    }
+
+    public String printDocument(String title, byte[] pdf, String optionsJson) {
         if (pdf == null || pdf.length == 0) return "ERROR: there is no document to print";
         PrintManager manager = (PrintManager) getSystemService(PRINT_SERVICE);
         if (manager == null) return "ERROR: this device has no Android print service";
@@ -1685,17 +1797,10 @@ public final class __CLASS__ extends NativeActivity {
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     out.write(pdf);
                 }
-                int count;
-                try {
-                    count = countPdfPages(file);
-                } catch (Throwable t) {
-                    Log.w(TAG, "Could not count PDF pages with PdfRenderer; falling back to PAGE_COUNT_UNKNOWN", t);
-                    count = PrintDocumentInfo.PAGE_COUNT_UNKNOWN;
-                }
-                final int pageCount = count;
+                PdfDetails details = inspectPdf(file, optionsJson);
                 runOnUiThread(() -> {
                     try {
-                        manager.print(jobName, new PdfPrintAdapter(file, jobName, pageCount), null);
+                        manager.print(jobName, new PdfPrintAdapter(file, jobName, details.pageCount), details.attributes);
                     } catch (Throwable error) {
                         Log.e(TAG, "Could not open the Android print dialog", error);
                     }
@@ -1707,16 +1812,121 @@ public final class __CLASS__ extends NativeActivity {
         return "OK";
     }
 
-    /** Page count from the system's own PDF parser; feeds PrintDocumentInfo below. */
-    private static int countPdfPages(File file) throws Exception {
+    private static final class PdfDetails {
+        final int pageCount;
+        final PrintAttributes attributes;
+
+        PdfDetails(int pageCount, PrintAttributes attributes) {
+            this.pageCount = pageCount;
+            this.attributes = attributes;
+        }
+    }
+
+    /**
+     * Inspects the generated PDF for page count, media dimensions and orientation, merging any
+     * explicit settings (duplex, grayscale) into initial PrintAttributes for the system print dialog.
+     */
+    private static PdfDetails inspectPdf(File file, String optionsJson) {
+        int pageCount = PrintDocumentInfo.PAGE_COUNT_UNKNOWN;
+        PrintAttributes.Builder builder = new PrintAttributes.Builder();
+        builder.setMinMargins(PrintAttributes.Margins.NO_MARGINS);
+
+        PrintAttributes.MediaSize detectedSize = null;
         try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) {
             PdfRenderer renderer = new PdfRenderer(fd);
             try {
-                return renderer.getPageCount();
+                pageCount = renderer.getPageCount();
+                if (pageCount > 0) {
+                    PdfRenderer.Page page = renderer.openPage(0);
+                    try {
+                        detectedSize = matchMediaSize(page.getWidth(), page.getHeight());
+                    } finally {
+                        page.close();
+                    }
+                }
             } finally {
                 renderer.close();
             }
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not inspect PDF with PdfRenderer; falling back to default media size", t);
         }
+
+        if (detectedSize == null) {
+            Locale locale = Locale.getDefault();
+            String country = locale != null ? locale.getCountry() : "";
+            boolean isLetterRegion = "US".equalsIgnoreCase(country) || "CA".equalsIgnoreCase(country) || "MX".equalsIgnoreCase(country);
+            detectedSize = isLetterRegion ? PrintAttributes.MediaSize.NA_LETTER : PrintAttributes.MediaSize.ISO_A4;
+        }
+        builder.setMediaSize(detectedSize);
+
+        boolean hasColorMode = false;
+        if (optionsJson != null && !optionsJson.trim().isEmpty()) {
+            try {
+                JSONObject json = new JSONObject(optionsJson);
+                if (json.has("grayscale")) {
+                    boolean grayscale = json.optBoolean("grayscale", false);
+                    builder.setColorMode(grayscale ? PrintAttributes.COLOR_MODE_MONOCHROME : PrintAttributes.COLOR_MODE_COLOR);
+                    hasColorMode = true;
+                }
+                if (json.has("duplex")) {
+                    String duplex = json.optString("duplex", "default");
+                    if ("long_edge".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_LONG_EDGE);
+                    } else if ("short_edge".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_SHORT_EDGE);
+                    } else if ("off".equalsIgnoreCase(duplex) || "none".equalsIgnoreCase(duplex)) {
+                        builder.setDuplexMode(PrintAttributes.DUPLEX_MODE_NONE);
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Could not parse print options JSON: " + optionsJson, t);
+            }
+        }
+        if (!hasColorMode) {
+            builder.setColorMode(PrintAttributes.COLOR_MODE_COLOR);
+        }
+
+        PrintAttributes attributes = null;
+        try {
+            attributes = builder.build();
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not build initial PrintAttributes", t);
+        }
+        return new PdfDetails(pageCount, attributes);
+    }
+
+    /** Match physical page dimensions in points (1/72 inch) to standard Android media sizes and orientation. */
+    private static PrintAttributes.MediaSize matchMediaSize(int widthPts, int heightPts) {
+        if (widthPts <= 0 || heightPts <= 0) return null;
+        boolean isLandscape = widthPts > heightPts;
+        int shortPts = Math.min(widthPts, heightPts);
+        int longPts = Math.max(widthPts, heightPts);
+
+        PrintAttributes.MediaSize base;
+        // A4: 595.28 x 841.89 pt (tolerance ±8 pt)
+        if (Math.abs(shortPts - 595) <= 8 && Math.abs(longPts - 842) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A4;
+        // Letter: 612 x 792 pt
+        } else if (Math.abs(shortPts - 612) <= 8 && Math.abs(longPts - 792) <= 8) {
+            base = PrintAttributes.MediaSize.NA_LETTER;
+        // Legal: 612 x 1008 pt
+        } else if (Math.abs(shortPts - 612) <= 8 && Math.abs(longPts - 1008) <= 8) {
+            base = PrintAttributes.MediaSize.NA_LEGAL;
+        // A3: 842 x 1191 pt
+        } else if (Math.abs(shortPts - 842) <= 8 && Math.abs(longPts - 1191) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A3;
+        // A5: 420 x 595 pt
+        } else if (Math.abs(shortPts - 420) <= 8 && Math.abs(longPts - 595) <= 8) {
+            base = PrintAttributes.MediaSize.ISO_A5;
+        // Tabloid: 792 x 1224 pt
+        } else if (Math.abs(shortPts - 792) <= 8 && Math.abs(longPts - 1224) <= 8) {
+            base = PrintAttributes.MediaSize.NA_TABLOID;
+        } else {
+            int widthMils = Math.round((float) widthPts * 1000f / 72f);
+            int heightMils = Math.round((float) heightPts * 1000f / 72f);
+            return new PrintAttributes.MediaSize("CUSTOM", "Custom", widthMils, heightMils);
+        }
+        return isLandscape ? base.asLandscape() : base.asPortrait();
     }
 
     /**
@@ -1766,10 +1976,19 @@ public final class __CLASS__ extends NativeActivity {
                 int count;
                 while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
                 out.flush();
-                callback.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
+                PageRange[] writtenPages = (pages != null && pages.length > 0) ? pages : new PageRange[] { PageRange.ALL_PAGES };
+                callback.onWriteFinished(writtenPages);
             } catch (Throwable error) {
                 callback.onWriteFailed(String.valueOf(error));
             }
+        }
+
+        @Override
+        public void onFinish() {
+            super.onFinish();
+            try {
+                file.delete();
+            } catch (Throwable ignored) {}
         }
     }
 

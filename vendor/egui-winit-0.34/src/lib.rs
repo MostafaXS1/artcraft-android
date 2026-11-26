@@ -256,12 +256,40 @@ impl State {
         // See: https://github.com/rust-windowing/winit/issues/208
         // This solves an issue where egui window positions would be changed when minimizing on Windows.
         let screen_size_in_pixels = screen_size_in_pixels(window);
+        let pixels_per_point = pixels_per_point(&self.egui_ctx, window);
         let screen_size_in_points =
-            screen_size_in_pixels / pixels_per_point(&self.egui_ctx, window);
+            screen_size_in_pixels / pixels_per_point;
 
-        self.egui_input.screen_rect = (screen_size_in_points.x > 0.0
-            && screen_size_in_points.y > 0.0)
-            .then(|| Rect::from_min_size(Pos2::ZERO, screen_size_in_points));
+        #[cfg(target_os = "android")]
+        let safe_insets_points = if pixels_per_point > 0.0 {
+            let px = crate::safe_area::inset_pixels();
+            egui::epaint::MarginF32 {
+                left: px.left.max(0.0) / pixels_per_point,
+                top: px.top.max(0.0) / pixels_per_point,
+                right: px.right.max(0.0) / pixels_per_point,
+                bottom: px.bottom.max(0.0) / pixels_per_point,
+            }
+        } else {
+            egui::epaint::MarginF32::default()
+        };
+        #[cfg(not(target_os = "android"))]
+        let safe_insets_points = egui::epaint::MarginF32::default();
+
+        let max_x = screen_size_in_points.x - safe_insets_points.right;
+        let max_y = screen_size_in_points.y - safe_insets_points.bottom;
+        self.egui_input.screen_rect = (max_x > safe_insets_points.left
+            && max_y > safe_insets_points.top)
+            .then(|| {
+                Rect::from_min_max(
+                    Pos2::new(safe_insets_points.left, safe_insets_points.top),
+                    Pos2::new(max_x, max_y),
+                )
+            });
+
+        #[cfg(target_os = "android")]
+        {
+            self.egui_input.safe_area_insets = Some(egui::SafeAreaInsets(safe_insets_points));
+        }
 
         // Tell egui which viewport is now active:
         self.egui_input.viewport_id = self.viewport_id;

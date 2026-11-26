@@ -126,6 +126,24 @@ impl AndroidFileBridge {
             .map_err(|e| e.to_string())
     }
 
+    fn request_folder(&self, id: u64) -> Result<(), String> {
+        self.vm
+            .attach_current_thread(|env| -> jni::errors::Result<()> {
+                let activity_raw = self.app.activity_as_ptr() as jni::sys::jobject;
+                // SAFETY: AndroidApp retains this global Activity reference; as_cast_raw borrows it
+                // without taking ownership or attempting to delete the reference.
+                let activity = unsafe { env.as_cast_raw::<JObject>(&activity_raw)? };
+                env.call_method(
+                    &*activity,
+                    jni_str!("vcRequestFolder"),
+                    jni_sig!("(J)V"),
+                    &[JValue::Long(id as i64)],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())
+    }
+
     fn poll_result(&self) -> Result<Option<String>, String> {
         self.vm
             .attach_current_thread(|env| -> jni::errors::Result<Option<String>> {
@@ -324,13 +342,28 @@ fn mime_for_extension(ext: &str) -> String {
         "gif" => "image/gif",
         "tif" | "tiff" => "image/tiff",
         "bmp" => "image/bmp",
+        "tga" => "image/x-tga",
+        "psd" => "image/vnd.adobe.photoshop",
+        "eps" | "ai" | "ait" => "application/postscript",
+        "dxf" => "application/dxf",
+        "txt" => "text/plain",
+        "vectorcraft" | "vctemplate" => "application/octet-stream",
         _ => "*/*",
     }
     .to_string()
 }
 
+fn save_mime_for_name(name: &str) -> String {
+    let mime = mime_for_name(name);
+    if mime == "*/*" {
+        "application/octet-stream".to_string()
+    } else {
+        mime
+    }
+}
+
 /// Show `request`'s Android picker off the UI thread; the answer arrives on the receiver. `None`
-/// when this host can't (a folder picker): the request is then dropped as cancelled.
+/// when launching the picker fails: the request is then dropped as cancelled.
 fn start_pick(
     state: &Arc<PickState>,
     bridge: &AndroidFileBridge,
@@ -354,11 +387,14 @@ fn start_pick(
             } else {
                 pick.name.clone()
             };
-            let mime = mime_for_name(&name);
+            let mime = save_mime_for_name(&name);
             state.insert(id, tx);
             bridge.request_save(id, &name, &mime)
         }
-        PickRequest::Folder => return None,
+        PickRequest::Folder => {
+            state.insert(id, tx);
+            bridge.request_folder(id)
+        }
     };
     if let Err(error) = launch {
         state.remove(id);
