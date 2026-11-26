@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "59aed45057561ff2ca0e3c27ab849eebbfaf71dc",
-  "head_date": "2026-11-25T01:38:19Z",
-  "commits": 5457,
+  "head": "5eccc055ce77e74efa492efe3cb6ad3d2a180c6f",
+  "head_date": "2026-11-25T22:16:58Z",
+  "commits": 5458,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -206,14 +206,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 14,
-      "commits": 44,
-      "lines_added": 7837,
-      "lines_deleted": 2115,
+      "prs": 15,
+      "commits": 45,
+      "lines_added": 7881,
+      "lines_deleted": 2132,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T23:14:12Z",
-      "last_commit": "2026-11-23T17:07:49Z"
+      "last_commit": "2026-11-25T22:16:58Z"
     },
     {
       "login": "Ni-zav",
@@ -1594,7 +1594,7 @@
       "last_commit": "2026-10-10T12:57:01Z"
     },
     {
-      "login": "S-3-J",
+      "login": "VeneratedDilemma",
       "people_entry": false,
       "github_name": null,
       "prs": 1,

@@ -2,36 +2,36 @@
   "schema": 1,
   "repo": "storytold/photocraft",
   "branch": "main",
-  "head": "ac2e39a063097f6760054554b834d58e14695044",
-  "head_date": "2026-11-25T01:03:15Z",
-  "commits": 16312,
-  "unattributed_commits": 19,
+  "head": "f0205ae336c962bc248c2feafa728b9c77ef7ee8",
+  "head_date": "2026-11-26T02:20:06Z",
+  "commits": 16593,
+  "unattributed_commits": 18,
   "contributors": [
     {
       "login": "davidmann4",
       "people_entry": false,
       "github_name": null,
-      "prs": 473,
-      "commits": 3823,
-      "lines_added": 177212,
-      "lines_deleted": 46144,
+      "prs": 487,
+      "commits": 3941,
+      "lines_added": 179841,
+      "lines_deleted": 47711,
       "binary_added": 5,
       "binary_deleted": 21,
       "first_commit": "2026-10-09T01:49:29Z",
-      "last_commit": "2026-11-25T01:03:15Z"
+      "last_commit": "2026-11-26T00:59:52Z"
     },
     {
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
       "prs": 87,
-      "commits": 1507,
-      "lines_added": 1015798,
-      "lines_deleted": 1169455,
+      "commits": 1518,
+      "lines_added": 1016983,
+      "lines_deleted": 1170361,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-15T13:35:49Z",
-      "last_commit": "2026-11-24T04:47:26Z"
+      "last_commit": "2026-11-25T04:14:17Z"
     },
     {
       "login": "echelon",
@@ -76,14 +76,14 @@
       "login": "hectorviov",
       "people_entry": false,
       "github_name": null,
-      "prs": 160,
-      "commits": 544,
-      "lines_added": 31132,
-      "lines_deleted": 2790,
+      "prs": 165,
+      "commits": 550,
+      "lines_added": 32037,
+      "lines_deleted": 2803,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-18T19:37:47Z",
-      "last_commit": "2026-11-21T23:00:24Z"
+      "last_commit": "2026-11-21T23:00:26Z"
     },
     {
       "login": "vangel76",
@@ -112,6 +112,19 @@
       "last_commit": "2026-11-21T07:48:55Z"
     },
     {
+      "login": "hnoerenberg",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 73,
+      "commits": 387,
+      "lines_added": 20451,
+      "lines_deleted": 2382,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-23T16:15:27Z",
+      "last_commit": "2026-11-25T12:11:00Z"
+    },
+    {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
@@ -138,17 +151,17 @@
       "last_commit": "2026-11-22T18:36:13Z"
     },
     {
-      "login": "hnoerenberg",
+      "login": "RickiNano",
       "people_entry": false,
       "github_name": null,
-      "prs": 65,
-      "commits": 341,
-      "lines_added": 16098,
-      "lines_deleted": 1591,
+      "prs": 114,
+      "commits": 299,
+      "lines_added": 19634,
+      "lines_deleted": 2090,
       "binary_added": 0,
       "binary_deleted": 0,
-      "first_commit": "2026-10-23T16:15:27Z",
-      "last_commit": "2026-11-24T22:04:57Z"
+      "first_commit": "2026-10-26T06:14:21Z",
+      "last_commit": "2026-11-25T18:37:18Z"
     },
     {
       "login": "TrevorBrown-dev",
@@ -180,27 +193,14 @@
       "login": "ljkx",
       "people_entry": false,
       "github_name": null,
-      "prs": 66,
-      "commits": 245,
-      "lines_added": 32236,
-      "lines_deleted": 2350,
+      "prs": 67,
+      "commits": 249,
+      "lines_added": 32825,
+      "lines_deleted": 2445,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-07T03:43:18Z",
       "last_commit": "2026-11-24T08:26:46Z"
-    },
-    {
-      "login": "RickiNano",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 91,
-      "commits": 225,
-      "lines_added": 15283,
-      "lines_deleted": 1709,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-26T06:14:21Z",
-      "last_commit": "2026-11-24T19:42:16Z"
     },
     {
       "login": "dotCooCoo",
@@ -219,27 +219,27 @@
       "login": "rmsff",
       "people_entry": true,
       "github_name": null,
-      "prs": 88,
-      "commits": 178,
-      "lines_added": 14329,
-      "lines_deleted": 984,
+      "prs": 89,
+      "commits": 180,
+      "lines_added": 14499,
+      "lines_deleted": 1059,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-08T11:10:06Z",
-      "last_commit": "2026-11-14T22:11:33Z"
+      "last_commit": "2026-11-22T22:22:43Z"
     },
     {
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 27,
-      "commits": 165,
-      "lines_added": 29625,
-      "lines_deleted": 4679,
+      "prs": 30,
+      "commits": 168,
+      "lines_added": 30625,
+      "lines_deleted": 4802,
       "binary_added": 4,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T18:51:56Z",
-      "last_commit": "2026-11-24T00:38:20Z"
+      "last_commit": "2026-11-26T02:20:06Z"
     },
     {
       "login": "FinnNk",
@@ -294,6 +294,19 @@
       "last_commit": "2026-11-11T07:49:15Z"
     },
     {
+      "login": "superplay2021",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 6,
+      "commits": 127,
+      "lines_added": 10454,
+      "lines_deleted": 5348,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-01T23:46:05Z",
+      "last_commit": "2026-11-25T20:12:26Z"
+    },
+    {
       "login": "bflatastic",
       "people_entry": false,
       "github_name": null,
@@ -305,19 +318,6 @@
       "binary_deleted": 2,
       "first_commit": "2026-10-07T00:59:14Z",
       "last_commit": "2026-10-22T11:02:22Z"
-    },
-    {
-      "login": "superplay2021",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 4,
-      "commits": 122,
-      "lines_added": 10221,
-      "lines_deleted": 5301,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-01T23:46:05Z",
-      "last_commit": "2026-11-24T13:17:09Z"
     },
     {
       "login": "jonathanwxh-cell",
@@ -450,6 +450,19 @@
       "last_commit": "2026-10-25T13:09:07Z"
     },
     {
+      "login": "qvest-ssels",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 19,
+      "commits": 65,
+      "lines_added": 3962,
+      "lines_deleted": 646,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-30T20:12:07Z",
+      "last_commit": "2026-11-25T13:04:55Z"
+    },
+    {
       "login": "DuBearte",
       "people_entry": false,
       "github_name": null,
@@ -476,19 +489,6 @@
       "last_commit": "2026-11-12T01:26:09Z"
     },
     {
-      "login": "qvest-ssels",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 16,
-      "commits": 62,
-      "lines_added": 3493,
-      "lines_deleted": 638,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-30T20:12:07Z",
-      "last_commit": "2026-11-23T22:17:59Z"
-    },
-    {
       "login": "azizr12",
       "people_entry": false,
       "github_name": null,
@@ -505,7 +505,7 @@
       "login": "Bobderto",
       "people_entry": false,
       "github_name": null,
-      "prs": 28,
+      "prs": 32,
       "commits": 59,
       "lines_added": 3665,
       "lines_deleted": 324,
@@ -567,6 +567,19 @@
       "last_commit": "2026-11-16T12:44:57Z"
     },
     {
+      "login": "Sir-Starch",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 42,
+      "commits": 51,
+      "lines_added": 7819,
+      "lines_deleted": 622,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-09T15:51:36Z",
+      "last_commit": "2026-11-25T14:38:06Z"
+    },
+    {
       "login": "bommerts",
       "people_entry": false,
       "github_name": null,
@@ -591,19 +604,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-24T01:20:16Z",
       "last_commit": "2026-10-29T17:19:54Z"
-    },
-    {
-      "login": "Sir-Starch",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 41,
-      "commits": 49,
-      "lines_added": 7716,
-      "lines_deleted": 620,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-09T15:51:36Z",
-      "last_commit": "2026-10-22T00:38:56Z"
     },
     {
       "login": "1Git2Clone",
@@ -723,6 +723,19 @@
       "last_commit": "2026-11-09T16:30:11Z"
     },
     {
+      "login": "NaufalDzz",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 23,
+      "commits": 40,
+      "lines_added": 3244,
+      "lines_deleted": 328,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-20T11:15:47Z",
+      "last_commit": "2026-11-25T02:20:41Z"
+    },
+    {
       "login": "nrq6993-a11y",
       "people_entry": false,
       "github_name": null,
@@ -734,19 +747,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T16:38:14Z",
       "last_commit": "2026-10-21T13:31:09Z"
-    },
-    {
-      "login": "NaufalDzz",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 22,
-      "commits": 39,
-      "lines_added": 3213,
-      "lines_deleted": 327,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-20T11:15:47Z",
-      "last_commit": "2026-11-22T09:49:02Z"
     },
     {
       "login": "Skyfuller1303",
@@ -996,6 +996,19 @@
       "last_commit": "2026-11-09T19:08:43Z"
     },
     {
+      "login": "mlo0352",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 4,
+      "commits": 23,
+      "lines_added": 2580,
+      "lines_deleted": 234,
+      "binary_added": 6,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-11T06:39:48Z",
+      "last_commit": "2026-11-25T16:31:43Z"
+    },
+    {
       "login": "vanvo",
       "people_entry": false,
       "github_name": null,
@@ -1163,19 +1176,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-07T10:58:01Z",
       "last_commit": "2026-10-09T19:20:38Z"
-    },
-    {
-      "login": "mlo0352",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 2,
-      "commits": 21,
-      "lines_added": 2494,
-      "lines_deleted": 224,
-      "binary_added": 6,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-11T06:39:48Z",
-      "last_commit": "2026-11-13T19:28:22Z"
     },
     {
       "login": "nicolasfalesy",
@@ -1594,6 +1594,19 @@
       "last_commit": "2026-11-06T17:25:25Z"
     },
     {
+      "login": "x-labb",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 8,
+      "commits": 15,
+      "lines_added": 1437,
+      "lines_deleted": 223,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-25T22:35:59Z",
+      "last_commit": "2026-11-25T15:56:45Z"
+    },
+    {
       "login": "Zer0C00L01",
       "people_entry": false,
       "github_name": null,
@@ -1722,19 +1735,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T18:30:56Z",
       "last_commit": "2026-11-15T14:27:42Z"
-    },
-    {
-      "login": "x-labb",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 7,
-      "commits": 13,
-      "lines_added": 1317,
-      "lines_deleted": 215,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-25T22:35:59Z",
-      "last_commit": "2026-11-20T12:29:40Z"
     },
     {
       "login": "yoris",
@@ -2998,6 +2998,19 @@
       "last_commit": "2026-10-16T22:36:58Z"
     },
     {
+      "login": "prajwal-raj",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 2,
+      "commits": 5,
+      "lines_added": 354,
+      "lines_deleted": 22,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-12T17:39:52Z",
+      "last_commit": "2026-11-25T16:30:51Z"
+    },
+    {
       "login": "ragtux",
       "people_entry": false,
       "github_name": null,
@@ -3191,6 +3204,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-11-03T23:14:24Z",
       "last_commit": "2026-11-08T23:47:43Z"
+    },
+    {
+      "login": "bardrop",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 4,
+      "lines_added": 297,
+      "lines_deleted": 14,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-13T23:10:38Z",
+      "last_commit": "2026-11-15T20:54:39Z"
     },
     {
       "login": "coolvitto",
@@ -3492,19 +3518,6 @@
       "last_commit": "2026-11-06T14:49:53Z"
     },
     {
-      "login": "prajwal-raj",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 1,
-      "commits": 4,
-      "lines_added": 246,
-      "lines_deleted": 21,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-12T17:39:52Z",
-      "last_commit": "2026-11-14T01:24:37Z"
-    },
-    {
       "login": "Probler-Yt",
       "people_entry": false,
       "github_name": null,
@@ -3633,19 +3646,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-21T04:34:35Z",
       "last_commit": "2026-11-06T16:33:07Z"
-    },
-    {
-      "login": "bardrop",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 3,
-      "lines_added": 195,
-      "lines_deleted": 13,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-13T23:10:38Z",
-      "last_commit": "2026-11-13T23:29:21Z"
     },
     {
       "login": "cloutier",
@@ -7197,6 +7197,19 @@
       "last_commit": "2026-11-06T12:16:13Z"
     },
     {
+      "login": "tms-h",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 62,
+      "lines_deleted": 7,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-12T02:25:31Z",
+      "last_commit": "2026-10-12T02:25:31Z"
+    },
+    {
       "login": "tonguyenducmanh",
       "people_entry": false,
       "github_name": null,
@@ -7463,9 +7476,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 4721,
-      "lines_added": 683824,
-      "lines_deleted": 238701
+      "commits": 4746,
+      "lines_added": 685765,
+      "lines_deleted": 240169
     },
     {
       "id": "anthropic/claude-sonnet/5.5",

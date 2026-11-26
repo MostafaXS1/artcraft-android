@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "ba6fe10529c7bf5d2a9283f9de2e35c0ccff926c",
-  "head_date": "2026-11-23T23:33:20Z",
-  "commits": 4215,
+  "head": "7303127462ae5e943f33047c89679accff554cf3",
+  "head_date": "2026-11-25T22:17:11Z",
+  "commits": 4218,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 176,
-      "commits": 379,
-      "lines_added": 35437,
-      "lines_deleted": 143856,
-      "binary_added": 4,
+      "prs": 178,
+      "commits": 381,
+      "lines_added": 48695,
+      "lines_deleted": 151694,
+      "binary_added": 9,
       "binary_deleted": 2,
       "first_commit": "2026-10-10T00:04:17Z",
-      "last_commit": "2026-11-23T19:45:11Z"
+      "last_commit": "2026-11-25T10:50:13Z"
     },
     {
       "login": "vangel76",
@@ -128,14 +128,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 9,
-      "commits": 56,
-      "lines_added": 20481,
-      "lines_deleted": 3561,
+      "prs": 10,
+      "commits": 57,
+      "lines_added": 20601,
+      "lines_deleted": 3627,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T20:59:52Z",
-      "last_commit": "2026-11-18T04:20:17Z"
+      "last_commit": "2026-11-25T22:17:11Z"
     },
     {
       "login": "marcoarnulfo",
@@ -2819,9 +2819,9 @@
       "company": "Anthropic",
       "model": "Claude",
       "version": "",
-      "commits": 10,
-      "lines_added": 8504,
-      "lines_deleted": 221
+      "commits": 11,
+      "lines_added": 14771,
+      "lines_deleted": 7974
     },
     {
       "id": "anthropic/claude-fable/5.1",

@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "768c0f972d6fce82224eb8db001094868a0c321a",
-  "head_date": "2026-11-25T00:55:08Z",
-  "commits": 1698,
+  "head": "97e38ba3c35e22cb4953d99c93914f6d31813dc6",
+  "head_date": "2026-11-25T22:17:35Z",
+  "commits": 1699,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -151,6 +151,19 @@
       "last_commit": "2026-11-13T00:52:31Z"
     },
     {
+      "login": "skylartaylor",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 6,
+      "commits": 25,
+      "lines_added": 8845,
+      "lines_deleted": 1037,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-10T21:37:36Z",
+      "last_commit": "2026-11-25T22:17:35Z"
+    },
+    {
       "login": "vbasky",
       "people_entry": true,
       "github_name": null,
@@ -162,19 +175,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-09T00:12:26Z",
       "last_commit": "2026-10-13T09:00:19Z"
-    },
-    {
-      "login": "skylartaylor",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 5,
-      "commits": 24,
-      "lines_added": 8776,
-      "lines_deleted": 986,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-10T21:37:36Z",
-      "last_commit": "2026-10-26T23:09:44Z"
     },
     {
       "login": "ljkx",

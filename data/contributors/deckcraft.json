@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/deckcraft",
   "branch": "main",
-  "head": "02f7fcdf734bf37396112bdfa634f27d0d424fbf",
-  "head_date": "2026-11-25T01:00:44Z",
-  "commits": 2286,
+  "head": "08ba5072a7586909d99bb6e14e5ca73d2b2608ee",
+  "head_date": "2026-11-25T22:16:45Z",
+  "commits": 2287,
   "unattributed_commits": 24,
   "contributors": [
     {
@@ -141,14 +141,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 6,
-      "commits": 31,
-      "lines_added": 14374,
-      "lines_deleted": 4189,
+      "prs": 7,
+      "commits": 32,
+      "lines_added": 14530,
+      "lines_deleted": 4282,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-13T19:39:33Z",
-      "last_commit": "2026-10-26T23:35:27Z"
+      "last_commit": "2026-11-25T22:16:45Z"
     },
     {
       "login": "neilcawse",

@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/figcraft",
   "branch": "main",
-  "head": "ef2a9eeefc7af519fe7c26cc4c4b31d2284b09af",
-  "head_date": "2026-11-25T00:55:17Z",
-  "commits": 4681,
+  "head": "39c1f94a4f9356f030de996de1ee28d8588f7ad2",
+  "head_date": "2026-11-25T22:17:05Z",
+  "commits": 4682,
   "unattributed_commits": 18,
   "contributors": [
     {
@@ -177,6 +177,19 @@
       "last_commit": "2026-10-21T02:52:50Z"
     },
     {
+      "login": "skylartaylor",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 10,
+      "commits": 32,
+      "lines_added": 9859,
+      "lines_deleted": 2105,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-15T03:15:58Z",
+      "last_commit": "2026-11-25T22:17:05Z"
+    },
+    {
       "login": "avhn",
       "people_entry": false,
       "github_name": null,
@@ -188,19 +201,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-27T04:57:53Z",
       "last_commit": "2026-10-31T13:31:51Z"
-    },
-    {
-      "login": "skylartaylor",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 9,
-      "commits": 31,
-      "lines_added": 9726,
-      "lines_deleted": 2037,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-15T03:15:58Z",
-      "last_commit": "2026-11-09T14:44:02Z"
     },
     {
       "login": "AganzeFelicite",
