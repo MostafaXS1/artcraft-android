@@ -289,11 +289,11 @@ pub fn start_mcp_service(app_name: String, app_version: String, ready: Ready) ->
     let host: IpAddr = std::env::var("MCP_BIND_HOST")
         .ok()
         .and_then(|h| h.parse().ok())
-        .unwrap_or_else(|| IpAddr::from([0, 0, 0, 0]));
+        .unwrap_or_else(|| IpAddr::from([127, 0, 0, 1]));
     let addr = SocketAddr::new(host, 27880);
     let token = match std::env::var("MCP_TOKEN") {
         Ok(t) if !t.trim().is_empty() => t,
-        _ => "artcraft".to_string(),
+        _ => new_token()?,
     };
     match Endpoint::start(addr, token.clone(), make.clone(), ready.clone()) {
         Ok(ep) => {
@@ -503,7 +503,7 @@ fn read_request(reader: &mut impl BufRead, shared: &Shared) -> Result<Request, R
         let bearer = request.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")));
         let is_valid = bearer.is_some_and(|b| {
             let b = b.trim();
-            same(b, &shared.token) || same(b, "artcraft")
+            same(b, &shared.token)
         });
         if !is_valid {
             shared.activity.lock().unwrap_or_else(PoisonError::into_inner).refused += 1;
