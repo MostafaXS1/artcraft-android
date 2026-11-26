@@ -1,5 +1,6 @@
 # UNOFFICIAL ArtCraft Android
 
+
 # We were banned from ArtCraft, statement coming soon.
 ### Join the unofficial [Artcraft Android discord](https://discord.gg/J8GhXx8tCD) for updates. All android project maintainers are welcomed to join and apply for their own channel.
 

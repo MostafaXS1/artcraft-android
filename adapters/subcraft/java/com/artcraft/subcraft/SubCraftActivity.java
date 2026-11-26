@@ -3,6 +3,7 @@ package com.artcraft.subcraft;
 import android.Manifest;
 import android.content.Context;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -30,6 +31,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.ActionMode;
 import android.view.DragEvent;
+import android.view.DragAndDropPermissions;
 import android.view.Display;
 import android.view.KeyEvent;
 import android.os.Looper;
@@ -422,28 +424,66 @@ public final class SubCraftActivity extends NativeActivity {
         public boolean onDrag(View view, DragEvent event) {
             try {
                 switch (event.getAction()) {
-                    case DragEvent.ACTION_DRAG_STARTED:
-                        // Accept only drags that actually carry files; returning false here keeps
-                        // text/other drags free for whatever else wants them.
+                    case DragEvent.ACTION_DRAG_STARTED: {
+                        // Accept drags that declare file-related MIME types. Note that
+                        // event.getClipData() is null during ACTION_DRAG_STARTED on Android,
+                        // so we inspect ClipDescription here and validate URIs on ACTION_DROP.
+                        ClipDescription desc = event.getClipDescription();
+                        if (desc != null && hasFileMimeType(desc)) {
+                            return true;
+                        }
                         return !collectDragUris(event.getClipData()).isEmpty();
+                    }
+                    case DragEvent.ACTION_DRAG_ENTERED:
+                    case DragEvent.ACTION_DRAG_LOCATION:
+                    case DragEvent.ACTION_DRAG_EXITED:
+                    case DragEvent.ACTION_DRAG_ENDED:
+                        // Take the enter as well: the framework keeps a drag with the view that
+                        // accepted the enter and hands the drop to that same view, so declining
+                        // the enter here would swallow the drop before it arrives.
+                        return true;
                     case DragEvent.ACTION_DROP: {
                         List<Uri> uris = collectDragUris(event.getClipData());
                         if (uris.isEmpty()) return false;
-                        // The drag grant is temporary; keep it if the source offered a persistable
-                        // one, then copy on the I/O thread while the drop access still holds.
+                        // Request temporary read access to content:// URIs carried by the drop;
+                        // without this, Android denies ContentResolver access with SecurityException.
+                        DragAndDropPermissions permissions = null;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            permissions = requestDragAndDropPermissions(event);
+                        }
+                        // Keep a persistable grant if the source offered one, then copy on the I/O
+                        // thread while the drop permission is held.
                         for (Uri uri : uris) persistDroppedPermission(uri);
-                        stageDroppedFiles(uris);
+                        stageDroppedFiles(uris, permissions);
                         return true;
                     }
                     default:
-                        // ENTERED/EXITED/LOCATION/ENDED: default handling is fine; only STARTED
-                        // and DROP outcomes matter to a receiver.
                         return false;
                 }
             } catch (Throwable error) {
                 Log.e(TAG, "Could not handle a dragged file", error);
                 return false;
             }
+        }
+
+        private boolean hasFileMimeType(ClipDescription desc) {
+            int count = desc.getMimeTypeCount();
+            for (int i = 0; i < count; i++) {
+                String mimeType = desc.getMimeType(i);
+                if (mimeType != null && (mimeType.startsWith("application/") ||
+                        mimeType.startsWith("image/") ||
+                        mimeType.startsWith("video/") ||
+                        mimeType.startsWith("audio/") ||
+                        mimeType.startsWith("text/") ||
+                        mimeType.startsWith("font/") ||
+                        mimeType.startsWith("model/") ||
+                        mimeType.startsWith("vnd.android.") ||
+                        "message/rfc822".equals(mimeType) ||
+                        "*/*".equals(mimeType))) {
+                    return true;
+                }
+            }
+            return false;
         }
     };
 
@@ -1446,16 +1486,26 @@ public final class SubCraftActivity extends NativeActivity {
      * mirroring {@link #handleIncomingFiles}: the copy runs off the UI thread and the shell
      * picks each path up on a later {@link #intentPoll()}.
      */
-    private void stageDroppedFiles(List<Uri> uris) {
+    private void stageDroppedFiles(List<Uri> uris, DragAndDropPermissions permissions) {
         io.execute(() -> {
-            for (Uri uri : uris) {
-                try {
-                    File stage = newStageFile(displayName(uri), uri);
-                    copyUriToFile(uri, stage);
-                    rememberUri(stage, uri);
-                    intentPaths.offer(stage.getAbsolutePath());
-                } catch (Exception e) {
-                    Log.e(TAG, "Could not stage the dropped file: " + uri, e);
+            try {
+                for (Uri uri : uris) {
+                    try {
+                        File stage = newStageFile(displayName(uri), uri);
+                        copyUriToFile(uri, stage);
+                        rememberUri(stage, uri);
+                        intentPaths.offer(stage.getAbsolutePath());
+                        wakeNativeLoop();
+                        Log.i(TAG, "Dropped file staged: " + stage.getAbsolutePath());
+                    } catch (Exception e) {
+                        Log.e(TAG, "Could not stage the dropped file: " + uri, e);
+                    }
+                }
+            } finally {
+                if (permissions != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    try {
+                        permissions.release();
+                    } catch (Throwable ignored) {}
                 }
             }
         });
