@@ -286,7 +286,7 @@ elif app == "wordcraft":
     if fix(
         "crates/fonts/src/fontdb/names.rs",
         '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy"].map(Into::into));',
-        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy", "/system/fonts", "/product/fonts", "/storage/emulated/0/Fonts", "/sdcard/Fonts"].map(Into::into));\n        if let Some(base) = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from) {\n            dirs.push(base.join("fonts"));\n        }\n        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from) {\n            dirs.push(cfg.join("wordcraft/fonts"));\n            dirs.push(cfg.join("fonts"));\n        }',
+        '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy", "/system/fonts", "/product/fonts", "/storage/emulated/0/Fonts", "/sdcard/Fonts"].map(Into::into));\n        if let Some(base) = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from) {\n            dirs.push(base.join("fonts"));\n        }\n        if let Some(store) = std::env::var_os("CRAFT_FONT_STORE").map(std::path::PathBuf::from) {\n            dirs.push(store);\n        }\n        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from) {\n            dirs.push(cfg.join("wordcraft/fonts"));\n            dirs.push(cfg.join("fonts"));\n        }',
     ):
         fixed.append("crates/fonts/src/fontdb/names.rs (system and user font directories)")
 

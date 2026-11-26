@@ -875,5 +875,10 @@ pub fn install_font_env(app: &android_activity::AndroidApp) {
         std::env::set_var("XDG_DATA_HOME", &base);
         std::env::set_var("FONTCONFIG_FILE", &conf);
         std::env::set_var("FONTCONFIG_PATH", &conf_dir);
+        if std::env::var_os("CRAFT_FONT_STORE").is_none() {
+            let font_store = base.join("craft-fonts");
+            let _ = std::fs::create_dir_all(&font_store);
+            std::env::set_var("CRAFT_FONT_STORE", &font_store);
+        }
     }
 }

@@ -1834,10 +1834,11 @@ INTENT_OPEN = {
             Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
         }
 ''',
-    "wordcraft": '''        match std::fs::read(path) {
-            Ok(bytes) => self.saf_inbox.lock().unwrap().push((saf::picker_name(path), bytes)),
-            Err(error) => log::error!("Could not read the incoming file {path}: {error}"),
+    "wordcraft": '''        self.saf_state.mirror.track(0, path);
+        if let Err(error) = self.inner.open_from_platform(path, None) {
+            log::error!("Could not open the incoming file {path}: {error}");
         }
+        self.inner.ui.backstage = false;
 ''',
     "cadcraft": '''        self.inner.open_path(std::path::Path::new(path));
 ''',
