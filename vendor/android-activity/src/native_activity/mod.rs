@@ -383,14 +383,16 @@ impl AndroidAppInner {
 
     // TODO: move into a trait
     pub fn show_soft_input(&self, show_implicit: bool) {
-        if !LAST_POINTER_WAS_TOUCH.load(std::sync::atomic::Ordering::Relaxed) {
-            let cfg = self.config();
-            if cfg.keyboard() == ndk::configuration::Keyboard::Qwerty
-                && cfg.keys_hidden() == ndk::configuration::KeysHidden::No
-            {
-                return;
-            }
-        }
+        // When a hardware keyboard is active and the user interacted via mouse/trackpad/stylus,
+        // use SHOW_IMPLICIT so Android still binds an InputConnection (allowing Gboard's floating
+        // language/settings bubble to appear) without forcing the full on-screen keyboard open.
+        let hardware_keyboard_pointing =
+            !LAST_POINTER_WAS_TOUCH.load(std::sync::atomic::Ordering::Relaxed) && {
+                let cfg = self.config();
+                cfg.keyboard() == ndk::configuration::Keyboard::Qwerty
+                    && cfg.keys_hidden() == ndk::configuration::KeysHidden::No
+            };
+        let implicit = show_implicit || hardware_keyboard_pointing;
 
         let guard = self.native_activity.mutex.lock().unwrap();
         let na = guard.activity;
@@ -404,10 +406,23 @@ impl AndroidAppInner {
         let res = self
             .jvm
             .attach_current_thread(|env| -> jni::errors::Result<()> {
-                match env.call_method(self.activity.as_ref(), jni::jni_str!("imeShow"), jni::jni_sig!("()V"), &[]) {
+                let activity_method = if implicit {
+                    jni::jni_str!("imeShowImplicit")
+                } else {
+                    jni::jni_str!("imeShow")
+                };
+                match env.call_method(self.activity.as_ref(), activity_method, jni::jni_sig!("()V"), &[]) {
                     Ok(_) => return Ok(()),
                     Err(_) => {
                         let _ = env.exception_clear();
+                    }
+                }
+                if implicit {
+                    match env.call_method(self.activity.as_ref(), jni::jni_str!("imeShow"), jni::jni_sig!("()V"), &[]) {
+                        Ok(_) => return Ok(()),
+                        Err(_) => {
+                            let _ = env.exception_clear();
+                        }
                     }
                 }
 
@@ -418,7 +433,7 @@ impl AndroidAppInner {
                 let im_manager = InputMethodManager::cast_local(env, im_manager)?;
                 let jni_window = activity.get_window(env)?;
                 let view = jni_window.get_decor_view(env)?;
-                let flags = if show_implicit {
+                let flags = if implicit {
                     ndk_sys::ANATIVEACTIVITY_SHOW_SOFT_INPUT_IMPLICIT as i32
                 } else {
                     0

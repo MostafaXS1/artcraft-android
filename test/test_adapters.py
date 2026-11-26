@@ -205,6 +205,118 @@ class TestAdapters(unittest.TestCase):
         ):
             self.assertIn(symbol, vc_java, f"Missing {symbol} in VectorCraftActivity.java")
 
+    def test_on_check_is_text_editor_does_not_require_focus_and_restores_soft_input(self):
+        """Ensure virtual keyboard language/subtype switching works by decoupling onCheckIsTextEditor from isFocused."""
+        java_files = list((ROOT / "adapters").glob("*/java/**/*.java"))
+        java_files.append(ROOT / "templates" / "android" / "SafActivity.java")
+        java_files.append(ROOT / "templates" / "android" / "__CLASS__.java")
+
+        checked_text_editors = 0
+        for f in java_files:
+            text = f.read_text()
+            if "onCheckIsTextEditor" in text:
+                # Must never check isFocused() inside onCheckIsTextEditor(), which terminates InputConnection on dialogs
+                self.assertNotIn(
+                    "isFocused() && getVisibility()",
+                    text,
+                    f"{f.relative_to(ROOT)} onCheckIsTextEditor() must not require isFocused()",
+                )
+                if "class TextInputView" not in text:
+                    self.assertIn(
+                        "return getVisibility() == View.VISIBLE;",
+                        text,
+                        f"{f.relative_to(ROOT)} onCheckIsTextEditor() must return getVisibility() == View.VISIBLE;",
+                    )
+                    # Window focus recovery must re-assert soft keyboard visibility
+                    self.assertIn(
+                        "imm.showSoftInput(inputView,",
+                        text,
+                        f"{f.relative_to(ROOT)} onWindowFocusChanged must restore soft input via imm.showSoftInput",
+                    )
+                    self.assertIn(
+                        "public void imeShowImplicit()",
+                        text,
+                        f"{f.relative_to(ROOT)} must expose imeShowImplicit() for hardware-keyboard IME binding",
+                    )
+                    self.assertIn(
+                        "InputMethodManager.SHOW_IMPLICIT",
+                        text,
+                        f"{f.relative_to(ROOT)} must pass SHOW_IMPLICIT when showing IME implicitly",
+                    )
+                    checked_text_editors += 1
+
+        self.assertEqual(checked_text_editors, 25, f"Expected exactly 25 activities checked, got {checked_text_editors}")
+
+        # ArtCraft Launcher input view & activity checks
+        launcher_input = (
+            ROOT
+            / "launcher"
+            / "apps"
+            / "artcraft-launcher-android"
+            / "android"
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "launcher"
+            / "ArtCraftInputView.java"
+        ).read_text()
+        self.assertNotIn("isFocused() && getVisibility()", launcher_input)
+        self.assertIn("return getVisibility() == VISIBLE;", launcher_input)
+
+        launcher_activity = (
+            ROOT
+            / "launcher"
+            / "apps"
+            / "artcraft-launcher-android"
+            / "android"
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "artcraft"
+            / "launcher"
+            / "ArtCraftLauncherActivity.java"
+        ).read_text()
+        self.assertIn("imm.showSoftInput(inputView, 0);", launcher_activity)
+
+    def test_ime_not_hidden_when_android_window_unfocused(self):
+        """Ensure egui-winit and poll_ime do not call imeHide/set_ime_allowed(false) while window focus is lost."""
+        for rel in (
+            "vendor/egui-winit/src/lib.rs",
+            "vendor/egui-winit-0.36/src/lib.rs",
+            "vendor/egui-winit-0.34/src/lib.rs",
+            "launcher/vendor-egui-winit-0.37/src/lib.rs",
+        ):
+            text = (ROOT / rel).read_text()
+            self.assertIn(
+                "!self.egui_input.focused",
+                text,
+                f"{rel} must guard set_ime_allowed(false) against unfocused Android windows",
+            )
+        for adapter in ("photocraft", "vectorcraft", "subcraft"):
+            text = (ROOT / "adapters" / adapter / "src" / "lib.rs").read_text()
+            self.assertIn(
+                "!(!editing && !ctx.input(|i| i.focused))",
+                text,
+                f"adapters/{adapter}/src/lib.rs poll_ime must guard hide_soft_input when unfocused",
+            )
+
+    def test_hardware_keyboard_binds_ime_implicitly(self):
+        """Ensure show_soft_input binds IME via imeShowImplicit instead of returning early on hardware keyboards."""
+        native_act = (
+            ROOT / "vendor" / "android-activity" / "src" / "native_activity" / "mod.rs"
+        ).read_text()
+        self.assertIn("imeShowImplicit", native_act)
+        self.assertIn("hardware_keyboard_pointing", native_act)
+        # Must not early-return before attaching to JVM and binding InputConnection
+        fn_start = native_act.index("pub fn show_soft_input(")
+        fn_body = native_act[fn_start : fn_start + 700]
+        self.assertNotIn("return;", fn_body)
+
 
 if __name__ == "__main__":
     unittest.main()
