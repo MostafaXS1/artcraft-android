@@ -1650,7 +1650,10 @@ public final class __CLASS__ extends NativeActivity {
                         if (count <= 0) break;
                         transferred += count;
                     }
-                    return;
+                    if (size > 0 && transferred == size) {
+                        out.flush();
+                        return;
+                    }
                 }
             }
         } catch (Exception ignored) { }

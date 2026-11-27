@@ -453,5 +453,27 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
 
+    def test_wordcraft_font_dirs_include_craft_font_store(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            names_rs = tmp_src / "crates" / "fonts" / "src" / "fontdb" / "names.rs"
+            names_rs.parent.mkdir(parents=True, exist_ok=True)
+            names_rs.write_text(
+                '        dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy"].map(Into::into));\n'
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "wordcraft", "WordCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("system and user font directories", result.stdout)
+            patched = names_rs.read_text()
+            self.assertIn("/system/fonts", patched)
+            self.assertIn('std::env::var_os("CRAFT_FONT_STORE")', patched)
+
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

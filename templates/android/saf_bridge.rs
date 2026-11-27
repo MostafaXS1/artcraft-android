@@ -403,6 +403,13 @@ mod saf {
             self.wait_answer_worker(id, timeout)
         }
 
+        /// Blocking folder picker for a **worker thread**, while the frame thread keeps pumping the
+        /// event loop.
+        pub fn pick_folder_blocking_worker(&self, id: u64, timeout: Duration) -> Result<PickAnswer, String> {
+            self.request_folder(id)?;
+            self.wait_answer_worker(id, timeout)
+        }
+
         fn wait_answer_worker(&self, id: u64, timeout: Duration) -> Result<PickAnswer, String> {
             let deadline = Instant::now() + timeout;
             loop {

@@ -1004,6 +1004,7 @@ struct VectorCraftAndroidApp {
     // when the one-time orphan sweep of the directory is due.
     staged_seen: Vec<String>,
     staged_sweep_at: Option<std::time::Instant>,
+    last_system_theme: Option<egui::Theme>,
     _mcp: Option<mcp_http::Endpoint>,
 }
 
@@ -1250,21 +1251,31 @@ impl eframe::App for VectorCraftAndroidApp {
         watch_incoming(&self.bridge, ctx);
         drain_incoming(&self.bridge, &self.intent_inbox, &mut self.intent_warmup);
         self.staged_prune_tick();
-        // Sync appearance when system theme changes
-        let is_light = egui_winit::system_theme::system_theme() == Some(egui::Theme::Light);
-        let cur_is_light = matches!(
-            self.inner.ui.brightness,
-            vectorcraft_ui_egui::theme::Brightness::Light
-                | vectorcraft_ui_egui::theme::Brightness::MediumLight
-        );
-        if cur_is_light != is_light {
-            let b = if is_light {
-                vectorcraft_ui_egui::theme::Brightness::Light
-            } else {
-                vectorcraft_ui_egui::theme::Brightness::MediumDark
-            };
-            self.inner.ui.brightness = b;
-            vectorcraft_ui_egui::theme::apply(ctx, b);
+        // Sync appearance only when the Android system theme itself changes, so a user's
+        // manual Brightness choice in Preferences is preserved across frames and launches.
+        let sys_theme = egui_winit::system_theme::system_theme();
+        if sys_theme != self.last_system_theme {
+            self.last_system_theme = sys_theme;
+            if let Some(theme) = sys_theme {
+                let is_light = theme == egui::Theme::Light;
+                let cur_is_light = matches!(
+                    self.inner.ui.brightness,
+                    vectorcraft_ui_egui::theme::Brightness::Light
+                        | vectorcraft_ui_egui::theme::Brightness::MediumLight
+                );
+                if cur_is_light != is_light {
+                    let b = if is_light {
+                        vectorcraft_ui_egui::theme::Brightness::Light
+                    } else {
+                        vectorcraft_ui_egui::theme::Brightness::MediumDark
+                    };
+                    let _ = self.inner.session.execute(
+                        "prefs.set",
+                        &serde_json::json!({"key": "uiBrightness", "value": b.id()}),
+                    );
+                    self.inner.ui.brightness = b;
+                }
+            }
         }
         self.inner.logic(ctx);
         self.persist_tick();
@@ -1378,7 +1389,8 @@ fn android_main(android_app: AndroidApp) {
             let (control_tx, control_rx) = std::sync::mpsc::channel();
             if let Ok(mut g) = CONTROL_TX.lock() { *g = Some(control_tx); }
             app = app.with_control(control_rx);
-            if egui_winit::system_theme::system_theme() == Some(egui::Theme::Light) {
+            let initial_system_theme = egui_winit::system_theme::system_theme();
+            if initial_system_theme == Some(egui::Theme::Light) {
                 app.ui.brightness = vectorcraft_ui_egui::theme::Brightness::Light;
             }
             let persist = persist_dir(&app_bridge.app);
@@ -1420,6 +1432,7 @@ fn android_main(android_app: AndroidApp) {
                 intent_warmup: 2,
                 staged_seen: Vec::new(),
                 staged_sweep_at: Some(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+                last_system_theme: initial_system_theme,
                 _mcp,
             }))
         }),

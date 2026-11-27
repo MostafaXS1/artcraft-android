@@ -84,6 +84,12 @@ class TestLauncherGenerator(unittest.TestCase):
             lib_rs = (android_app_dir / "src" / "lib.rs").read_text()
             self.assertIn("if inner.autosaves() && inner.session.dirty", lib_rs)
             self.assertNotIn("if inner.session.dirty && inner.session.path.is_some()", lib_rs)
+            self.assertIn("self.saf_state.mirror.track(0, path);", lib_rs)
+            self.assertIn("self.inner.open_from_platform(path, None)", lib_rs)
+            self.assertNotIn("saf::picker_name(path)", lib_rs)
+
+            system_fonts_rs = (android_app_dir / "src" / "system_fonts.rs").read_text()
+            self.assertIn('std::env::set_var("CRAFT_FONT_STORE", &font_store);', system_fonts_rs)
 
 
 if __name__ == "__main__":
