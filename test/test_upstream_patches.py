@@ -514,8 +514,8 @@ class TestUpstreamPatches(unittest.TestCase):
             (
                 "vectorcraft",
                 "VectorCraft",
-                "crates/ui-egui/src/prefs_dialog/model.rs",
-                '        let mut page = PageSpec::new(cat, tl!(cat), Vec::new());\n            "editOriginal" => {',
+                "crates/ui-egui/src/prefs_dialog.rs",
+                '        }\n        found_paint(ui, d, mark);\n    }\n}',
             ),
             (
                 "designcraft",
@@ -527,7 +527,7 @@ class TestUpstreamPatches(unittest.TestCase):
                 "wordcraft",
                 "WordCraft",
                 "crates/ui-egui/src/options.rs",
-                '                        custom("general.defaultApp", tl!("Make WordCraft the default for Word documents…")).visible(can_default),\n            "general.defaultApp" => default_app_row(self.app, ui),',
+                '    ui.checkbox(&mut app.ui.font_download_notice, tl!("Tell me when a document\'s missing fonts can be downloaded"));\n    default_app_button(app, ui);',
             ),
             (
                 "gridcraft",
@@ -538,8 +538,8 @@ class TestUpstreamPatches(unittest.TestCase):
             (
                 "deckcraft",
                 "DeckCraft",
-                "crates/ui-egui/src/backstage/info.rs",
-                '                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Appearance"));',
+                "crates/ui-egui/src/dialogs/body.rs",
+                '        let _ = ui.add(egui::TextEdit::singleline(&mut app.session.prefs.author)).labelled_by(label.id);\n    });\n    let (ok, cancel) = buttons(ui, "Done");',
             ),
             (
                 "tracedraw",

@@ -2149,7 +2149,9 @@ PERSIST_RECIPES = {
 # `@UI@`/`@ENGINE@` are filled in like the recipes above.
 UI_SCALE_BOOTSTRAP = {
     "effectcraft": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "75"}));''',
-    "filmcraft": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "75"}));''',
+    # FilmCraft's uiScale is absolute pixels-per-point ("100" = 1 px/pt), like PhotoCraft ("150")
+    # and WordCraft (150%); "75" made mobile UI tiny, so high-density screens get "150".
+    "filmcraft": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "appearance.uiScale", "value": "150"}));''',
     # VectorCraft's scale is a factor (1.0 is the system's own size); 0.75 gives the canvas more room.
     "vectorcraft": '''let _ = inner.session.execute("prefs.set", serde_json::json!({"key": "uiScaling", "value": 0.75}));''',
     # WordCraft's sizes are absolute ("100%" is one screen pixel per point, not the system's scale),
@@ -2494,6 +2496,17 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
         # The scale runs *after* `persist_load` (so nothing the loader applies can overwrite it) and
         # is written straight back by `persist_save`.
         _scale = _bootstrap.replace("@UI@", ui_ident).replace("@ENGINE@", engine_ident)
+        _filmcraft_upgrade = (
+            "            else if !dir.join(\"filmcraft_scale_150\").exists() {\n"
+            "                persist_write(dir, \"filmcraft_scale_150\", b\"1\");\n"
+            "                if device_is_high_density(&app) == Some(true) && inner.session.prefs.appearance.ui_scale == \"75\" {\n"
+            f"                    {_scale}\n"
+            "                    persist_save(&mut inner, dir);\n"
+            "                }\n"
+            "            }\n"
+            if app == "filmcraft"
+            else ""
+        )
         _bootstrap_body = (
             "let persist = persist_dir(&app);\n"
             "        if let Some(dir) = &persist {\n"
@@ -2501,9 +2514,11 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
             + _after
             + "            if device_is_high_density(&app) == Some(true) && device_scale_first_time(dir) {\n"
             f"                {_scale}\n"
-            "                persist_save(&mut inner, dir);\n"
+            + ("                persist_write(dir, \"filmcraft_scale_150\", b\"1\");\n" if app == "filmcraft" else "")
+            + "                persist_save(&mut inner, dir);\n"
             "            }\n"
-            "        }\n"
+            + _filmcraft_upgrade
+            + "        }\n"
             "        "
         )
     else:

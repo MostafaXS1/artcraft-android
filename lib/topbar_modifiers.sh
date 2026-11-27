@@ -368,10 +368,18 @@ elif app == "vectorcraft":
         pd_rs = ui_egui_src / "prefs_dialog.rs"
         if pd_rs.is_file():
             pd = pd_rs.read_text(encoding="utf-8")
-            t_pd = 'if sp.key == "uiColorScheme" {'
+            t_pd = "        }\n        found_paint(ui, d, mark);\n    }\n}"
+            r_pd = (
+                t_pd[:-2]
+                + "\n    if cat == \"User Interface\" {\n"
+                + "        ui.add_space(8.0);\n"
+                + '        ui.label(egui::RichText::new(tl!("Topbar Buttons")).font(theme::semibold(12.5)).color(t.text_strong));\n'
+                + "        ui.add_space(2.0);\n"
+                + "        crate::topbar_modifiers::settings_ui(ui);\n"
+                + "    }\n}"
+            )
             if t_pd in pd and "topbar_modifiers::settings_ui" not in pd:
-                pd = pd.replace(t_pd, 'if sp.key == "uiColorScheme" {\n                    crate::topbar_modifiers::settings_ui(ui);', 1)
-                pd_rs.write_text(pd, encoding="utf-8")
+                pd_rs.write_text(pd.replace(t_pd, r_pd, 1), encoding="utf-8")
                 print(f"  Added Topbar Buttons settings under Preferences > User Interface in {title}")
 
 elif app == "designcraft":
@@ -540,16 +548,27 @@ elif app == "wordcraft":
     if options_rs.is_file():
         otext = options_rs.read_text(encoding="utf-8")
         changed_o = False
-        t_def = '                        custom("general.defaultApp", tl!("Make WordCraft the default for Word documents…")).visible(can_default),'
-        r_def = t_def + '\n                        custom("general.topbarButtons", tl!("Topbar Buttons")),'
-        if t_def in otext and '"general.topbarButtons"' not in otext:
-            otext = otext.replace(t_def, r_def, 1)
+        t_v19 = '    ui.checkbox(&mut app.ui.font_download_notice, tl!("Tell me when a document\'s missing fonts can be downloaded"));\n    default_app_button(app, ui);'
+        r_v19 = (
+            t_v19
+            + "\n    ui.add_space(6.0);\n"
+            + '    section(ui, "Topbar Buttons");\n'
+            + "    crate::topbar_modifiers::settings_ui(ui);"
+        )
+        if t_v19 in otext and "topbar_modifiers::settings_ui" not in otext:
+            otext = otext.replace(t_v19, r_v19, 1)
             changed_o = True
-        t_row = '            "general.defaultApp" => default_app_row(self.app, ui),'
-        r_row = t_row + '\n            "general.topbarButtons" => { crate::topbar_modifiers::settings_ui(ui); false }'
-        if t_row in otext and "topbar_modifiers::settings_ui" not in otext:
-            otext = otext.replace(t_row, r_row, 1)
-            changed_o = True
+        else:
+            t_def = '                        custom("general.defaultApp", tl!("Make WordCraft the default for Word documents…")).visible(can_default),'
+            r_def = t_def + '\n                        custom("general.topbarButtons", tl!("Topbar Buttons")),'
+            if t_def in otext and '"general.topbarButtons"' not in otext:
+                otext = otext.replace(t_def, r_def, 1)
+                changed_o = True
+            t_row = '            "general.defaultApp" => default_app_row(self.app, ui),'
+            r_row = t_row + '\n            "general.topbarButtons" => { crate::topbar_modifiers::settings_ui(ui); false }'
+            if t_row in otext and "topbar_modifiers::settings_ui" not in otext:
+                otext = otext.replace(t_row, r_row, 1)
+                changed_o = True
         if changed_o:
             options_rs.write_text(otext, encoding="utf-8")
             print(f"  Added Topbar Buttons settings under File > Options > General in {title}")
@@ -703,7 +722,21 @@ elif app == "deckcraft":
             ribbon_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable ribbon tabs into {title}")
 
-    # Settings UI under File > Info > Appearance
+    # Settings UI under File > Options (dialogs/body.rs) and File > About > Appearance (backstage/info.rs)
+    body_rs = ui_egui_src / "dialogs" / "body.rs"
+    if body_rs.is_file():
+        btext = body_rs.read_text(encoding="utf-8")
+        target_b = '        let _ = ui.add(egui::TextEdit::singleline(&mut app.session.prefs.author)).labelled_by(label.id);\n    });\n    let (ok, cancel) = buttons(ui, "Done");'
+        repl_b = (
+            '        let _ = ui.add(egui::TextEdit::singleline(&mut app.session.prefs.author)).labelled_by(label.id);\n'
+            '    });\n'
+            '    ui.label(egui::RichText::new("Topbar Buttons").font(theme::bold(13.0)));\n'
+            '    crate::topbar_modifiers::settings_ui(ui);\n'
+            '    let (ok, cancel) = buttons(ui, "Done");'
+        )
+        if target_b in btext and "topbar_modifiers::settings_ui" not in btext:
+            body_rs.write_text(btext.replace(target_b, repl_b, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under File > Options in {title}")
     info_rs = ui_egui_src / "backstage" / "info.rs"
     if info_rs.is_file():
         itext = info_rs.read_text(encoding="utf-8")
