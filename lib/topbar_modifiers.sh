@@ -41,12 +41,13 @@ if not ui_egui_src.is_dir():
 if not ui_egui_src.is_dir():
     sys.exit(0)
 
-# 1. Copy topbar_modifiers.rs into crates/ui-egui/src/topbar_modifiers.rs
+# 1. Copy topbar_modifiers.rs + embedded symbol font subsets into crates/ui-egui/src/
 template_file = "topbar_modifiers_disabled.rs" if no_buttons else "topbar_modifiers.rs"
 shutil.copy2(root / "templates" / "android" / template_file, ui_egui_src / "topbar_modifiers.rs")
-font_file = root / "templates" / "android" / "modifier_symbols.ttf"
-if font_file.is_file():
-    shutil.copy2(font_file, ui_egui_src / "modifier_symbols.ttf")
+for font_name in ("modifier_symbols.ttf", "topbar_symbols1.ttf", "topbar_symbols2.ttf"):
+    font_file = root / "templates" / "android" / font_name
+    if font_file.is_file():
+        shutil.copy2(font_file, ui_egui_src / font_name)
 
 # 2. Register pub mod topbar_modifiers; in crates/ui-egui/src/lib.rs
 lib_rs = ui_egui_src / "lib.rs"
@@ -177,6 +178,22 @@ if app == "photocraft":
         if changed:
             title_bar_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable menu bar into {title}")
+
+    # Settings UI under Preferences > Workspace
+    fields_rs = ui_egui_src / "prefs" / "prefs_ui" / "fields.rs"
+    if fields_rs.is_file():
+        ftext = fields_rs.read_text(encoding="utf-8")
+        target = '    egui::Grid::new(("prefs-grid", section)).num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| field_rows(ui, section, obj, keys, lang));'
+        repl = (
+            target + "\n"
+            '    if section == "workspace" {\n'
+            '        ui.add_space(6.0);\n'
+            '        pref_group(ui, "Topbar Buttons", |ui| crate::topbar_modifiers::settings_ui(ui));\n'
+            "    }"
+        )
+        if target in ftext and "topbar_modifiers::settings_ui" not in ftext:
+            fields_rs.write_text(ftext.replace(target, repl, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under Preferences > Workspace in {title}")
 
 elif app == "vectorcraft":
     bar_rs = ui_egui_src / "menus" / "bar.rs"
@@ -320,6 +337,43 @@ elif app == "vectorcraft":
             chrome_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable menu bar into {title}")
 
+    # Settings UI under Preferences > User Interface (model.rs, with prefs_dialog.rs fallback)
+    model_rs = ui_egui_src / "prefs_dialog" / "model.rs"
+    if model_rs.is_file():
+        mtext = model_rs.read_text(encoding="utf-8")
+        changed_m = False
+        t_page = '        let mut page = PageSpec::new(cat, tl!(cat), Vec::new());'
+        r_page = (
+            '        if cat == "User Interface" {\n'
+            '            groups.add("Topbar Buttons", self.row("topbarButtons", "", "Topbar Buttons", RowKind::Custom));\n'
+            "        }\n" + t_page
+        )
+        if t_page in mtext and '"topbarButtons"' not in mtext:
+            mtext = mtext.replace(t_page, r_page, 1)
+            changed_m = True
+        t_row = '            "editOriginal" => {'
+        r_row = (
+            '            "topbarButtons" => {\n'
+            "                crate::topbar_modifiers::settings_ui(ui);\n"
+            "                false\n"
+            "            }\n" + t_row
+        )
+        if t_row in mtext and 'crate::topbar_modifiers::settings_ui' not in mtext:
+            mtext = mtext.replace(t_row, r_row, 1)
+            changed_m = True
+        if changed_m:
+            model_rs.write_text(mtext, encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under Preferences > User Interface in {title}")
+    else:
+        pd_rs = ui_egui_src / "prefs_dialog.rs"
+        if pd_rs.is_file():
+            pd = pd_rs.read_text(encoding="utf-8")
+            t_pd = 'if sp.key == "uiColorScheme" {'
+            if t_pd in pd and "topbar_modifiers::settings_ui" not in pd:
+                pd = pd.replace(t_pd, 'if sp.key == "uiColorScheme" {\n                    crate::topbar_modifiers::settings_ui(ui);', 1)
+                pd_rs.write_text(pd, encoding="utf-8")
+                print(f"  Added Topbar Buttons settings under Preferences > User Interface in {title}")
+
 elif app == "designcraft":
     bar_rs = ui_egui_src / "menus" / "bar.rs"
     if bar_rs.is_file():
@@ -383,6 +437,21 @@ elif app == "designcraft":
         if changed:
             app_bar_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and compact pinned layout into {title}")
+
+    # Settings UI under Preferences > Interface > Panels
+    dialogs_rs = ui_egui_src / "dialogs.rs"
+    if dialogs_rs.is_file():
+        dtext = dialogs_rs.read_text(encoding="utf-8")
+        target = '                        translated_combo(&lang, ui, d, "toolsColumns", &[("single", "Single Column"), ("double", "Double Column")])\n                            .labelled_by(name.id);\n                    });'
+        repl = (
+            target + "\n"
+            "                    ui.add_space(8.0);\n"
+            '                    crate::rtl::label(ui, egui::RichText::new(crate::i18n::tr(&lang, "Topbar Buttons")).font(semibold(12.0)));\n'
+            "                    crate::topbar_modifiers::settings_ui(ui);"
+        )
+        if target in dtext and "topbar_modifiers::settings_ui" not in dtext:
+            dialogs_rs.write_text(dtext.replace(target, repl, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under Preferences > Interface in {title}")
 
 elif app == "wordcraft":
     ribbon_rs = ui_egui_src / "ribbon.rs"
@@ -466,6 +535,25 @@ elif app == "wordcraft":
             ribbon_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable ribbon tabs into {title}")
 
+    # Settings UI under File > Options > General > Interface
+    options_rs = ui_egui_src / "options.rs"
+    if options_rs.is_file():
+        otext = options_rs.read_text(encoding="utf-8")
+        changed_o = False
+        t_def = '                        custom("general.defaultApp", tl!("Make WordCraft the default for Word documents…")).visible(can_default),'
+        r_def = t_def + '\n                        custom("general.topbarButtons", tl!("Topbar Buttons")),'
+        if t_def in otext and '"general.topbarButtons"' not in otext:
+            otext = otext.replace(t_def, r_def, 1)
+            changed_o = True
+        t_row = '            "general.defaultApp" => default_app_row(self.app, ui),'
+        r_row = t_row + '\n            "general.topbarButtons" => { crate::topbar_modifiers::settings_ui(ui); false }'
+        if t_row in otext and "topbar_modifiers::settings_ui" not in otext:
+            otext = otext.replace(t_row, r_row, 1)
+            changed_o = True
+        if changed_o:
+            options_rs.write_text(otext, encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under File > Options > General in {title}")
+
 elif app == "gridcraft":
     ribbon_rs = ui_egui_src / "ribbon.rs"
     if ribbon_rs.is_file():
@@ -517,6 +605,20 @@ elif app == "gridcraft":
         if changed:
             ribbon_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable ribbon tabs into {title}")
+
+    # Settings UI under File > Options > Topbar Buttons
+    options_rs = ui_egui_src / "backstage" / "options.rs"
+    if options_rs.is_file():
+        otext = options_rs.read_text(encoding="utf-8")
+        target = '    ui.add_space(18.0);\n    section(ui, lang, "Options|Editing");'
+        repl = (
+            '    ui.add_space(18.0);\n'
+            '    section(ui, lang, "Options|Topbar Buttons");\n'
+            '    crate::topbar_modifiers::settings_ui(ui);\n' + target
+        )
+        if target in otext and "topbar_modifiers::settings_ui" not in otext:
+            options_rs.write_text(otext.replace(target, repl, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under File > Options in {title}")
 
 elif app == "deckcraft":
     ribbon_rs = ui_egui_src / "ribbon.rs"
@@ -600,6 +702,21 @@ elif app == "deckcraft":
         if changed:
             ribbon_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable ribbon tabs into {title}")
+
+    # Settings UI under File > Info > Appearance
+    info_rs = ui_egui_src / "backstage" / "info.rs"
+    if info_rs.is_file():
+        itext = info_rs.read_text(encoding="utf-8")
+        target = '                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Appearance"));'
+        repl = (
+            target + "\n"
+            "            ui.add_space(12.0);\n"
+            '            heading(ui, "Topbar Buttons");\n'
+            "            crate::topbar_modifiers::settings_ui(ui);"
+        )
+        if target in itext and "topbar_modifiers::settings_ui" not in itext:
+            info_rs.write_text(itext.replace(target, repl, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under File > Info in {title}")
 
 elif app == "tracedraw":
     mod_rs = ui_egui_src / "ui" / "mod.rs"
@@ -701,6 +818,22 @@ elif app == "tracedraw":
         if changed:
             menus_rs.write_text(text, encoding="utf-8")
             print(f"  Integrated topbar modifiers and responsive scrollable menu bar into {title}")
+
+    # Settings UI under Tools > Options > Customization > Command Bars
+    options_rs = ui_egui_src / "ui" / "options.rs"
+    if options_rs.is_file():
+        otext = options_rs.read_text(encoding="utf-8")
+        target = '        ui.vertical(|ui| {\n            crate::ui::chrome::section(ui, &tr("options.other"));'
+        repl = (
+            '        ui.vertical(|ui| {\n'
+            '            crate::ui::chrome::section(ui, "Topbar Buttons");\n'
+            '            crate::topbar_modifiers::settings_ui(ui);\n'
+            '            ui.add_space(12.0);\n'
+            '            crate::ui::chrome::section(ui, &tr("options.other"));'
+        )
+        if target in otext and "topbar_modifiers::settings_ui" not in otext:
+            options_rs.write_text(otext.replace(target, repl, 1), encoding="utf-8")
+            print(f"  Added Topbar Buttons settings under Options > Customization > Command Bars in {title}")
 
     lib_rs = ui_egui_src / "lib.rs"
     if lib_rs.is_file():

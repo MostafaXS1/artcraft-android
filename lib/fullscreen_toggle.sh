@@ -420,8 +420,20 @@ import sys
 
 root, src, app, android_dir = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])
 
-# 1. Ensure Java Activity has isImmersiveFullscreen / setImmersiveFullscreen
-java_snippet = """    public boolean isImmersiveFullscreen() {
+# 1. Ensure Java Activity has isImmersiveFullscreen / setImmersiveFullscreen & getTopbarButtonsMask
+java_snippet = """    public int getTopbarButtonsMask() {
+        return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .getInt("topbar_buttons_mask", 0x700);
+    }
+
+    public void setTopbarButtonsMask(final int mask) {
+        getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .edit()
+                .putInt("topbar_buttons_mask", mask)
+                .apply();
+    }
+
+    public boolean isImmersiveFullscreen() {
         return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
                 .getBoolean("immersive_fullscreen", true);
     }
@@ -618,7 +630,19 @@ old_java_nodesktop = """    private void applyImmersiveFullscreen() {
             return;
         }"""
 
-java_snippet_nodesktop = """    public boolean isImmersiveFullscreen() {
+java_snippet_nodesktop = """    public int getTopbarButtonsMask() {
+        return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .getInt("topbar_buttons_mask", 0x700);
+    }
+
+    public void setTopbarButtonsMask(final int mask) {
+        getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .edit()
+                .putInt("topbar_buttons_mask", mask)
+                .apply();
+    }
+
+    public boolean isImmersiveFullscreen() {
         return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
                 .getBoolean("immersive_fullscreen", true);
     }
@@ -772,6 +796,21 @@ for java_file in (android_dir / "java").rglob("*.java"):
         modified = True
     if modified:
         java_file.write_text(jtext, encoding="utf-8")
+    elif "getTopbarButtonsMask()" not in jtext and "public boolean isImmersiveFullscreen() {" in jtext:
+        topbar_java = """    public int getTopbarButtonsMask() {
+        return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .getInt("topbar_buttons_mask", 0x700);
+    }
+
+    public void setTopbarButtonsMask(final int mask) {
+        getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .edit()
+                .putInt("topbar_buttons_mask", mask)
+                .apply();
+    }
+
+    public boolean isImmersiveFullscreen() {"""
+        java_file.write_text(jtext.replace("    public boolean isImmersiveFullscreen() {", topbar_java, 1), encoding="utf-8")
 
 # 2. Find UI crate ident
 candidates = [
@@ -827,7 +866,35 @@ if not re.search(r"android_fullscreen::is_enabled", text):
         pos_a = m_apply.end()
         text = text[:pos_a] + f"\n    if !{ui_ident}::android_fullscreen::is_enabled() {{\n        return;\n    }}" + text[pos_a:]
 
-# 4. Inject init_fullscreen_toggle(&android_app)
+# 4. Inject init_fullscreen_toggle(&android_app) (and topbar button persistence if topbar_modifiers exists)
+has_topbar = (ui_crate_dir / "src" / "topbar_modifiers.rs").is_file()
+redo_ctrl_y = "true" if app in ("wordcraft", "gridcraft", "deckcraft") else "false"
+topbar_init = ""
+if has_topbar:
+    topbar_init = f"""
+    {ui_ident}::topbar_modifiers::set_redo_uses_ctrl_y({redo_ctrl_y});
+    if let Ok(mask) = jvm.attach_current_thread(|env| -> jni::errors::Result<i32> {{
+        let activity = unsafe {{ env.as_cast_raw::<JObject>(&activity_raw)? }};
+        env.call_method(&*activity, jni_str!("getTopbarButtonsMask"), jni_sig!("()I"), &[])?.i()
+    }}) {{
+        {ui_ident}::topbar_modifiers::set_initial_mask(mask as u32);
+    }}
+    let app_for_tb = app.clone();
+    {ui_ident}::topbar_modifiers::set_mask_handler(move |mask| {{
+        let jvm = unsafe {{ JavaVM::from_raw(app_for_tb.vm_as_ptr() as *mut _) }};
+        let activity_raw = app_for_tb.activity_as_ptr() as jni::sys::jobject;
+        let _ = jvm.attach_current_thread(|env| -> jni::errors::Result<()> {{
+            let activity = unsafe {{ env.as_cast_raw::<JObject>(&activity_raw)? }};
+            env.call_method(
+                &*activity,
+                jni_str!("setTopbarButtonsMask"),
+                jni_sig!("(I)V"),
+                &[JValue::Int(mask as i32)],
+            )?;
+            Ok(())
+        }});
+    }});"""
+
 if "init_fullscreen_toggle" not in text:
     helper = f"""
 fn init_fullscreen_toggle(app: &android_activity::AndroidApp) {{
@@ -854,7 +921,7 @@ fn init_fullscreen_toggle(app: &android_activity::AndroidApp) {{
             )?;
             Ok(())
         }});
-    }});
+    }});{topbar_init}
 }}
 """
     text = text + "\n" + helper

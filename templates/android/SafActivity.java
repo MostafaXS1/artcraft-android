@@ -694,6 +694,18 @@ public final class __CLASS__ extends NativeActivity {
         return safeInsetRight;
     }
 
+    public int getTopbarButtonsMask() {
+        return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .getInt("topbar_buttons_mask", 0x700);
+    }
+
+    public void setTopbarButtonsMask(final int mask) {
+        getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
+                .edit()
+                .putInt("topbar_buttons_mask", mask)
+                .apply();
+    }
+
     public boolean isImmersiveFullscreen() {
         return getSharedPreferences("artcraft_prefs", MODE_PRIVATE)
                 .getBoolean("immersive_fullscreen", true);

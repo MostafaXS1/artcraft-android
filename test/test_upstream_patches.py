@@ -474,6 +474,66 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
 
+    def test_topbar_modifiers_settings_ui_across_all_seven_apps(self):
+        cases = [
+            (
+                "photocraft",
+                "PhotoCraft",
+                "crates/ui-egui/src/prefs/prefs_ui/fields.rs",
+                '    egui::Grid::new(("prefs-grid", section)).num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| field_rows(ui, section, obj, keys, lang));\n}',
+            ),
+            (
+                "vectorcraft",
+                "VectorCraft",
+                "crates/ui-egui/src/prefs_dialog/model.rs",
+                '        let mut page = PageSpec::new(cat, tl!(cat), Vec::new());\n            "editOriginal" => {',
+            ),
+            (
+                "designcraft",
+                "DesignCraft",
+                "crates/ui-egui/src/dialogs.rs",
+                '                        translated_combo(&lang, ui, d, "toolsColumns", &[("single", "Single Column"), ("double", "Double Column")])\n                            .labelled_by(name.id);\n                    });',
+            ),
+            (
+                "wordcraft",
+                "WordCraft",
+                "crates/ui-egui/src/options.rs",
+                '                        custom("general.defaultApp", tl!("Make WordCraft the default for Word documents…")).visible(can_default),\n            "general.defaultApp" => default_app_row(self.app, ui),',
+            ),
+            (
+                "gridcraft",
+                "GridCraft",
+                "crates/ui-egui/src/backstage/options.rs",
+                '    ui.add_space(18.0);\n    section(ui, lang, "Options|Editing");',
+            ),
+            (
+                "deckcraft",
+                "DeckCraft",
+                "crates/ui-egui/src/backstage/info.rs",
+                '                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Appearance"));',
+            ),
+            (
+                "tracedraw",
+                "TraceDraw",
+                "apps/tracedraw/src/ui/options.rs",
+                '        ui.vertical(|ui| {\n            crate::ui::chrome::section(ui, &tr("options.other"));',
+            ),
+        ]
+        script = ROOT / "lib" / "topbar_modifiers.sh"
+        for app, title, rel, sample in cases:
+            with self.subTest(app=app), tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_src = Path(tmp_dir)
+                target = tmp_src / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(sample)
+                ui_root = tmp_src / ("apps/tracedraw/src" if app == "tracedraw" else "crates/ui-egui/src")
+                (ui_root / "lib.rs").write_text("")
+                res = subprocess.run(["bash", str(script), str(tmp_src), app, title], capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertIn("topbar_modifiers::settings_ui", target.read_text())
+                self.assertTrue((ui_root / "topbar_symbols1.ttf").is_file())
+                self.assertTrue((ui_root / "topbar_symbols2.ttf").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
