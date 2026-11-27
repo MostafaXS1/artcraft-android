@@ -474,6 +474,35 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
 
+    def test_figcraft_android_font_dirs_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            fontdb_rs = tmp_src / "crates" / "text" / "src" / "fontdb.rs"
+            fontdb_rs.parent.mkdir(parents=True, exist_ok=True)
+            fontdb_rs.write_text(
+                '    #[cfg(all(unix, not(target_os = "macos")))]\n'
+                "    {\n"
+                "        // The standard folders, the user's (`~/.fonts`, `$XDG_DATA_HOME/fonts`), `$XDG_DATA_DIRS`\n"
+                "        // and those fontconfig names (NixOS and Guix keep fonts only there).\n"
+                "        v.extend(craft_font_catalog::font_dirs(&craft_font_catalog::FontEnv::from_process()));\n"
+                "    }\n"
+                "    // Fonts any Craft app downloaded into the suite's font store (a download being installed is a\n"
+                "    // `.part` file, which the walk skips).\n"
+                '    #[cfg(not(target_arch = "wasm32"))]\n'
+                "    v.extend(craft_font_catalog::font_store_dir(&craft_font_catalog::FontEnv::from_process()));\n"
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "figcraft", "FigCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("Android font_dirs/font_store_dir", result.stdout)
+            patched = fontdb_rs.read_text()
+            self.assertIn("env.os = craft_font_catalog::Os::Unix;", patched)
+
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
     def test_topbar_modifiers_settings_ui_across_all_seven_apps(self):
         cases = [
             (
@@ -534,6 +563,44 @@ class TestUpstreamPatches(unittest.TestCase):
                 self.assertTrue((ui_root / "topbar_symbols1.ttf").is_file())
                 self.assertTrue((ui_root / "topbar_symbols2.ttf").is_file())
 
+    def test_figcraft_layers_touch_drop_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            layers_rs = tmp_src / "crates" / "ui-egui" / "src" / "panels" / "layers.rs"
+            layers_rs.parent.mkdir(parents=True, exist_ok=True)
+            layers_rs.write_text(
+                "fn pages() {\n"
+                "    let dragging: Option<NodeId> = ui.data(|d| d.get_temp(layer_drag_id()));\n"
+                "    let pointer = ui.input(|i| i.pointer.hover_pos());\n"
+                "}\n"
+                "fn layers() {\n"
+                "            let clip = ui.clip_rect();\n"
+                "            let over = dragging.is_some() && ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p) && clip.contains(p));\n"
+                "            // What is inside the dragged layers, and inside an instance, takes no drop.\n"
+                "            refused |= over\n"
+                "                && (doc.ancestors(row.id).iter().any(|a| moving.contains(a))\n"
+                "                    || n.parent.is_some_and(|p| figcraft_engine::components::structure_locked(&doc, p)));\n"
+                "            if dragging.is_some()\n"
+                "                && !blocked(row.id)\n"
+                "                && let Some(p) = ui.input(|i| i.pointer.hover_pos())\n"
+                "                && r.contains(p)\n"
+                "                && clip.contains(p)\n"
+                "            {}\n"
+                "}\n"
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "figcraft", "FigCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("touch drop onto pages", result.stdout)
+            self.assertIn("touch drop in layer hierarchy", result.stdout)
+            patched = layers_rs.read_text()
+            self.assertEqual(patched.count("i.pointer.interact_pos()"), 2)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
 
 if __name__ == "__main__":
     unittest.main()

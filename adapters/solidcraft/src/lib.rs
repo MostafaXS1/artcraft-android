@@ -3,6 +3,7 @@
 //! shared Android platform shell (immersive fullscreen and the Ctrl/Alt modifier-key fix).
 
 mod system_fonts;
+mod gpu_fallback;
 mod mobile_text_bar;
 mod touch_gestures;
 mod mcp_http;
@@ -1560,6 +1561,7 @@ impl eframe::App for AndroidShell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
         let _ = frame;
         self.inner.ui(ui);
@@ -1626,6 +1628,7 @@ fn android_main(android_app: android_activity::AndroidApp) {
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
     let saf_bridge = saf::Bridge::new(&android_app);
     saf_bridge.request_storage_permission();
     let saf_state = saf_new_state();
@@ -1666,8 +1669,8 @@ fn android_main(android_app: android_activity::AndroidApp) {
     // Vulkan first with a GLES fallback for devices without a usable Vulkan driver, and the
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut options, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
             let supported = adapter.limits();
@@ -1709,5 +1712,6 @@ fn android_main(android_app: android_activity::AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("SolidCraft Android exited with an error: {error}");
+        gpu_guard.record_error();
     }
 }

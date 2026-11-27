@@ -217,6 +217,7 @@ if [[ -x "$ROOT/adapters/$APP/prepare.sh" ]]; then
         fi
         [[ -f "$text_bar_src" ]] && cp -f "$text_bar_src" "$ROOT/$SRC/apps/$APP-android/src/mobile_text_bar.rs"
         [[ -f "$ROOT/templates/android/touch_gestures.rs" ]] && cp -f "$ROOT/templates/android/touch_gestures.rs" "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs"
+        [[ -f "$ROOT/templates/android/gpu_fallback.rs" ]] && cp -f "$ROOT/templates/android/gpu_fallback.rs" "$ROOT/$SRC/apps/$APP-android/src/gpu_fallback.rs"
         if [[ "$APP" == "subcraft" || "$APP" == "tracedraw" || "$APP" == "picassosuite" || "$APP" == "bimcraft" || "$APP" == "earthcraft" || "$APP" == "mapcraft" || "$APP" == "transit" || "$APP" == "papercraft" || "$APP" == "ferrite" || "$APP" == "pixelcraft" || "$APP" == "clothcraft" ]]; then
             sed -i '/source: egui::MouseWheelSource::/d' "$ROOT/$SRC/apps/$APP-android/src/touch_gestures.rs" 2>/dev/null || true
         fi

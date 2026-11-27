@@ -70,16 +70,21 @@ else:
     raise SystemExit("Could not find system_dict_dirs in dc spellcheck.rs")
 PY
 
-# Patch dc-ui app.rs to handle Android (no std::process::Command on Android)
-python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
+# Patch dc-ui to handle Android if an older checkout still launches hyperlinks via std::process::Command
+python3 - "$SRC_ABS/crates/dc-ui/src" <<'PY'
 from pathlib import Path
 import re, sys
-p = Path(sys.argv[1])
-s = p.read_text()
 
-# Check if already patched
+dc_ui_src = Path(sys.argv[1])
+candidates = [p for p in [dc_ui_src / "app.rs", *sorted((dc_ui_src / "app").glob("*.rs"))] if p.is_file()]
+target_file = next((p for p in candidates if "fn follow_hyperlink" in p.read_text() and "std::process::Command::new(open)" in p.read_text()), None)
+if target_file is None:
+    print("dc-ui has no std::process::Command hyperlink launcher; skipping")
+    sys.exit(0)
+
+s = target_file.read_text()
 if 'target_os = "android"' in s and 'not supported on Android' in s:
-    print("dc-ui app.rs already patched for Android")
+    print(f"{target_file.name} already patched for Android")
 else:
     pattern = r'(fn follow_hyperlink\(&mut self, address: &str, sub: &str\) \{.*?)(\n        #\[cfg\(target_os = "linux"\)\]\n        let open = "xdg-open";.*?\n        match cmd\.arg\(&address\)\.spawn\(\) \{.*?\n        \})'
     replacement = r"""\1
@@ -116,26 +121,23 @@ else:
         }"""
     new_s, n = re.subn(pattern, replacement, s, flags=re.DOTALL)
     if n > 0:
-        p.write_text(new_s)
-        print("Patched dc-ui app.rs for Android")
+        target_file.write_text(new_s)
+        print(f"Patched {target_file.name} for Android")
     else:
-        # Debug: show what's around the target area
-        idx = s.find('let mut cmd = std::process::Command::new(open);')
-        if idx >= 0:
-            print("Found target area:")
-            print(repr(s[max(0, idx-300):idx+400]))
-        else:
-            print("Could not find target pattern")
-        sys.exit(1)
+        raise SystemExit(f"Could not patch follow_hyperlink in {target_file}")
 PY
 
 # Expose a public "open this file into the running app" seam for the Android shell's incoming
 # VIEW/SEND intents. `load` is private upstream, and replacing the whole App would discard the
 # user's settings, recents and loaded stencils.
-python3 - "$SRC_ABS/crates/dc-ui/src/app.rs" <<'PY'
+python3 - "$SRC_ABS/crates/dc-ui/src" <<'PY'
 from pathlib import Path
 import re, sys
-p = Path(sys.argv[1])
+
+dc_ui_src = Path(sys.argv[1])
+p = next((cand for cand in (dc_ui_src / "app" / "construct.rs", dc_ui_src / "app.rs") if cand.is_file()), None)
+if p is None:
+    raise SystemExit(f"Could not find dc-ui app.rs or app/construct.rs under {dc_ui_src}")
 s = p.read_text()
 
 addition = '''
@@ -147,16 +149,16 @@ addition = '''
 '''
 
 if "pub fn open_document" in s:
-    print("dc-ui app.rs already exposes open_document")
+    print(f"dc-ui {p.name} already exposes open_document")
 else:
     m = re.search(r'(pub fn with_doc\(path: &std::path::Path\) -> App \{.*?\n    \})', s, re.DOTALL)
     if m:
         target = m.group(1)
         s = s.replace(target, target + "\n" + addition, 1)
         p.write_text(s)
-        print("Patched dc-ui app.rs with open_document")
+        print(f"Patched dc-ui {p.name} with open_document")
     else:
-        raise SystemExit("Could not find dc-ui with_doc anchor for the open_document patch")
+        raise SystemExit(f"Could not find dc-ui with_doc anchor in {p}")
 PY
 
 mkdir -p "$DEST"

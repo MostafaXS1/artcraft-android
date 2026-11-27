@@ -31,6 +31,7 @@ use vectorcraft_ui_egui::{FilePick, Inbox, Services, VectorcraftApp};
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod gpu_fallback;
 mod mcp_http;
 mod mobile_text_bar;
 mod touch_gestures;
@@ -1298,6 +1299,7 @@ impl eframe::App for VectorCraftAndroidApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
         self.inner.ui(ui);
         mobile_text_bar::show_text_bar(ui.ctx());
@@ -1330,6 +1332,7 @@ fn android_main(android_app: AndroidApp) {
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
     let bridge = match AndroidFileBridge::new(android_app.clone()) {
         Ok(bridge) => bridge,
         Err(error) => {
@@ -1351,8 +1354,8 @@ fn android_main(android_app: AndroidApp) {
         ..Default::default()
     };
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut options, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
@@ -1439,5 +1442,6 @@ fn android_main(android_app: AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("VectorCraft Android exited with an error: {error}");
+        gpu_guard.record_error();
     }
 }

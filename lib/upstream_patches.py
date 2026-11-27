@@ -2318,6 +2318,100 @@ elif app == "pdfcraft":
         fixed.append("crates/ui-egui/src/workflows/print_ui.rs (jobs.submit handler closure)")
     if fix("crates/ui-egui/src/workflows/print_ui.rs", modern_spooler_target, modern_spooler_repl):
         fixed.append("crates/ui-egui/src/workflows/print_ui.rs (modern send_to_printer spooler)")
+elif app == "figcraft":
+    # craft_font_catalog::Os::current() returns Os::None on Android, which makes font_dirs() and
+    # font_store_dir() return empty/None. Treat Android as Os::Unix so system_font_dirs() reads
+    # the font folders and FONTCONFIG_FILE set up by system_fonts::install_font_env().
+    if fix(
+        "crates/text/src/fontdb.rs",
+        "    #[cfg(all(unix, not(target_os = \"macos\")))]\n"
+        "    {\n"
+        "        // The standard folders, the user's (`~/.fonts`, `$XDG_DATA_HOME/fonts`), `$XDG_DATA_DIRS`\n"
+        "        // and those fontconfig names (NixOS and Guix keep fonts only there).\n"
+        "        v.extend(craft_font_catalog::font_dirs(&craft_font_catalog::FontEnv::from_process()));\n"
+        "    }\n"
+        "    // Fonts any Craft app downloaded into the suite's font store (a download being installed is a\n"
+        "    // `.part` file, which the walk skips).\n"
+        "    #[cfg(not(target_arch = \"wasm32\"))]\n"
+        "    v.extend(craft_font_catalog::font_store_dir(&craft_font_catalog::FontEnv::from_process()));\n",
+        "    #[cfg(all(unix, not(target_os = \"macos\")))]\n"
+        "    {\n"
+        "        // The standard folders, the user's (`~/.fonts`, `$XDG_DATA_HOME/fonts`), `$XDG_DATA_DIRS`\n"
+        "        // and those fontconfig names (NixOS and Guix keep fonts only there).\n"
+        "        let mut env = craft_font_catalog::FontEnv::from_process();\n"
+        "        if cfg!(target_os = \"android\") {\n"
+        "            env.os = craft_font_catalog::Os::Unix;\n"
+        "        }\n"
+        "        v.extend(craft_font_catalog::font_dirs(&env));\n"
+        "    }\n"
+        "    // Fonts any Craft app downloaded into the suite's font store (a download being installed is a\n"
+        "    // `.part` file, which the walk skips).\n"
+        "    #[cfg(not(target_arch = \"wasm32\"))]\n"
+        "    {\n"
+        "        let mut env = craft_font_catalog::FontEnv::from_process();\n"
+        "        if cfg!(target_os = \"android\") {\n"
+        "            env.os = craft_font_catalog::Os::Unix;\n"
+        "        }\n"
+        "        v.extend(craft_font_catalog::font_store_dir(&env));\n"
+        "    }\n",
+    ):
+        fixed.append("crates/text/src/fontdb.rs (Android font_dirs/font_store_dir)")
+    # On Android touch release (TouchPhase::Ended), egui-winit emits PointerGone in the same
+    # frame as PointerButton release, clearing both `hover_pos()` and `latest_pos()` to None while
+    # `interact_pos()` retains the release position. Fall back to `interact_pos()` on release so
+    # layer reordering, reparenting into frames/groups, and dropping layers onto pages commit on
+    # touchscreens.
+    if fix(
+        "crates/ui-egui/src/panels/layers.rs",
+        "    let dragging: Option<NodeId> = ui.data(|d| d.get_temp(layer_drag_id()));\n"
+        "    let pointer = ui.input(|i| i.pointer.hover_pos());\n",
+        "    let dragging: Option<NodeId> = ui.data(|d| d.get_temp(layer_drag_id()));\n"
+        "    let pointer = ui.input(|i| i.pointer.hover_pos().or_else(|| i.pointer.any_released().then(|| i.pointer.interact_pos()).flatten()));\n",
+    ):
+        fixed.append("crates/ui-egui/src/panels/layers.rs (touch drop onto pages)")
+    if fix(
+        "crates/ui-egui/src/panels/layers.rs",
+        "    if !ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| moved.inner_rect.expand2(vec2(0.0, 3.0)).contains(p)) {\n",
+        "    if !ui.input(|i| i.pointer.hover_pos().or_else(|| i.pointer.any_released().then(|| i.pointer.interact_pos()).flatten())).is_some_and(|p| moved.inner_rect.expand2(vec2(0.0, 3.0)).contains(p)) {\n",
+    ):
+        fixed.append("crates/ui-egui/src/panels/layers.rs (touch drop bounds in pages)")
+    if fix(
+        "crates/ui-egui/src/panels/layers.rs",
+        "            let clip = ui.clip_rect();\n"
+        "            let over = dragging.is_some() && ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p) && clip.contains(p));\n"
+        "            // What is inside the dragged layers, and inside an instance, takes no drop.\n"
+        "            refused |= over\n"
+        "                && (doc.ancestors(row.id).iter().any(|a| moving.contains(a))\n"
+        "                    || n.parent.is_some_and(|p| figcraft_engine::components::structure_locked(&doc, p)));\n"
+        "            if dragging.is_some()\n"
+        "                && !blocked(row.id)\n"
+        "                && let Some(p) = ui.input(|i| i.pointer.hover_pos())\n"
+        "                && r.contains(p)\n"
+        "                && clip.contains(p)\n",
+        "            let clip = ui.clip_rect();\n"
+        "            let drag_pos = if dragging.is_some() {\n"
+        "                ui.input(|i| i.pointer.hover_pos().or_else(|| i.pointer.any_released().then(|| i.pointer.interact_pos()).flatten()))\n"
+        "            } else {\n"
+        "                None\n"
+        "            };\n"
+        "            let over = drag_pos.is_some_and(|p| r.contains(p) && clip.contains(p));\n"
+        "            // What is inside the dragged layers, and inside an instance, takes no drop.\n"
+        "            refused |= over\n"
+        "                && (doc.ancestors(row.id).iter().any(|a| moving.contains(a))\n"
+        "                    || n.parent.is_some_and(|p| figcraft_engine::components::structure_locked(&doc, p)));\n"
+        "            if dragging.is_some()\n"
+        "                && !blocked(row.id)\n"
+        "                && let Some(p) = drag_pos\n"
+        "                && r.contains(p)\n"
+        "                && clip.contains(p)\n",
+    ):
+        fixed.append("crates/ui-egui/src/panels/layers.rs (touch drop in layer hierarchy)")
+    if fix(
+        "crates/ui-egui/src/panels/list_drag.rs",
+        "        let (pos, released) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.any_released()));\n",
+        "        let (pos, released) = ui.input(|i| (i.pointer.hover_pos().or_else(|| i.pointer.any_released().then(|| i.pointer.interact_pos()).flatten()), i.pointer.any_released()));\n",
+    ):
+        fixed.append("crates/ui-egui/src/panels/list_drag.rs (touch drop)")
 
 elif app == "solidcraft":
     # Bypass wasmtime JIT runtime on Android (prevents multi-gigabyte memory consumption and OOM crashes)

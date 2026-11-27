@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod system_fonts;
+mod gpu_fallback;
 mod mobile_text_bar;
 mod touch_gestures;
 mod saf;
@@ -242,6 +243,7 @@ impl eframe::App for DiagramCraftApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
 
         // Check if there's a pending file to load
@@ -346,6 +348,7 @@ fn android_main(android_app: AndroidApp) {
     android_activity::set_nonblocking_callbacks(true);
     install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
 
     // Publish Activity and VM for egui-winit bridges
     #[cfg(target_os = "android")]
@@ -404,8 +407,8 @@ fn android_main(android_app: AndroidApp) {
         ..Default::default()
     };
     native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut native, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
@@ -449,5 +452,6 @@ fn android_main(android_app: AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("DiagramCraft Android exited with error: {error}");
+        gpu_guard.record_error();
     }
 }

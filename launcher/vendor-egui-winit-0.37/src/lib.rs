@@ -2284,6 +2284,12 @@ impl State {
                     consumed: false,
                 }
             }
+            #[cfg(target_os = "android")]
+            WindowEvent::Ime(_) => EventResponse {
+                repaint: false,
+                consumed: false,
+            },
+            #[cfg(not(target_os = "android"))]
             WindowEvent::Ime(ime) => {
                 if matches!(ime, winit::event::Ime::Commit(_))
                     && let Some((before_bytes, after_bytes)) = ime_delete_surrounding(window)
@@ -3509,8 +3515,11 @@ impl State {
                 self.pressed_processed_physical_keys.clear();
             }
 
-            profiling::scope!("set_ime_allowed");
-            window.set_ime_allowed(allow_ime);
+            #[cfg(not(target_os = "android"))]
+            {
+                profiling::scope!("set_ime_allowed");
+                window.set_ime_allowed(allow_ime);
+            }
         }
 
         // This is settled output. Preparing a call does not synthesize an input marker.

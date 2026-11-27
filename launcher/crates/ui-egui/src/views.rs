@@ -323,7 +323,7 @@ impl LauncherUi {
             }
             compact = ui.available_width() < theme::TOOLBAR_COMPACT_BELOW;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Right to left: the view switch at the far right, then the search.
+                // Right to left: the view switch at the far right, then the search, then category filter.
                 crate::bar::view_toggle(ui, &mut self.settings.view, [tl!("Show apps as cards"), tl!("Show apps as a table")]);
                 ui.add_space(4.0);
                 ui.add(
@@ -335,12 +335,14 @@ impl LauncherUi {
                         .margin(vec2(10.0, 0.0)),
                 )
                 .accessible_name(tl!("Search apps"));
+                ui.add_space(4.0);
+                self.category_dropdown(ui);
             });
         });
         compact
     }
 
-    /// The toolbar's second row on narrow windows: just the search field.
+    /// The toolbar's second row on narrow windows: just the search field and category filter.
     fn toolbar_compact_row(&mut self, ui: &mut Ui, _t: &Tokens, _updates: usize) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -353,7 +355,23 @@ impl LauncherUi {
                     .margin(vec2(10.0, 0.0)),
             )
             .accessible_name(tl!("Search apps"));
+            ui.add_space(4.0);
+            self.category_dropdown(ui);
         });
+    }
+
+    fn category_dropdown(&mut self, ui: &mut Ui) {
+        use artcraft_launcher_core::catalog::AppCategory;
+        let selected_label = self.category_filter.map_or("All Categories", AppCategory::label);
+        egui::ComboBox::from_id_salt("category_filter")
+            .selected_text(selected_label)
+            .height(260.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.category_filter, None, "All Categories");
+                for cat in AppCategory::ALL {
+                    ui.selectable_value(&mut self.category_filter, Some(cat), cat.label());
+                }
+            });
     }
 
     /// The toolbar's check button. It queues a forced check through the UI action boundary and is

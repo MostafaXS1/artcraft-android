@@ -27,6 +27,7 @@ use std::sync::Arc;
 // Shared with the generated launchers: brings the device's own system fonts into the egui fallback
 // chain and makes them visible to the app's own font scanners (see templates/android/system_fonts.rs).
 mod system_fonts;
+mod gpu_fallback;
 mod mobile_text_bar;
 mod touch_gestures;
 mod mcp_http;
@@ -457,6 +458,7 @@ impl eframe::App for SubCraftAndroidApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
         // SubCraft does all of its per-frame work (input, picker delivery, autosave) in `ui`, so
         // there is nothing to forward to `logic` — calling it would run the frame twice.
@@ -571,6 +573,7 @@ fn android_main(android_app: AndroidApp) {
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     let config_dir = install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
     let bridge = saf::Bridge::new(&android_app);
     // Ask once for broad storage access so the app's own file browsers can read files beyond the
     // ones picked through SAF.
@@ -597,8 +600,8 @@ fn android_main(android_app: AndroidApp) {
     };
     // Vulkan first, GL as the fallback: some Android GPUs only expose one.
     native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut native, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
@@ -650,5 +653,6 @@ fn android_main(android_app: AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("SubCraft Android exited with an error: {error}");
+        gpu_guard.record_error();
     }
 }

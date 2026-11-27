@@ -180,6 +180,13 @@ final class ArtCraftInputView extends View {
     void showKeyboard() {
         post(() -> {
             try {
+                // When a physical keyboard is active, winit/GameActivity delivers KeyEvents
+                // directly to egui-winit; activating ArtCraftInputView's InputConnection
+                // causes duplicate Event::Text commits via pollIme().
+                if (getResources().getConfiguration().hardKeyboardHidden
+                        == android.content.res.Configuration.HARDKEYBOARDHIDDEN_NO) {
+                    return;
+                }
                 setVisibility(VISIBLE);
                 setFocusable(true);
                 setFocusableInTouchMode(true);

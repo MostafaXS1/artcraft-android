@@ -28,6 +28,66 @@ pub struct ReleaseSource {
     pub asset_pattern: Option<&'static str>,
 }
 
+const fn str_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+const fn category_for_id(id: &str) -> artcraft_launcher_core::catalog::AppCategory {
+    use artcraft_launcher_core::catalog::AppCategory;
+    if str_eq(id, "photocraft") || str_eq(id, "lightcraft") || str_eq(id, "paintcraft") || str_eq(id, "pixelcraft") {
+        AppCategory::ImageEditing
+    } else if str_eq(id, "filmcraft")
+        || str_eq(id, "effectcraft")
+        || str_eq(id, "anicraft")
+        || str_eq(id, "picassosuite")
+        || str_eq(id, "capcraft")
+        || str_eq(id, "concat")
+        || str_eq(id, "humanmotioncraft")
+    {
+        AppCategory::VideoEditing
+    } else if str_eq(id, "vectorcraft") || str_eq(id, "tracedraw") || str_eq(id, "procraft") {
+        AppCategory::Illustration
+    } else if str_eq(id, "designcraft")
+        || str_eq(id, "figcraft")
+        || str_eq(id, "diagramcraft")
+        || str_eq(id, "papercraft")
+        || str_eq(id, "pcbcraft")
+    {
+        AppCategory::Design
+    } else if str_eq(id, "soundcraft") || str_eq(id, "prowave") || str_eq(id, "transit") {
+        AppCategory::Audio
+    } else if str_eq(id, "cadcraft")
+        || str_eq(id, "materialcraft")
+        || str_eq(id, "texturecraft")
+        || str_eq(id, "subcraft")
+        || str_eq(id, "solidcraft")
+        || str_eq(id, "bimcraft")
+        || str_eq(id, "shapecraft")
+        || str_eq(id, "clothcraft")
+        || str_eq(id, "mapcraft")
+        || str_eq(id, "earthcraft")
+        || str_eq(id, "fieldcraft")
+    {
+        AppCategory::ThreeDCad
+    } else if str_eq(id, "coimanide") || str_eq(id, "ferrite") {
+        AppCategory::Developer
+    } else {
+        AppCategory::Productivity
+    }
+}
+
 /// One community app. `repo` is the app's own repository for the card's links; the
 /// release lookup may come from a different repository (`release_source_for`).
 #[allow(clippy::too_many_arguments)] // one flat, declarative table row
@@ -57,6 +117,7 @@ const fn community(
         former_ids: &[],
         former_names: &[],
         kind: COMMUNITY,
+        category: category_for_id(id),
         publisher,
         msi_publisher: None,
         bundle,
@@ -91,6 +152,7 @@ const fn official(
         former_ids: &[],
         former_names: &[],
         kind: AppKind::Official,
+        category: category_for_id(id),
         publisher: "ArtCraft",
         msi_publisher: None,
         bundle: None,

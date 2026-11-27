@@ -55,6 +55,7 @@ if (custom / "Cargo.toml").is_file() and (custom / "src" / "lib.rs").is_file():
         shutil.copy2(root / "templates" / "android" / "mcp_http.rs", android_dir / "src" / "mcp_http.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, android_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", android_dir / "src" / "touch_gestures.rs")
+    shutil.copy2(root / "templates" / "android" / "gpu_fallback.rs", android_dir / "src" / "gpu_fallback.rs")
     if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = android_dir / "src" / "touch_gestures.rs"
         if tg.is_file():
@@ -94,7 +95,7 @@ if android_dir.exists():
             # bridge) has to reach the launcher that is already there. IME is handled natively by
             # Android's input method framework via NativeActivity — egui's TextEdit widgets
             # request the soft keyboard automatically, no bridge needed.
-            for shared in ("system_fonts.rs", "mobile_text_bar.rs", "touch_gestures.rs"):
+            for shared in ("system_fonts.rs", "mobile_text_bar.rs", "touch_gestures.rs", "gpu_fallback.rs"):
                 real_shared = text_bar_file if shared == "mobile_text_bar.rs" else shared
                 src_shared = root / "templates" / "android" / real_shared
                 dst_shared = android_dir / "src" / shared
@@ -2524,6 +2525,18 @@ fn persist_save(inner: &mut {app_type}, dir: &std::path::Path) {{
             load_wordcraft_user_fonts(&self.app);
         }
 """
+    if app == "figcraft":
+        persist_hook += """        if raw.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(true))) {
+            system_fonts::refresh_font_links();
+            let ctx_fonts = ctx.clone();
+            std::thread::spawn(move || {
+                let rescan = figcraft_text::rescan_system_fonts();
+                if !rescan.changed.is_empty() {
+                    ctx_fonts.request_repaint();
+                }
+            });
+        }
+"""
     lock_path = Path("Cargo.lock")
     eframe_has_glow = False
     if lock_path.is_file():
@@ -2698,6 +2711,7 @@ try:
     # `cadcraft-io` crate to install them.
     io_dep = 'cadcraft-io = { path = "../../crates/io" }\n' if app == "cadcraft" else ''
     wordcraft_dep = 'wordcraft-fonts = { workspace = true }\nwordcraft-control-key = { workspace = true }\n' if app == "wordcraft" else ''
+    figcraft_dep = 'figcraft-text = { workspace = true }\n' if app == "figcraft" else ''
     platform_dep = (
         'filmcraft-platform = { path = "../../crates/platform" }\n'
         'filmcraft-gpu = { path = "../../crates/gpu" }\n'
@@ -2810,7 +2824,7 @@ egui = {{ workspace = true }}
 egui-winit = {{ workspace = true }}
 log = {{ workspace = true }}
 jni = "0.22"
-{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}{platform_dep}{mcp_dep}
+{serde_dep}{rfd_dep}{cpal_dep}{host_dep}{io_dep}{wordcraft_dep}{figcraft_dep}{platform_dep}{mcp_dep}
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", default-features = false, features = ["native-activity"] }}
 # Rust `log` records go to logcat (tag = the crate name). Without this every `log::error!`
@@ -2881,6 +2895,7 @@ icon = "@mipmap/ic_launcher"
     imports.append("mod mcp_http;")
     imports.append("mod mobile_text_bar;")
     imports.append("mod touch_gestures;")
+    imports.append("mod gpu_fallback;")
     # The custom IME bridge is removed: reference Android apps use egui's native IME via
     # android-activity + eframe, without an EditText bridge. The custom bridge conflicts with
     # egui's IMEOutput handling and breaks input.
@@ -3902,6 +3917,7 @@ impl eframe::App for AndroidShell {{
 {interact_cursor_logic}{quit_check}    }}
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {{
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
         {inner_ui}
         mobile_text_bar::show_text_bar(ui.ctx());
@@ -3942,7 +3958,14 @@ impl eframe::App for AndroidShell {{
     # fonts"). The eframe creator runs before the first pass, so installing there makes the family
     # available from frame one.
     create_hook = {
-        "figcraft": "            figcraft_ui_egui::theme::install_fonts(&cc.egui_ctx, false, 0);\n",
+        "figcraft": (
+            "            figcraft_ui_egui::theme::install_fonts(&cc.egui_ctx, false, 0);\n"
+            "            let ctx_fonts = cc.egui_ctx.clone();\n"
+            "            std::thread::spawn(move || {\n"
+            "                figcraft_text::scan_system_fonts();\n"
+            "                ctx_fonts.request_repaint();\n"
+            "            });\n"
+        ),
         # CADCraft's file formats have to be in place before the app opens anything.
         "cadcraft": "            install_cadcraft_io();\n",
         "materialcraft": "            materialcraft_ui_egui::theme::install(&cc.egui_ctx);\n",
@@ -4047,8 +4070,9 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut options, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
@@ -4077,6 +4101,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     );
     if let Err(error) = result {{
         log::error!("{title} Android exited with an error: {{error}}");
+        gpu_guard.record_error();
     }}
 }}
 '''
@@ -4141,8 +4166,9 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     // adapter's own texture/buffer sizes: egui's 8192 px default cap sends documents wider or
     // taller than that to the CPU compositor (the desktop apps do this in their gpu_canvas).
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut options, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {{
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {{
@@ -4174,6 +4200,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     );
     if let Err(error) = result {{
         log::error!("{title} Android exited with an error: {{error}}");
+        gpu_guard.record_error();
     }}
 }}
 '''
@@ -4183,6 +4210,7 @@ fn android_main(android_app: android_activity::AndroidApp) {{
     shutil.copy2(root / "templates" / "android" / "system_fonts.rs", staging_dir / "src" / "system_fonts.rs")
     shutil.copy2(root / "templates" / "android" / text_bar_file, staging_dir / "src" / "mobile_text_bar.rs")
     shutil.copy2(root / "templates" / "android" / "touch_gestures.rs", staging_dir / "src" / "touch_gestures.rs")
+    shutil.copy2(root / "templates" / "android" / "gpu_fallback.rs", staging_dir / "src" / "gpu_fallback.rs")
     if app in ("subcraft", "tracedraw", "picassosuite", "bimcraft", "earthcraft", "mapcraft", "transit", "anicraft", "papercraft", "ferrite", "pixelcraft", "clothcraft"):
         tg = staging_dir / "src" / "touch_gestures.rs"
         if tg.is_file():

@@ -164,6 +164,7 @@ pub struct LauncherUi {
     /// Alerts from the feed, shown as popups until acknowledged.
     pub(crate) alerts: Vec<artcraft_launcher_core::feed::Notice>,
     pub(crate) search: String,
+    pub(crate) category_filter: Option<artcraft_launcher_core::catalog::AppCategory>,
     pub(crate) toasts: Vec<Toast>,
     pub(crate) dialog: Option<Dialog>,
     /// Release-note text scale for this session, independent of the main UI zoom.
@@ -281,6 +282,7 @@ impl LauncherUi {
             announcements: Vec::new(),
             alerts: Vec::new(),
             search: String::new(),
+            category_filter: None,
             toasts: Vec::new(),
             dialog: None,
             notes_zoom: 1.0,
@@ -958,7 +960,15 @@ impl LauncherUi {
             .filter(|(_, e)| {
                 self.in_filter(e, self.settings.filter)
                     && !(self.settings.hide_community_apps && e.app.kind == artcraft_launcher_core::catalog::AppKind::Community)
-                    && (needle.is_empty() || e.app.name.to_lowercase().contains(&needle) || e.app.tagline.to_lowercase().contains(&needle))
+                    && self.category_filter.is_none_or(|c| e.app.category == c)
+                    && (needle.is_empty()
+                        || e.app.name.to_lowercase().contains(&needle)
+                        || e.app.tagline.to_lowercase().contains(&needle)
+                        || e.app.category.label().to_lowercase().contains(&needle)
+                        || artcraft_launcher_core::details::AppDetails::by_id(e.app.id).is_some_and(|d| {
+                            d.headline.to_lowercase().contains(&needle)
+                                || d.about.to_lowercase().contains(&needle)
+                        }))
             })
             .collect();
         let platform = self.platform;

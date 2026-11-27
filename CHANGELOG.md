@@ -3,6 +3,12 @@
 ## Since Release v0.7.0
 
 ### Added
+- **Improved Mobile Topbar & Toggleable Action/Modifier Buttons**: Improved the mobile topbar across all apps with configurable toggleable `Undo`, `Redo`, `Cut`, `Copy`, `Paste`, `Find (Ctrl+F)`, `Delete`, `Space`, `Shift`, `Ctrl`, and `Alt` buttons in app Settings, press highlight feedback, and responsive full-label vs. compact monochrome icon-only modes.
+- **Fullscreen (Immersive Mode) Toggle**: Added a "Fullscreen (Immersive Mode)" toggle (enabled by default) under Theme settings across all apps, wired to Android `SharedPreferences` and `WindowInsetsController` / `SystemUiVisibility`.
+- **Safe Area Insets Support**: Added Android display cutout and system bar safe-area handling in `egui-winit*`.
+- **Launcher Categories & Search Details**: Added per-app categories in the Android launcher catalog along with category filtering and search result details.
+- **PDFCraft Kinetic Scrolling**: Added kinetic scrolling for the Hand (pan) tool in PDFCraft.
+- **WordCraft Dictionaries Folder Picker**: Added a Browse folder picker button for the Dictionaries folder.
 - **ClothCraft**: Full Android port and APK build support with bundled mannequin 3D assets, SAF integration, GPU acceleration, mobile viewport scaling, and launcher catalog entry.
 - **Hardware Media Acceleration (EffectCraft)**: Android MediaCodec (`AMediaCodec`) hardware decoding and H.264 encoding with non-blocking buffer queuing/dequeuing and RGBA-to-AVCC NAL unit stream conversion.
 - **Sensible Video Export Directory**: Automatic export path resolution to `/storage/emulated/0/Movies` (with `/sdcard/Movies` fallback) across video editing apps (EffectCraft, FilmCraft, PicassoSuite) for standard gallery accessibility.
@@ -19,6 +25,29 @@
 - **Suite-wide Dynamic Compiler Jobs**: Configured memory-aware `CARGO_BUILD_JOBS` based on available RAM to prevent compiler OOM across the entire suite.
 
 ### Fixed
+- **NoteCraft `.one` File Opening**: Fixed NoteCraft not opening `.one` / `.onetoc2` / `.onepkg` OneNote files by routing them to `import_onenote_source` in `open_path`.
+- **Coiman IDE Pinch-to-Zoom**: Fixed Coiman pinch-to-zoom accidentally scaling the entire UI on Android; pinch-to-zoom is now restricted to the terminal pane.
+- **PowerVR GLES Fallback & Crash-Safe GPU Guard**: Added shared `gpu_fallback.rs` across suite adapters and the launcher generator to fall back to GLES on PowerVR GPUs and guard against GPU initialization crashes.
+- **Physical Keyboard & IME Input**:
+  - Bound `InputConnection` implicitly when a hardware keyboard is active, fixed physical keyboard handling in the launcher's `ArtCraftInputView`, ignored duplicate `WindowEvent::Ime` events on Android, and disabled GameActivity `set_ime_allowed` in the launcher.
+- **File Drag-and-Drop**: Fixed Android file drag-and-drop URI permissions, drag start, and event loop wake across activities.
+- **FigCraft**:
+  - Fixed Layers panel touch drag-and-drop using `interact_pos` on touch release.
+  - Fixed system and user font scanning/rescanning on Android (`fontdb` `system_font_dirs`).
+- **PDFCraft & Fonts**:
+  - Added variable font fallbacks for Bengali and Indic scripts in `system_fonts.rs`.
+  - Forwarded paper size, orientation, duplex, and color mode options to the Android print dialog and fixed Android print spooler callbacks and error receipt unpacking.
+- **WordCraft**:
+  - Fixed SAF incoming file path handling, `CRAFT_FONT_STORE` for language packs, SAF copy fallback, and `WindowUi` destructuring.
+  - Respected AutoSave state in `persist_save` and saved opened files in place when toggling AutoSave.
+- **PhotoCraft**:
+  - Persisted brushes, settings, and paint canvas cursors on Android.
+  - Skipped Linux cgroup/sysinfo checks in `memory/system.rs` on Android.
+- **VectorCraft & Two-Finger Gestures**:
+  - Added two-finger rotation gesture recognition on Android in `winit` and enabled two-finger rotation and pan in VectorCraft.
+  - Wired folder picker and fixed 0-byte Export As SAF saves, kept modal dropdown popups in front of dialogs, and preserved user Brightness preference across frames.
+- **MaterialCraft**: Enabled two-finger pan in graph editors and fixed zoom input / stuck touch drag handling.
+- **DiagramCraft**: Updated `prepare.sh` for refactored `dc-ui` `app/construct.rs`.
 - **Virtual Keyboard Language Switch Dismissal (Globe Icon Fix)**:
   - Fixed virtual keyboard (Gboard, SwiftKey, AOSP) instantly closing when long-pressing the globe icon to switch languages. `ArtCraftInputView.onCheckIsTextEditor()` previously required `isFocused() && getVisibility() == View.VISIBLE`, which returned `false` the moment focus transitioned to the system Input Method Subtype Picker dialog, causing Android's `InputMethodManager` to terminate the input connection and abort the dialog. `onCheckIsTextEditor()` now returns `getVisibility() == View.VISIBLE` across all templates, adapters, and the launcher.
   - Guarded `set_ime_allowed(false)` / `hide_soft_input(false)` in `egui-winit*` and `poll_ime()` (`photocraft`, `vectorcraft`, `subcraft`) when the Android window has lost focus (`!focused`). Previously, custom canvas text editors (WordCraft, PhotoCraft Type Tool, VectorCraft, DeckCraft) stopped emitting `PlatformOutput::ime` when `WindowEvent::Focused(false)` fired on dialog open, which triggered `imeHide()` and closed the language selection window.
@@ -41,6 +70,7 @@
 - **Touch & Gesture Handling**: Fixed `MouseWheelSource` enum compatibility for apps using egui <0.37.
 
 ### Changed & Removed
+- **Updated Apps to Latest Base**: Updated suite apps and adapters to their latest upstream base.
 - **Cleaned Up Deprecated Apps**: Completely removed discontinued apps (`Splice`, `VidCut`, `Photonic`, `RustyPainter`, `Dziwak`) from the builder, launcher, and tablet interfaces.
 - **Launcher Improvements**: Full list item tap targeting on mobile and tablet to view app details; responsive two-tone wordmark and catalog categorization.
 - **Documentation**: Comprehensive MediaCodec architecture guidelines and documentation cleanups.

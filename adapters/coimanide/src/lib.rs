@@ -27,6 +27,7 @@ use std::thread;
 mod coiman_text_bar;
 mod saf;
 mod system_fonts;
+mod gpu_fallback;
 mod termux;
 mod touch_gestures;
 
@@ -636,6 +637,7 @@ impl eframe::App for CoimanAndroidApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         system_fonts::install_system_fonts(ui.ctx());
         eframe::App::ui(&mut self.inner, ui, frame);
         // Inside the pass, the output says whether a text surface asked for the keyboard.
@@ -728,6 +730,7 @@ fn android_main(android_app: AndroidApp) {
     let _config_dir = install_persist_env(&android_app);
     apply_phone_zoom_once(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
     termux::install_env(&android_app);
     // Coiman's own log (what the app did, and why it stopped) lives in the app's config folder.
     // The desktop build starts it in main(); here the shell starts it instead, so a crash on the
@@ -751,8 +754,8 @@ fn android_main(android_app: AndroidApp) {
         ..Default::default()
     };
     native.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut native, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut native.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty();
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
         create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
@@ -796,5 +799,6 @@ fn android_main(android_app: AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("Coiman Android exited with an error: {error}");
+        gpu_guard.record_error();
     }
 }

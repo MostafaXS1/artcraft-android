@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod system_fonts;
+mod gpu_fallback;
 mod mobile_text_bar;
 mod touch_gestures;
 mod mcp_http;
@@ -265,6 +266,7 @@ impl eframe::App for ClothCraftAndroidApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        gpu_fallback::mark_ok();
         self.inner.ui(ui, frame);
         mobile_text_bar::show_text_bar(ui.ctx());
     }
@@ -297,6 +299,7 @@ fn android_main(android_app: AndroidApp) {
     egui_winit::android_activity::set_vm(android_app.vm_as_ptr());
     let media_dir = install_persist_env(&android_app);
     system_fonts::install_font_env(&android_app);
+    let gpu_state_dir = android_app.internal_data_path().or_else(|| android_app.external_data_path()).unwrap_or_else(|| std::path::PathBuf::from("."));
     apply_immersive_fullscreen(&android_app);
 
     let assets_dir = media_dir.join("assets");
@@ -320,15 +323,28 @@ fn android_main(android_app: AndroidApp) {
         ..Default::default()
     };
     options.wgpu_options.surface.desired_maximum_frame_latency = Some(2);
+    let gpu_guard = gpu_fallback::configure_wgpu(&mut options, &gpu_state_dir);
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
-        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
         create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
-        let base = create.device_descriptor.clone();
-        create.device_descriptor = std::sync::Arc::new(move |adapter| {
-            let mut descriptor = base(adapter);
-            descriptor.required_features |= adapter.features()
-                & (eframe::wgpu::Features::TIMESTAMP_QUERY | eframe::wgpu::Features::SUBGROUP);
-            descriptor
+        create.device_descriptor = std::sync::Arc::new(|adapter: &eframe::wgpu::Adapter| {
+            let supported = adapter.limits();
+            let base = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let base = base.or_worse_values_from(&supported);
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("ClothCraft wgpu device"),
+                required_features: adapter.features()
+                    & (eframe::wgpu::Features::TIMESTAMP_QUERY | eframe::wgpu::Features::SUBGROUP),
+                required_limits: eframe::wgpu::Limits {
+                    max_texture_dimension_2d: supported.max_texture_dimension_2d.min(8192),
+                    max_buffer_size: supported.max_buffer_size,
+                    ..base
+                },
+                ..Default::default()
+            }
         });
     }
 
@@ -380,5 +396,6 @@ fn android_main(android_app: AndroidApp) {
     );
     if let Err(error) = result {
         log::error!("ClothCraft Android exited with error: {error}");
+        gpu_guard.record_error();
     }
 }

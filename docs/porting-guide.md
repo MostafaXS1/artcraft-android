@@ -533,6 +533,8 @@ graph LR
   3. **Release Resolver & Downloader:** Queries the GitHub Releases API (with rate-limit caching), resolves APK assets matching target glob patterns or the shared builder repo (`MostafaXS1/artcraft-android`), and streams downloads with SHA-256 integrity verification.
   4. **Package Installation Intent:** Dispatches `Intent.ACTION_INSTALL_PACKAGE` / `FileProvider` intents to prompt the Android system installer when an update or install is initiated.
   5. **Automated Catalog Generator (`generate_catalog.py`):** Compiles `app-catalog.json` into static Rust lookup tables (`src/catalog.rs`) and updates `<queries>` in `AndroidManifest.xml` during the build.
+  6. **Categories, Search & Details (`catalog.rs`, `views.rs`, `details.rs`, `app.rs`):** Every `CraftApp` carries an `AppCategory` (`Image Editing`, `Video Editing`, `Illustration`, `Design`, `Audio`, `3D & CAD`, `Productivity`, `Developer`). The toolbar provides a category filter dropdown alongside the search bar, `visible_ids()` searches across app `name`, `tagline`, `category`, and `AppDetails` (`headline` and `about`), and the App Details header displays the app's category below the version line.
+  7. **Physical Keyboard & IME Bridge (`ArtCraftInputView.java`):** `ArtCraftInputView.showKeyboard()` skips activating the hidden `InputConnection` when a hardware keyboard is active (`Configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO`), preventing duplicate `egui::Event::Text` commits between `winit`/`GameActivity` `KeyEvent`s and `pollIme()`.
 
 ---
 

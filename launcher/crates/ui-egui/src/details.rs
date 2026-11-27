@@ -371,6 +371,7 @@ impl LauncherUi {
                 if !version.trim().is_empty() {
                     ui.label(RichText::new(version).size(12.5).color(t.muted));
                 }
+                ui.label(RichText::new(app.category.label()).size(12.0).color(t.muted));
             });
             if wide {
                 // The main button and its menu, at the right, level with the name.

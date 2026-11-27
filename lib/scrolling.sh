@@ -1002,6 +1002,71 @@ elif app == "materialcraft":
     if fix("crates/ui-egui/src/graph/gesture.rs", gesture_old, gesture_new):
         fixed.append("crates/ui-egui/src/graph/gesture.rs (cancel drag on multi-touch/PointerGone)")
 
+elif app == "pdfcraft":
+    # Kinetic scrolling when panning with the Hand tool: feed pointer drag samples into
+    # `DocView::fling` and launch the coast on `drag_stopped_id`.
+    if fix(
+        "crates/ui-egui/src/canvas/fling.rs",
+        "    fn push(&mut self, now: f64, delta: Vec2) {",
+        "    /// Records pointer drag samples for the Hand tool and starts a coast when released.\n"
+        "    pub(crate) fn read_drag(&mut self, now: f64, dragging: bool, stopped: bool, delta: Vec2, glide: bool) {\n"
+        "        if dragging {\n"
+        "            self.stop();\n"
+        "            self.push(now, delta);\n"
+        "        } else if stopped {\n"
+        "            if glide && self.enabled {\n"
+        "                self.velocity = self.lift_velocity(now);\n"
+        "                self.at = now;\n"
+        "            }\n"
+        "            self.samples.clear();\n"
+        "        }\n"
+        "    }\n\n"
+        "    fn push(&mut self, now: f64, delta: Vec2) {",
+    ):
+        fixed.append("crates/ui-egui/src/canvas/fling.rs (Hand tool drag kinetic coast)")
+
+    if fix(
+        "crates/ui-egui/src/canvas.rs",
+        "struct GlideCx {\n    now: f64,\n    may_glide: bool,",
+        "struct GlideCx {\n    now: f64,\n    may_glide: bool,\n    hand: bool,",
+    ):
+        fixed.append("crates/ui-egui/src/canvas.rs (GlideCx::hand)")
+
+    if fix(
+        "crates/ui-egui/src/canvas.rs",
+        "    let motion = GlideCx { now, may_glide, key_scroll, key_side, auto_delta, zoom_delta, edge_delta, wheel_scrolled };",
+        "    let hand_tool = app.quick_tool == QuickTool::Hand;\n"
+        "    let motion = GlideCx { now, may_glide, hand: hand_tool, key_scroll, key_side, auto_delta, zoom_delta, edge_delta, wheel_scrolled };",
+    ):
+        fixed.append("crates/ui-egui/src/canvas.rs (pass hand to GlideCx)")
+
+    if fix(
+        "crates/ui-egui/src/canvas.rs",
+        "    let GlideCx { now, may_glide, key_scroll, key_side, auto_delta, zoom_delta, edge_delta, wheel_scrolled } = *cx;\n"
+        "    let over_page = ui.rect_contains_pointer(avail);\n"
+        "    view.fling.read(&crate::motion::gesture_wheel_events(ui.ctx()), now, may_glide && over_page);",
+        "    let GlideCx { now, may_glide, hand, key_scroll, key_side, auto_delta, zoom_delta, edge_delta, wheel_scrolled } = *cx;\n"
+        "    let over_page = ui.rect_contains_pointer(avail);\n"
+        "    view.fling.read(&crate::motion::gesture_wheel_events(ui.ctx()), now, may_glide && over_page);\n"
+        "    if hand && let Some(id) = view.page_widget {\n"
+        "        let dragging = ui.ctx().is_being_dragged(id);\n"
+        "        let stopped = ui.ctx().drag_stopped_id() == Some(id);\n"
+        "        if dragging || stopped {\n"
+        "            let moved = if dragging {\n"
+        "                if ui.ctx().drag_started_id() == Some(id) {\n"
+        "                    ui.input(|i| i.pointer.total_drag_delta()).unwrap_or(Vec2::ZERO)\n"
+        "                } else {\n"
+        "                    ui.input(|i| i.pointer.delta())\n"
+        "                }\n"
+        "            } else {\n"
+        "                Vec2::ZERO\n"
+        "            };\n"
+        "            view.fling.read_drag(now, dragging, stopped, moved, may_glide);\n"
+        "        }\n"
+        "    }",
+    ):
+        fixed.append("crates/ui-egui/src/canvas.rs (feed Hand tool drag into Fling)")
+
 if fixed:
     print(f"  Added two-finger-scroll patches to {title}: {', '.join(fixed)}")
 PY

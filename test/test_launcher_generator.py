@@ -91,6 +91,48 @@ class TestLauncherGenerator(unittest.TestCase):
             system_fonts_rs = (android_app_dir / "src" / "system_fonts.rs").read_text()
             self.assertIn('std::env::set_var("CRAFT_FONT_STORE", &font_store);', system_fonts_rs)
 
+    def test_launcher_generation_on_figcraft(self):
+        figcraft_src = ROOT / "source" / "figcraft"
+        if not figcraft_src.is_dir():
+            self.skipTest(f"source/figcraft not present at {figcraft_src}")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            tmp_src = tmp_root / "figcraft"
+            shutil.copytree(
+                figcraft_src,
+                tmp_src,
+                ignore=shutil.ignore_patterns(".git", "target", "apps/*-android"),
+            )
+
+            cmd = [
+                sys.executable,
+                str(GENERATOR_SCRIPT),
+                str(ROOT),
+                str(tmp_src),
+                "figcraft",
+                "FigCraft",
+                "34",
+                "FigCraft",
+                "com.artcraft.figcraft",
+                "",
+                "false",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"launcher_generator.py failed: stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+
+            android_app_dir = tmp_src / "apps" / "figcraft-android"
+            cargo_toml = (android_app_dir / "Cargo.toml").read_text()
+            self.assertIn("figcraft-text = { workspace = true }", cargo_toml)
+            lib_rs = (android_app_dir / "src" / "lib.rs").read_text()
+            self.assertIn("figcraft_text::scan_system_fonts();", lib_rs)
+            self.assertIn("figcraft_text::rescan_system_fonts();", lib_rs)
+            self.assertIn("system_fonts::refresh_font_links();", lib_rs)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,18 @@ const DESKTOP_NAMES: &[(&str, &str)] = &[
     ("NotoSansSinhalaUI-Regular.ttf", "artcraft-sinhala"),
     ("NotoSansTamil-Regular.ttf", "artcraft-tamil"),
     ("NotoSansTamilUI-Regular.ttf", "artcraft-tamil"),
+    ("NotoSansBengali-Regular.ttf", "artcraft-bengali"),
+    ("NotoSansBengaliUI-Regular.ttf", "artcraft-bengali"),
+    ("NotoSansKannada-Regular.ttf", "artcraft-kannada"),
+    ("NotoSansKannadaUI-Regular.ttf", "artcraft-kannada"),
+    ("NotoSansMalayalam-Regular.ttf", "artcraft-malayalam"),
+    ("NotoSansMalayalamUI-Regular.ttf", "artcraft-malayalam"),
+    ("NotoSansGujarati-Regular.ttf", "artcraft-gujarati"),
+    ("NotoSansGujaratiUI-Regular.ttf", "artcraft-gujarati"),
+    ("NotoSansGurmukhi-Regular.ttf", "artcraft-gurmukhi"),
+    ("NotoSansGurmukhiUI-Regular.ttf", "artcraft-gurmukhi"),
+    ("NotoSansOriya-Regular.ttf", "artcraft-oriya"),
+    ("NotoSansOriyaUI-Regular.ttf", "artcraft-oriya"),
 ];
 
 /// One non-Latin script worth falling back to, its probe character and the system font files that
@@ -141,6 +153,9 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansBengali-Regular.ttf", 0),
             ("NotoSansBengaliUI-Regular.ttf", 0),
+            // Recent devices ship the Indic scripts as variable fonts only.
+            ("NotoSansBengali-VF.ttf", 0),
+            ("NotoSansBengaliUI-VF.ttf", 0),
         ],
     },
     SystemScript {
@@ -171,6 +186,8 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansKannada-Regular.ttf", 0),
             ("NotoSansKannadaUI-Regular.ttf", 0),
+            ("NotoSansKannada-VF.ttf", 0),
+            ("NotoSansKannadaUI-VF.ttf", 0),
         ],
     },
     SystemScript {
@@ -179,6 +196,8 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansMalayalam-Regular.ttf", 0),
             ("NotoSansMalayalamUI-Regular.ttf", 0),
+            ("NotoSansMalayalam-VF.ttf", 0),
+            ("NotoSansMalayalamUI-VF.ttf", 0),
         ],
     },
     SystemScript {
@@ -187,6 +206,8 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansGujarati-Regular.ttf", 0),
             ("NotoSansGujaratiUI-Regular.ttf", 0),
+            ("NotoSansGujarati-VF.ttf", 0),
+            ("NotoSansGujaratiUI-VF.ttf", 0),
         ],
     },
     SystemScript {
@@ -195,6 +216,8 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansGurmukhi-Regular.ttf", 0),
             ("NotoSansGurmukhiUI-Regular.ttf", 0),
+            ("NotoSansGurmukhi-VF.ttf", 0),
+            ("NotoSansGurmukhiUI-VF.ttf", 0),
         ],
     },
     SystemScript {
@@ -203,6 +226,8 @@ const SYSTEM_SCRIPTS: &[SystemScript] = &[
         candidates: &[
             ("NotoSansOriya-Regular.ttf", 0),
             ("NotoSansOriyaUI-Regular.ttf", 0),
+            ("NotoSansOriya-VF.ttf", 0),
+            ("NotoSansOriyaUI-VF.ttf", 0),
         ],
     },
     SystemScript {
