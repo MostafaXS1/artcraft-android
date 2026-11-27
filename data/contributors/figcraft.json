@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/figcraft",
   "branch": "main",
-  "head": "39c1f94a4f9356f030de996de1ee28d8588f7ad2",
-  "head_date": "2026-11-25T22:17:05Z",
-  "commits": 4682,
+  "head": "f6638e15bf7f5561d57f15043a25c5692dc72747",
+  "head_date": "2026-11-26T14:45:01Z",
+  "commits": 4797,
   "unattributed_commits": 18,
   "contributors": [
     {
@@ -12,8 +12,8 @@
       "people_entry": false,
       "github_name": null,
       "prs": 371,
-      "commits": 2369,
-      "lines_added": 264575,
+      "commits": 2370,
+      "lines_added": 264577,
       "lines_deleted": 34279,
       "binary_added": 24,
       "binary_deleted": 2,
@@ -24,10 +24,10 @@
       "login": "TrevorBrown-dev",
       "people_entry": false,
       "github_name": null,
-      "prs": 140,
-      "commits": 565,
-      "lines_added": 34101,
-      "lines_deleted": 5703,
+      "prs": 143,
+      "commits": 631,
+      "lines_added": 37178,
+      "lines_deleted": 5928,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-31T14:58:09Z",
@@ -63,14 +63,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 15,
-      "commits": 102,
-      "lines_added": 115731,
-      "lines_deleted": 114472,
+      "prs": 16,
+      "commits": 129,
+      "lines_added": 118497,
+      "lines_deleted": 115499,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-23T17:01:12Z",
-      "last_commit": "2026-11-20T11:09:36Z"
+      "last_commit": "2026-11-26T04:08:20Z"
     },
     {
       "login": "echelon",
@@ -86,6 +86,19 @@
       "last_commit": "2026-11-03T05:13:48Z"
     },
     {
+      "login": "FredApps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 10,
+      "commits": 65,
+      "lines_added": 3124,
+      "lines_deleted": 778,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-05T13:26:53Z",
+      "last_commit": "2026-11-26T14:45:01Z"
+    },
+    {
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
@@ -97,19 +110,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-24T07:48:23Z",
       "last_commit": "2026-11-18T20:22:39Z"
-    },
-    {
-      "login": "FredApps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 10,
-      "commits": 46,
-      "lines_added": 3123,
-      "lines_deleted": 777,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-05T13:26:53Z",
-      "last_commit": "2026-11-20T14:28:36Z"
     },
     {
       "login": "Carbocode",
@@ -164,6 +164,19 @@
       "last_commit": "2026-10-28T10:59:53Z"
     },
     {
+      "login": "skylartaylor",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 12,
+      "commits": 34,
+      "lines_added": 10288,
+      "lines_deleted": 2150,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-15T03:15:58Z",
+      "last_commit": "2026-11-26T06:46:40Z"
+    },
+    {
       "login": "Nael-Nathanael",
       "people_entry": false,
       "github_name": null,
@@ -175,19 +188,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T09:52:00Z",
       "last_commit": "2026-10-21T02:52:50Z"
-    },
-    {
-      "login": "skylartaylor",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 10,
-      "commits": 32,
-      "lines_added": 9859,
-      "lines_deleted": 2105,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-15T03:15:58Z",
-      "last_commit": "2026-11-25T22:17:05Z"
     },
     {
       "login": "avhn",
@@ -2055,18 +2055,18 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 692,
-      "lines_added": 212916,
-      "lines_deleted": 19989
+      "commits": 729,
+      "lines_added": 213062,
+      "lines_deleted": 20011
     },
     {
       "id": "anthropic/claude-sonnet/5.5",
       "company": "Anthropic",
       "model": "Claude Sonnet",
       "version": "5.5",
-      "commits": 306,
-      "lines_added": 28787,
-      "lines_deleted": 2505
+      "commits": 333,
+      "lines_added": 31716,
+      "lines_deleted": 2706
     },
     {
       "id": "anthropic/claude-fable/5.1",

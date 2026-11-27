@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "97e38ba3c35e22cb4953d99c93914f6d31813dc6",
-  "head_date": "2026-11-25T22:17:35Z",
-  "commits": 1699,
+  "head": "81766eebb6a0d275f6e592c90f83676be2302f85",
+  "head_date": "2026-11-26T14:44:29Z",
+  "commits": 1744,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "aiongg",
       "people_entry": false,
       "github_name": null,
-      "prs": 18,
-      "commits": 140,
-      "lines_added": 45941,
-      "lines_deleted": 45956,
+      "prs": 19,
+      "commits": 168,
+      "lines_added": 50278,
+      "lines_deleted": 47825,
       "binary_added": 10,
       "binary_deleted": 0,
       "first_commit": "2026-10-16T17:32:35Z",
-      "last_commit": "2026-11-20T11:10:42Z"
+      "last_commit": "2026-11-26T04:08:34Z"
     },
     {
       "login": "grovebit",
@@ -77,13 +77,13 @@
       "people_entry": false,
       "github_name": null,
       "prs": 13,
-      "commits": 67,
+      "commits": 75,
       "lines_added": 2585,
       "lines_deleted": 512,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-02T17:23:48Z",
-      "last_commit": "2026-11-24T13:57:08Z"
+      "last_commit": "2026-11-26T12:35:43Z"
     },
     {
       "login": "marcoarnulfo",
@@ -154,14 +154,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 6,
-      "commits": 25,
-      "lines_added": 8845,
-      "lines_deleted": 1037,
+      "prs": 9,
+      "commits": 28,
+      "lines_added": 9293,
+      "lines_deleted": 1104,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T21:37:36Z",
-      "last_commit": "2026-11-25T22:17:35Z"
+      "last_commit": "2026-11-26T14:44:29Z"
     },
     {
       "login": "vbasky",
@@ -203,6 +203,19 @@
       "last_commit": "2026-10-21T09:53:38Z"
     },
     {
+      "login": "MMexicann",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 5,
+      "commits": 20,
+      "lines_added": 367,
+      "lines_deleted": 26,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-20T19:50:38Z",
+      "last_commit": "2026-11-21T17:56:46Z"
+    },
+    {
       "login": "reoniazx",
       "people_entry": false,
       "github_name": null,
@@ -214,19 +227,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T06:10:03Z",
       "last_commit": "2026-10-29T12:10:58Z"
-    },
-    {
-      "login": "MMexicann",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 4,
-      "commits": 19,
-      "lines_added": 348,
-      "lines_deleted": 22,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-20T19:50:38Z",
-      "last_commit": "2026-11-16T20:24:12Z"
     },
     {
       "login": "ashokram-si",
@@ -489,6 +489,19 @@
       "last_commit": "2026-10-28T09:48:57Z"
     },
     {
+      "login": "gmrmad1",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 4,
+      "lines_added": 74,
+      "lines_deleted": 13,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-15T10:24:30Z",
+      "last_commit": "2026-11-16T14:22:45Z"
+    },
+    {
       "login": "isaac-levine",
       "people_entry": false,
       "github_name": null,
@@ -500,6 +513,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-12T14:50:04Z",
       "last_commit": "2026-10-12T14:50:05Z"
+    },
+    {
+      "login": "istefp",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 3,
+      "commits": 4,
+      "lines_added": 200,
+      "lines_deleted": 57,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-11T05:06:26Z",
+      "last_commit": "2026-11-21T00:09:34Z"
     },
     {
       "login": "justinjohn0306",
@@ -591,19 +617,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T17:45:13Z",
       "last_commit": "2026-10-20T03:36:00Z"
-    },
-    {
-      "login": "istefp",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 2,
-      "commits": 3,
-      "lines_added": 161,
-      "lines_deleted": 53,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-11T05:06:26Z",
-      "last_commit": "2026-11-11T14:37:44Z"
     },
     {
       "login": "luigiPinna",
