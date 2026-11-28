@@ -77,10 +77,13 @@ vendor_dependencies() {
 
     # egui_dock
     if grep -rqE '\begui_dock\b' "$src_dir"/crates/*/src "$src_dir"/apps/*/src 2>/dev/null; then
-        echo "Vendoring egui_dock against the vendored egui for $TITLE..."
         mkdir -p "$src_dir/vendor"
-        rm -rf "$src_dir/vendor/egui_dock"
-        cp -a "$ROOT/vendor/egui_dock" "$src_dir/vendor/egui_dock"
+        if [[ -d "$src_dir/vendor/egui_dock" ]]; then
+            echo "Keeping upstream vendor/egui_dock for $TITLE..."
+        else
+            echo "Vendoring egui_dock against the vendored egui for $TITLE..."
+            cp -a "$ROOT/vendor/egui_dock" "$src_dir/vendor/egui_dock"
+        fi
         python3 "$ROOT/lib/cargo_patches.py" patch-egui-dock "$src_dir"
     fi
 

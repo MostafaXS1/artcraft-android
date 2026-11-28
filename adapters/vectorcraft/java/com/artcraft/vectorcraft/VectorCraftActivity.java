@@ -3,6 +3,7 @@ package com.artcraft.vectorcraft;
 import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipDescription;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;

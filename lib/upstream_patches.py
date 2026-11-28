@@ -2479,6 +2479,14 @@ elif app == "coimanide":
     ):
         fixed.append("crates/coiman-ide/src/app/shell/window.rs (disable pinch UI zoom on Android, keep terminal zoom)")
 
+elif app == "transit":
+    if fix(
+        "crates/rt/Cargo.toml",
+        "[target.'cfg(any(target_os = \"linux\", target_os = \"macos\"))'.dependencies]",
+        "[target.'cfg(any(target_os = \"linux\", target_os = \"macos\", target_os = \"android\"))'.dependencies]",
+    ):
+        fixed.append("crates/rt/Cargo.toml (add Android to libc dependency target)")
+
 elif app == "anicraft":
     if fix(
         "src/test_movie.rs",
