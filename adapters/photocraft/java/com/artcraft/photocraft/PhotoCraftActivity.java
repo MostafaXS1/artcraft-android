@@ -1237,9 +1237,7 @@ public final class PhotoCraftActivity extends NativeActivity {
             if (!srcFile.exists()) {
                 return "ERROR: Staged file does not exist: " + path;
             }
-            // Use binary "w" mode to avoid text translation / truncation causing 0B files
-            OutputStream out = getContentResolver().openOutputStream(uri, "w");
-            if (out == null) out = getContentResolver().openOutputStream(uri, "wt");
+            OutputStream out = openSafOutputStream(uri);
             if (out == null) return "ERROR: Android document provider did not open an output stream";
             try (InputStream in = new FileInputStream(srcFile); OutputStream target = out) {
                 byte[] buffer = new byte[64 * 1024];
@@ -1257,6 +1255,21 @@ public final class PhotoCraftActivity extends NativeActivity {
             Log.e(TAG, "Could not write a selected document", e);
             return "ERROR: Could not write the selected document: " + e.getMessage();
         }
+    }
+
+    private OutputStream openSafOutputStream(Uri uri) throws java.io.FileNotFoundException {
+        ContentResolver resolver = getContentResolver();
+        // Try truncating modes first ("t" = truncate, not text) so overwriting with a smaller
+        // file does not leave stale trailing bytes from the previous contents.
+        for (String mode : new String[] {"wt", "rwt", "w"}) {
+            try {
+                OutputStream out = resolver.openOutputStream(uri, mode);
+                if (out != null) return out;
+            } catch (IllegalArgumentException | UnsupportedOperationException | java.io.FileNotFoundException e) {
+                if ("w".equals(mode)) throw e;
+            }
+        }
+        return null;
     }
 
     private static String stagedStem(String path) {

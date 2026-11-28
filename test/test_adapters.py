@@ -317,5 +317,30 @@ class TestAdapters(unittest.TestCase):
         fn_body = native_act[fn_start : fn_start + 700]
         self.assertNotIn("return;", fn_body)
 
+    def test_saf_commit_truncates_output_stream_before_writing(self):
+        """Ensure SAF commits open content:// URIs in truncating mode ('wt'/'rwt') before falling back to 'w'."""
+        java_files = list((ROOT / "adapters").glob("*/java/**/*.java"))
+        java_files.append(ROOT / "templates" / "android" / "SafActivity.java")
+        java_files.append(ROOT / "templates" / "android" / "__CLASS__.java")
+
+        checked = 0
+        for f in java_files:
+            text = f.read_text()
+            if "openOutputStream(" not in text:
+                continue
+            rel = f.relative_to(ROOT)
+            self.assertNotIn(
+                'openOutputStream(uri, "w")',
+                text,
+                f"{rel} must not call openOutputStream(uri, \"w\") directly without trying \"wt\" first",
+            )
+            wt_idx = text.find('"wt"')
+            self.assertNotEqual(wt_idx, -1, f"{rel} must try truncating mode \"wt\" when opening SAF output stream")
+            w_idx = text.find('"w"', wt_idx)
+            self.assertNotEqual(w_idx, -1, f"{rel} must keep \"w\" fallback after \"wt\"")
+            checked += 1
+
+        self.assertEqual(checked, 26, f"Expected 26 Java files with SAF openOutputStream checked, got {checked}")
+
 if __name__ == "__main__":
     unittest.main()
