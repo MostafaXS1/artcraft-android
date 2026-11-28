@@ -2486,6 +2486,12 @@ elif app == "transit":
         "[target.'cfg(any(target_os = \"linux\", target_os = \"macos\", target_os = \"android\"))'.dependencies]",
     ):
         fixed.append("crates/rt/Cargo.toml (add Android to libc dependency target)")
+    if fix(
+        "crates/vst3-host/src/ffi/note_out.rs",
+        "out.values = OutValues::Controller { number: c.controlNumber, value: c.value };",
+        "out.values = OutValues::Controller { number: c.controlNumber, value: c.value as i8 };",
+    ):
+        fixed.append("crates/vst3-host/src/ffi/note_out.rs (cast c_char c.value to i8 on ARM64)")
 
 elif app == "anicraft":
     if fix(

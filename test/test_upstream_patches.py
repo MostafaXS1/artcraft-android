@@ -602,5 +602,29 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
 
+    def test_transit_android_libc_and_note_out_patch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            rt_toml = tmp_src / "crates" / "rt" / "Cargo.toml"
+            note_rs = tmp_src / "crates" / "vst3-host" / "src" / "ffi" / "note_out.rs"
+            rt_toml.parent.mkdir(parents=True, exist_ok=True)
+            note_rs.parent.mkdir(parents=True, exist_ok=True)
+            rt_toml.write_text(
+                '[target.\'cfg(any(target_os = "linux", target_os = "macos"))\'.dependencies]\nlibc = "=0.2.190"\n'
+            )
+            note_rs.write_text(
+                "        out.values = OutValues::Controller { number: c.controlNumber, value: c.value };\n"
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "transit", "Transit"]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn('target_os = "android"', rt_toml.read_text())
+            self.assertIn("value: c.value as i8", note_rs.read_text())
+
+            res2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(res2.returncode, 0)
+            self.assertEqual(res2.stdout.strip(), "")
+
 if __name__ == "__main__":
     unittest.main()
