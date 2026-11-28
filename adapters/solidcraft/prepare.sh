@@ -263,6 +263,9 @@ PY
 mkdir -p "$DEST"
 cp -a "$ADAPTER/." "$DEST/"
 rm -f "$DEST/prepare.sh" "$DEST/README.md"
+if grep -q "pub fn supported_msaa_samples" "$SRC_ABS/crates/ui-egui/src/gpu.rs" 2>/dev/null; then
+    sed -i 's/eframe::egui_wgpu::supported_msaa_samples/solidcraft_ui_egui::gpu::supported_msaa_samples/g' "$DEST/src/lib.rs"
+fi
 cp -f "$ROOT/templates/android/system_fonts.rs" "$DEST/src/system_fonts.rs"
 cp -f "$ROOT/templates/android/mobile_text_bar.rs" "$DEST/src/mobile_text_bar.rs"
 cp -f "$ROOT/templates/android/touch_gestures.rs" "$DEST/src/touch_gestures.rs"
