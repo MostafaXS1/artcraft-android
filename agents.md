@@ -932,7 +932,7 @@ Location: `files/media/`
 - Fails silently (no network, rate limit, etc.)
 - Needs `INTERNET` permission
 
-**BUILDER_VERSION:** Set in `lib/build-common.sh` (currently 0.2.0)
+**BUILDER_VERSION:** Set in `lib/build-common.sh` (currently 0.7.1)
 
 ## 23. Icons and Theming
 
@@ -1942,16 +1942,18 @@ bash build.sh -app
 ## 51. Version History & Changelog Notes
 
 ### 51.1 Generator Version
-`GENERATOR_VERSION = "84"` in `lib/launcher_generator.py`
+`GENERATOR_VERSION = "85"` in `lib/launcher_generator.py`
 Bump when launcher template changes significantly.
 
 ### 51.2 Builder Version
-`BUILDER_VERSION = "0.7.0"` (current)
+`BUILDER_VERSION = "0.7.1"` (current, set in `lib/build-common.sh`)
 Shown in UpdateCheck, included in APK metadata.
 
 ### 51.3 Key Milestones
-- v0.2.0: Previous version
-- v0.4.0: Current version with expanded agents.md, SoundCraft audio routing fixes
+- v0.2.0: Early builder with the first SAF bridge
+- v0.4.0: Expanded agents.md, SoundCraft audio routing fixes
+- v0.7.0: Launcher opened to community apps, `Android/media` storage migration
+- v0.7.1: Current builder version (modular build pipeline, issue #73)
 
 ## 52. Contributing Guidelines
 

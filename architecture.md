@@ -180,11 +180,11 @@ Dedicated script that compiles the ArtCraft Launcher Android APK (`output/Artcra
 
 ### `lib/build-common.sh`
 Modular coordinator script (~245 lines). It coordinates the 8 build stages by sourcing single-responsibility shell modules and invoking dedicated Python tools:
-- **`lib/toolchain.sh`**: Discovers and bootstraps Android SDK/NDK and Temurin JDK, manages `.artcraft-build.lock`, verifies CLI tools (`cargo ndk`, `git`, `python3`), and defines platform constants (`BUILDER_VERSION="0.7.1"`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `SAF_APPS`, `VALID_MODES`, `VALID_SOURCES`).
+- **`lib/toolchain.sh`**: Discovers and bootstraps Android SDK/NDK and Temurin JDK, manages `.artcraft-build.lock`, verifies CLI tools (`cargo ndk`, `git`, `python3`), and defines platform constants (`BUILDER_VERSION="0.7.1"` in `lib/build-common.sh`, `UPDATE_API_URL`, `UPDATE_PAGE_URL`, `SAF_APPS`, `TARGET_SDK`, `BUILD_TOOLS_VERSION`).
 - **`lib/catalog.sh`**: Central registry for supported apps (`resolve_app_catalog`), mapping app identifiers to `TITLE`, upstream `REPO`, and custom `APP_ORIGIN` routing (e.g. SubCraft, SolidCraft, Coiman IDE, PicassoSuite, ProWave, Transit, ClothCraft).
 - **`lib/source.sh`**: Handles upstream git cloning (`--depth 1`), release tag resolution (`-stable`), branch checkout (`-main`), source reuse verification (`source_tree_is_complete`), and craft fonts checkout.
 - **`lib/upstream_patches.py`**: Standalone script applying upstream compilation fixes (PhotoCraft export presets, CADCraft egui downgrade, Coiman IDE, DiagramCraft).
-- **`lib/launcher_generator.py`**: Generates thin GameActivity launchers (`apps/$APP-android/`), SAF recipe glue, and manifest configurations (`GENERATOR_VERSION="84"`).
+- **`lib/launcher_generator.py`**: Generates thin GameActivity launchers (`apps/$APP-android/`), SAF recipe glue, and manifest configurations (`GENERATOR_VERSION="85"`).
 - **`lib/vendoring.sh`**: Handles crate vendoring from `vendor/` to `source/$APP/vendor/` and workspace configuration.
 - **`lib/cargo_patches.py`**: Applies `[patch.crates-io]` workspace overrides to `Cargo.toml`, strips Wayland/X11 from winit, updates crates, and installs the update checker bridge.
 - **`lib/signing.sh`**: Manages the local keystore, certificate generation, and signing keys.
