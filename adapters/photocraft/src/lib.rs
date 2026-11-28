@@ -1346,9 +1346,16 @@ fn android_main(android_app: AndroidApp) {
                 let info = rs.adapter.get_info();
                 log::info!("wgpu adapter: {} ({:?})", info.name, info.backend);
                 app.perf.gpu_info.set_adapter(&info);
-                if info.device_type != eframe::wgpu::DeviceType::Cpu {
+                if info.device_type != eframe::wgpu::DeviceType::Cpu && !gpu_fallback::is_powervr_adapter(&info) {
                     app.set_wgpu(rs);
                     app.start_compositor(&cc.egui_ctx);
+                } else {
+                    if gpu_fallback::is_powervr_adapter(&info) {
+                        log::warn!("PowerVR GPU detected ({}); using CPU canvas fallback", info.name);
+                        app.perf.gpu_info.canvas = "cpu".into();
+                        app.perf.gpu_info.fallback = Some(format!("PowerVR GLES canvas fallback ({})", info.name));
+                    }
+                    app.watch_window_device(&rs.device);
                 }
             }
             let _mcp = mcp_http::start_mcp_service(

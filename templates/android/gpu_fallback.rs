@@ -38,12 +38,12 @@ fn is_powervr_device() -> bool {
     Path::new("/sys/module/pvrsrvkm").exists() || Path::new("/dev/pvrsrvkm").exists()
 }
 
-fn is_powervr_adapter(info: &eframe::wgpu::AdapterInfo) -> bool {
+pub fn is_powervr_adapter(info: &eframe::wgpu::AdapterInfo) -> bool {
     if info.vendor == 0x1010 {
         return true;
     }
     let lower = info.name.to_ascii_lowercase();
-    lower.contains("powervr") || lower.contains("rogue") || lower.contains("ge8322")
+    lower.contains("powervr") || lower.contains("rogue") || lower.contains("ge8322") || lower.contains("bxm")
 }
 
 /// Return-type adapter so `select_adapter` works with both `egui-wgpu` 0.34/0.35
