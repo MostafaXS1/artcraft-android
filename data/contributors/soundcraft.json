@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/soundcraft",
   "branch": "main",
-  "head": "81766eebb6a0d275f6e592c90f83676be2302f85",
-  "head_date": "2026-11-26T14:44:29Z",
-  "commits": 1744,
+  "head": "4f91806d62e9a7d8c9d5537136897cd109844961",
+  "head_date": "2026-11-27T22:14:32Z",
+  "commits": 1746,
   "unattributed_commits": 15,
   "contributors": [
     {
@@ -50,14 +50,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 77,
-      "commits": 102,
-      "lines_added": 13372,
+      "prs": 78,
+      "commits": 103,
+      "lines_added": 13392,
       "lines_deleted": 28135,
       "binary_added": 5,
       "binary_deleted": 10,
       "first_commit": "2026-10-11T15:52:00Z",
-      "last_commit": "2026-11-25T00:55:08Z"
+      "last_commit": "2026-11-27T14:17:52Z"
     },
     {
       "login": "Silvertree2010",
@@ -76,14 +76,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 13,
-      "commits": 75,
-      "lines_added": 2585,
-      "lines_deleted": 512,
+      "prs": 14,
+      "commits": 77,
+      "lines_added": 2878,
+      "lines_deleted": 630,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-11-02T17:23:48Z",
-      "last_commit": "2026-11-26T12:35:43Z"
+      "last_commit": "2026-11-27T22:14:32Z"
     },
     {
       "login": "marcoarnulfo",

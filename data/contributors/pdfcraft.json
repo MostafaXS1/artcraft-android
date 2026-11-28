@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/pdfcraft",
   "branch": "main",
-  "head": "d492d88902e3bf723f650b8eaf93958cf8904c56",
-  "head_date": "2026-11-26T20:17:32Z",
-  "commits": 7770,
+  "head": "81a475e55f0db5efaccc211833c9879fab3a0bdb",
+  "head_date": "2026-11-27T22:30:26Z",
+  "commits": 7852,
   "unattributed_commits": 16,
   "contributors": [
     {
@@ -24,14 +24,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 170,
-      "commits": 950,
-      "lines_added": 112479,
-      "lines_deleted": 248831,
+      "prs": 175,
+      "commits": 966,
+      "lines_added": 112823,
+      "lines_deleted": 248956,
       "binary_added": 0,
       "binary_deleted": 16,
       "first_commit": "2026-10-11T15:51:25Z",
-      "last_commit": "2026-11-23T21:07:14Z"
+      "last_commit": "2026-11-27T20:19:44Z"
     },
     {
       "login": "echelon",
@@ -63,14 +63,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 67,
-      "commits": 599,
-      "lines_added": 77443,
-      "lines_deleted": 104944,
+      "prs": 68,
+      "commits": 630,
+      "lines_added": 77736,
+      "lines_deleted": 105001,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T22:25:25Z",
-      "last_commit": "2026-11-26T20:17:32Z"
+      "last_commit": "2026-11-27T22:30:26Z"
     },
     {
       "login": "mtlcl410",
@@ -125,6 +125,19 @@
       "last_commit": "2026-11-19T05:44:21Z"
     },
     {
+      "login": "Combiler01",
+      "people_entry": true,
+      "github_name": "Harsh Verma",
+      "prs": 11,
+      "commits": 178,
+      "lines_added": 51332,
+      "lines_deleted": 37093,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-14T10:56:53Z",
+      "last_commit": "2026-11-27T16:06:28Z"
+    },
+    {
       "login": "jonathanwxh-cell",
       "people_entry": false,
       "github_name": null,
@@ -136,19 +149,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-15T06:44:37Z",
       "last_commit": "2026-11-21T08:31:57Z"
-    },
-    {
-      "login": "Combiler01",
-      "people_entry": true,
-      "github_name": "Harsh Verma",
-      "prs": 8,
-      "commits": 144,
-      "lines_added": 50742,
-      "lines_deleted": 36973,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-14T10:56:53Z",
-      "last_commit": "2026-11-10T18:31:24Z"
     },
     {
       "login": "KenM76",
@@ -219,14 +219,14 @@
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
-      "prs": 20,
-      "commits": 80,
-      "lines_added": 6980,
-      "lines_deleted": 472,
+      "prs": 22,
+      "commits": 82,
+      "lines_added": 7043,
+      "lines_deleted": 489,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-24T10:22:04Z",
-      "last_commit": "2026-11-20T02:22:08Z"
+      "last_commit": "2026-11-26T08:49:07Z"
     },
     {
       "login": "regendorf-ux",
@@ -4584,6 +4584,32 @@
       "last_commit": "2026-10-11T15:59:43Z"
     },
     {
+      "login": "sixpar",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 0,
+      "commits": 1,
+      "lines_added": 14,
+      "lines_deleted": 1,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-27T20:02:14Z",
+      "last_commit": "2026-11-27T20:02:14Z"
+    },
+    {
+      "login": "sixparks",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 1,
+      "commits": 1,
+      "lines_added": 14,
+      "lines_deleted": 1,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-27T20:02:14Z",
+      "last_commit": "2026-11-27T20:02:14Z"
+    },
+    {
       "login": "so-sai",
       "people_entry": false,
       "github_name": null,
@@ -5026,9 +5052,9 @@
       "company": "Anysphere",
       "model": "Cursor",
       "version": "",
-      "commits": 11,
-      "lines_added": 5230,
-      "lines_deleted": 100
+      "commits": 12,
+      "lines_added": 5244,
+      "lines_deleted": 101
     },
     {
       "id": "opencode/big-pickle",

@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/lightcraft",
   "branch": "main",
-  "head": "5973d956dfbb44ed96b83e53edcc04733f3f1ceb",
-  "head_date": "2026-11-26T20:40:32Z",
-  "commits": 6559,
+  "head": "565f46c1a6b68b31e2868781beb77bc716a326fa",
+  "head_date": "2026-11-28T01:53:59Z",
+  "commits": 6682,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -51,26 +51,26 @@
       "people_entry": false,
       "github_name": null,
       "prs": 35,
-      "commits": 502,
-      "lines_added": 40326,
-      "lines_deleted": 4597,
+      "commits": 535,
+      "lines_added": 40349,
+      "lines_deleted": 4601,
       "binary_added": 1,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T22:53:36Z",
-      "last_commit": "2026-11-26T20:40:32Z"
+      "last_commit": "2026-11-28T01:53:59Z"
     },
     {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 135,
-      "commits": 433,
-      "lines_added": 32606,
+      "prs": 136,
+      "commits": 434,
+      "lines_added": 32626,
       "lines_deleted": 71172,
       "binary_added": 6,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:24Z",
-      "last_commit": "2026-11-25T07:43:25Z"
+      "last_commit": "2026-11-27T20:14:47Z"
     },
     {
       "login": "bflatastic",
@@ -164,6 +164,19 @@
       "last_commit": "2026-10-14T23:16:27Z"
     },
     {
+      "login": "Bruno-Alumn",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 42,
+      "commits": 119,
+      "lines_added": 7589,
+      "lines_deleted": 769,
+      "binary_added": 1,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-20T23:47:24Z",
+      "last_commit": "2026-11-27T16:25:44Z"
+    },
+    {
       "login": "dotCooCoo",
       "people_entry": true,
       "github_name": ".CooCoo",
@@ -240,19 +253,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-14T18:52:01Z",
       "last_commit": "2026-11-05T23:35:26Z"
-    },
-    {
-      "login": "Bruno-Alumn",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 28,
-      "commits": 61,
-      "lines_added": 3347,
-      "lines_deleted": 355,
-      "binary_added": 1,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-20T23:47:24Z",
-      "last_commit": "2026-11-20T19:33:53Z"
     },
     {
       "login": "mattsivak",
@@ -385,6 +385,32 @@
       "last_commit": "2026-10-14T16:15:16Z"
     },
     {
+      "login": "P2Hdontusegithub",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 4,
+      "commits": 31,
+      "lines_added": 2015,
+      "lines_deleted": 493,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-08T16:14:01Z",
+      "last_commit": "2026-11-26T14:11:29Z"
+    },
+    {
+      "login": "r3d42-git",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 2,
+      "commits": 30,
+      "lines_added": 1616,
+      "lines_deleted": 200,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-22T09:27:52Z",
+      "last_commit": "2026-11-26T22:17:47Z"
+    },
+    {
       "login": "ronibalthazar",
       "people_entry": true,
       "github_name": "Roni Balthazar",
@@ -396,19 +422,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-16T13:15:48Z",
       "last_commit": "2026-11-04T16:48:10Z"
-    },
-    {
-      "login": "P2Hdontusegithub",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 3,
-      "commits": 28,
-      "lines_added": 1679,
-      "lines_deleted": 418,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-08T16:14:01Z",
-      "last_commit": "2026-11-24T16:11:05Z"
     },
     {
       "login": "voshart",
@@ -435,6 +448,19 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-08T07:45:39Z",
       "last_commit": "2026-10-18T15:46:45Z"
+    },
+    {
+      "login": "atmikshetty",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 8,
+      "commits": 22,
+      "lines_added": 8456,
+      "lines_deleted": 214,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-12T03:54:49Z",
+      "last_commit": "2026-10-13T10:44:19Z"
     },
     {
       "login": "PiMinusMax",
@@ -500,19 +526,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-09T03:19:47Z",
       "last_commit": "2026-10-19T09:33:20Z"
-    },
-    {
-      "login": "atmikshetty",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 7,
-      "commits": 18,
-      "lines_added": 8029,
-      "lines_deleted": 193,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-12T03:54:49Z",
-      "last_commit": "2026-10-13T10:44:19Z"
     },
     {
       "login": "Exalted5373",
@@ -1241,19 +1254,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-23T13:09:58Z",
       "last_commit": "2026-10-27T06:37:57Z"
-    },
-    {
-      "login": "r3d42-git",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 1,
-      "commits": 5,
-      "lines_added": 227,
-      "lines_deleted": 17,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-22T09:27:52Z",
-      "last_commit": "2026-11-02T09:21:22Z"
     },
     {
       "login": "rock-meister",
@@ -3407,9 +3407,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 2005,
-      "lines_added": 358850,
-      "lines_deleted": 32927
+      "commits": 2007,
+      "lines_added": 358959,
+      "lines_deleted": 32931
     },
     {
       "id": "anthropic/claude",
@@ -3434,9 +3434,9 @@
       "company": "OpenAI",
       "model": "Codex",
       "version": "",
-      "commits": 89,
-      "lines_added": 27578,
-      "lines_deleted": 2332
+      "commits": 104,
+      "lines_added": 28386,
+      "lines_deleted": 2430
     },
     {
       "id": "anthropic/claude-haiku/5.5",

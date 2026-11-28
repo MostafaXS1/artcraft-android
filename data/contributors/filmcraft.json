@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/filmcraft",
   "branch": "main",
-  "head": "7b8e522d63f2e2c1617dea4939feb48e769d6f2f",
-  "head_date": "2026-11-26T21:35:09Z",
-  "commits": 4342,
+  "head": "a9429d82d2e5b87539eb38926d5fc0f2ddcd7724",
+  "head_date": "2026-11-27T22:29:33Z",
+  "commits": 4349,
   "unattributed_commits": 12,
   "contributors": [
     {
@@ -37,14 +37,14 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 178,
-      "commits": 381,
-      "lines_added": 48695,
+      "prs": 179,
+      "commits": 382,
+      "lines_added": 48715,
       "lines_deleted": 151694,
       "binary_added": 9,
       "binary_deleted": 2,
       "first_commit": "2026-10-10T00:04:17Z",
-      "last_commit": "2026-11-25T10:50:13Z"
+      "last_commit": "2026-11-27T14:18:45Z"
     },
     {
       "login": "vangel76",
@@ -63,14 +63,14 @@
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
-      "prs": 29,
-      "commits": 286,
-      "lines_added": 11810,
-      "lines_deleted": 7864,
+      "prs": 30,
+      "commits": 289,
+      "lines_added": 11853,
+      "lines_deleted": 7891,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-11T01:04:56Z",
-      "last_commit": "2026-11-26T21:35:09Z"
+      "last_commit": "2026-11-27T22:29:33Z"
     },
     {
       "login": "Felix-Helleckes",
@@ -115,14 +115,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 12,
-      "commits": 59,
-      "lines_added": 21009,
-      "lines_deleted": 3679,
+      "prs": 13,
+      "commits": 63,
+      "lines_added": 21048,
+      "lines_deleted": 3699,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T20:59:52Z",
-      "last_commit": "2026-11-26T06:46:51Z"
+      "last_commit": "2026-11-27T00:29:25Z"
     },
     {
       "login": "Silvertree2010",

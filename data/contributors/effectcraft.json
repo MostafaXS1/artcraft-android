@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/effectcraft",
   "branch": "main",
-  "head": "bfe6878d6535573401aebd0217221afcda85ecc6",
-  "head_date": "2026-11-26T20:44:52Z",
-  "commits": 5621,
+  "head": "01a61a9462f58f25142ab54c98d23cb26917b2e1",
+  "head_date": "2026-11-27T14:19:54Z",
+  "commits": 5622,
   "unattributed_commits": 11,
   "contributors": [
     {
@@ -50,27 +50,27 @@
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 163,
-      "commits": 323,
-      "lines_added": 37347,
+      "prs": 164,
+      "commits": 324,
+      "lines_added": 37367,
       "lines_deleted": 52886,
       "binary_added": 6,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T00:04:14Z",
-      "last_commit": "2026-11-25T01:38:19Z"
+      "last_commit": "2026-11-27T14:19:54Z"
     },
     {
       "login": "FredApps",
       "people_entry": false,
       "github_name": null,
       "prs": 72,
-      "commits": 313,
-      "lines_added": 59841,
+      "commits": 314,
+      "lines_added": 59861,
       "lines_deleted": 28742,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-12T20:25:40Z",
-      "last_commit": "2026-11-26T20:44:52Z"
+      "last_commit": "2026-11-27T14:19:54Z"
     },
     {
       "login": "aiongg",

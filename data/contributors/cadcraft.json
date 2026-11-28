@@ -2,9 +2,9 @@
   "schema": 1,
   "repo": "storytold/cadcraft",
   "branch": "main",
-  "head": "a3ed0682ab6a1a6f513005841e361993c208b64f",
-  "head_date": "2026-11-26T14:12:38Z",
-  "commits": 2840,
+  "head": "190d88fc0394d8e22ee1fd079bbce4d1208500b6",
+  "head_date": "2026-11-28T00:04:59Z",
+  "commits": 2871,
   "unattributed_commits": 14,
   "contributors": [
     {
@@ -47,6 +47,19 @@
       "last_commit": "2026-11-03T14:08:07Z"
     },
     {
+      "login": "2ez4gcx",
+      "people_entry": true,
+      "github_name": null,
+      "prs": 82,
+      "commits": 200,
+      "lines_added": 28884,
+      "lines_deleted": 2826,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-26T08:43:58Z",
+      "last_commit": "2026-11-27T10:18:56Z"
+    },
+    {
       "login": "SBaksa",
       "people_entry": false,
       "github_name": null,
@@ -60,30 +73,30 @@
       "last_commit": "2026-11-16T15:38:47Z"
     },
     {
-      "login": "2ez4gcx",
-      "people_entry": true,
-      "github_name": null,
-      "prs": 73,
-      "commits": 184,
-      "lines_added": 25510,
-      "lines_deleted": 2542,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-10-26T08:43:58Z",
-      "last_commit": "2026-11-26T07:39:48Z"
-    },
-    {
       "login": "dylanmtaylor",
       "people_entry": true,
       "github_name": "Dylan M. Taylor",
-      "prs": 110,
-      "commits": 159,
-      "lines_added": 22476,
-      "lines_deleted": 14520,
+      "prs": 112,
+      "commits": 161,
+      "lines_added": 22569,
+      "lines_deleted": 14521,
       "binary_added": 4,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T16:58:26Z",
-      "last_commit": "2026-11-25T00:38:19Z"
+      "last_commit": "2026-11-28T00:04:59Z"
+    },
+    {
+      "login": "FredApps",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 9,
+      "commits": 136,
+      "lines_added": 2793,
+      "lines_deleted": 775,
+      "binary_added": 0,
+      "binary_deleted": 0,
+      "first_commit": "2026-11-01T12:11:08Z",
+      "last_commit": "2026-11-27T23:01:28Z"
     },
     {
       "login": "aiongg",
@@ -97,19 +110,6 @@
       "binary_deleted": 0,
       "first_commit": "2026-10-16T16:07:16Z",
       "last_commit": "2026-11-26T04:16:50Z"
-    },
-    {
-      "login": "FredApps",
-      "people_entry": false,
-      "github_name": null,
-      "prs": 8,
-      "commits": 123,
-      "lines_added": 2413,
-      "lines_deleted": 575,
-      "binary_added": 0,
-      "binary_deleted": 0,
-      "first_commit": "2026-11-01T12:11:08Z",
-      "last_commit": "2026-11-26T14:12:38Z"
     },
     {
       "login": "codyvogt",
@@ -219,14 +219,14 @@
       "login": "skylartaylor",
       "people_entry": false,
       "github_name": null,
-      "prs": 10,
-      "commits": 41,
-      "lines_added": 9310,
-      "lines_deleted": 1137,
+      "prs": 11,
+      "commits": 42,
+      "lines_added": 9508,
+      "lines_deleted": 1150,
       "binary_added": 0,
       "binary_deleted": 0,
       "first_commit": "2026-10-10T19:30:09Z",
-      "last_commit": "2026-11-26T06:46:02Z"
+      "last_commit": "2026-11-27T21:19:23Z"
     },
     {
       "login": "mattlafy",
@@ -2380,9 +2380,9 @@
       "company": "Anthropic",
       "model": "Claude Opus",
       "version": "5.5",
-      "commits": 950,
-      "lines_added": 299279,
-      "lines_deleted": 20540
+      "commits": 966,
+      "lines_added": 302653,
+      "lines_deleted": 20824
     },
     {
       "id": "anthropic/claude-sonnet/5.5",
