@@ -86,6 +86,50 @@ if app == "photocraft":
         '        };',
     ):
         fixed.append("crates/raster/src/memory/system.rs (skip cgroup on Android)")
+    # `detect_physical_memory` in engine/memory.rs gates `/proc/meminfo` on `target_os = "linux"`,
+    # returning `None` on Android and causing `gpu_canvas` to assume 16 GB RAM (4 GB GPU budgets),
+    # which can OOM mobile devices when opening/importing images. Read `/proc/meminfo` on Android too.
+    if fix_all(
+        "crates/engine/src/memory.rs",
+        '#[cfg(target_os = "linux")]',
+        '#[cfg(any(target_os = "linux", target_os = "android"))]',
+    ):
+        fixed.append("crates/engine/src/memory.rs (Android physical_memory)")
+    fix_all(
+        "crates/engine/src/memory.rs",
+        '#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", windows)))]',
+        '#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android", target_os = "freebsd", windows)))]',
+    )
+    # If `GpuCanvas::composite` falls back to synchronous compositor creation (e.g. before
+    # `start_compositor` finishes or without it), guard `try_new_with_format` with `catch_unwind`
+    # just like `compositor_build.rs` does so a mobile GPU driver panic cannot crash the app.
+    if fix(
+        "crates/ui-egui/src/canvas/gpu_canvas.rs",
+        '            None => match photocraft_gpu::Compositor::try_new_with_format(device, photocraft_gpu::Compositor::preferred_acc_format(&self.rs.adapter)) {\n'
+        '                Ok(c) => c,\n'
+        '                Err(e) => {\n'
+        '                    // `render_path::note` logs it, once, as this document\'s reason.\n'
+        '                    res.compositor_failed = Some(e.clone());\n'
+        '                    return Err(e);\n'
+        '                }\n'
+        '            },',
+        '            None => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n'
+        '                photocraft_gpu::Compositor::try_new_with_format(device, photocraft_gpu::Compositor::preferred_acc_format(&self.rs.adapter))\n'
+        '            })) {\n'
+        '                Ok(Ok(c)) => c,\n'
+        '                Ok(Err(e)) => {\n'
+        '                    // `render_path::note` logs it, once, as this document\'s reason.\n'
+        '                    res.compositor_failed = Some(e.clone());\n'
+        '                    return Err(e);\n'
+        '                }\n'
+        '                Err(_) => {\n'
+        '                    let e = photocraft_gpu::Unsupported("building the GPU compositor panicked".into());\n'
+        '                    res.compositor_failed = Some(e.clone());\n'
+        '                    return Err(e);\n'
+        '                }\n'
+        '            },',
+    ):
+        fixed.append("crates/ui-egui/src/canvas/gpu_canvas.rs (catch_unwind compositor init)")
     # Android's winit backend stubs out custom cursor bitmaps (`create_custom_cursor` and
     # `set_cursor` are no-ops), so uploading a native cursor image leaves only the system stylus dot
     # and skips painting the brush tip outline on the canvas. Paint tool cursors on canvas instead.

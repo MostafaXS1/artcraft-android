@@ -342,5 +342,24 @@ class TestAdapters(unittest.TestCase):
 
         self.assertEqual(checked, 26, f"Expected 26 Java files with SAF openOutputStream checked, got {checked}")
 
+    def test_photocraft_starts_gpu_compositor_and_checks_rw_permissions(self):
+        """Ensure PhotoCraft starts the GPU compositor asynchronously and checks both R/W storage permissions."""
+        lib_rs = (ROOT / "adapters" / "photocraft" / "src" / "lib.rs").read_text()
+        set_idx = lib_rs.find("app.set_wgpu(rs);")
+        self.assertNotEqual(set_idx, -1, "adapters/photocraft/src/lib.rs must call app.set_wgpu(rs)")
+        start_idx = lib_rs.find("app.start_compositor(&cc.egui_ctx);", set_idx)
+        self.assertNotEqual(
+            start_idx,
+            -1,
+            "adapters/photocraft/src/lib.rs must call app.start_compositor(&cc.egui_ctx) after app.set_wgpu(rs)",
+        )
+
+        activity_java = (
+            ROOT / "adapters" / "photocraft" / "java" / "com" / "artcraft" / "photocraft" / "PhotoCraftActivity.java"
+        ).read_text()
+        self.assertIn("boolean hasRead = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)", activity_java)
+        self.assertIn("boolean hasWrite = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)", activity_java)
+        self.assertIn("if (hasRead && hasWrite) return;", activity_java)
+
 if __name__ == "__main__":
     unittest.main()

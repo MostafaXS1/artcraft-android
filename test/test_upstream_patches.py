@@ -602,5 +602,58 @@ class TestUpstreamPatches(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual(result2.stdout.strip(), "")
 
+    def test_photocraft_android_memory_and_compositor_panic_patches(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_src = Path(tmp_dir)
+            mem_rs = tmp_src / "crates" / "engine" / "src" / "memory.rs"
+            gpu_canvas_rs = tmp_src / "crates" / "ui-egui" / "src" / "canvas" / "gpu_canvas.rs"
+            for f in (mem_rs, gpu_canvas_rs):
+                f.parent.mkdir(parents=True, exist_ok=True)
+
+            mem_rs.write_text(
+                'pub fn detect_physical_memory() -> Option<u64> {\n'
+                '    #[cfg(target_os = "linux")]\n'
+                '    {\n'
+                '        std::fs::read_to_string("/proc/meminfo").ok().map(|_| 1)\n'
+                '    }\n'
+                '    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", windows)))]\n'
+                '    {\n'
+                '        None\n'
+                '    }\n'
+                '}\n'
+            )
+            gpu_canvas_rs.write_text(
+                '        let mut comp = match res.compositor.take() {\n'
+                '            Some(c) => c,\n'
+                '            None => match photocraft_gpu::Compositor::try_new_with_format(device, photocraft_gpu::Compositor::preferred_acc_format(&self.rs.adapter)) {\n'
+                '                Ok(c) => c,\n'
+                '                Err(e) => {\n'
+                '                    // `render_path::note` logs it, once, as this document\'s reason.\n'
+                '                    res.compositor_failed = Some(e.clone());\n'
+                '                    return Err(e);\n'
+                '                }\n'
+                '            },\n'
+                '        };\n'
+            )
+
+            cmd = [sys.executable, str(PATCHES_SCRIPT), str(tmp_src), "photocraft", "PhotoCraft"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            self.assertIn("crates/engine/src/memory.rs (Android physical_memory)", result.stdout)
+            self.assertIn("crates/ui-egui/src/canvas/gpu_canvas.rs (catch_unwind compositor init)", result.stdout)
+
+            mem_patched = mem_rs.read_text()
+            self.assertIn('#[cfg(any(target_os = "linux", target_os = "android"))]', mem_patched)
+            self.assertIn('#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android", target_os = "freebsd", windows)))]', mem_patched)
+
+            gpu_patched = gpu_canvas_rs.read_text()
+            self.assertIn("std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {", gpu_patched)
+            self.assertIn('photocraft_gpu::Unsupported("building the GPU compositor panicked".into())', gpu_patched)
+
+            # Idempotent on re-run
+            result2 = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual(result2.stdout.strip(), "")
+
 if __name__ == "__main__":
     unittest.main()

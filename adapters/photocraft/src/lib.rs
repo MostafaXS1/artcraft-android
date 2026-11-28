@@ -1348,6 +1348,7 @@ fn android_main(android_app: AndroidApp) {
                 app.perf.gpu_info.set_adapter(&info);
                 if info.device_type != eframe::wgpu::DeviceType::Cpu {
                     app.set_wgpu(rs);
+                    app.start_compositor(&cc.egui_ctx);
                 }
             }
             let _mcp = mcp_http::start_mcp_service(
